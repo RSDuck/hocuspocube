@@ -1,0 +1,6 @@
+.vscode
+*.exe
+
+# Logs and test files
+miauz
+*.dol

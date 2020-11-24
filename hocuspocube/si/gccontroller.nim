@@ -93,7 +93,7 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
     let controller = GcController device
 
     if command.len >= 1:
-        #echo &"si transaction type: {command[0]:02X}"
+        echo &"si transaction type: {command[0]:02X}"
         case command[0]
         of cmdId:
             if command.len > 1:
@@ -111,6 +111,7 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
             return siErrNone
         of cmdReset:
             controller.rumble = false
+            return siErrNoResponse
         of cmdStatus:
             if command.len < 3:
                 return siErrNoResponse
@@ -172,8 +173,16 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
 
             return siErrNone
         of cmdRecalibrate:
-            if command.len > 1:
+            if command.len < 3:
+                return siErrNoResponse
+            elif command.len > 3:
                 return siErrCollision
+            let
+                mode = command[1] and 0x7
+                motor = command[2] and 0x3
+
+            controller.mode = mode
+            controller.rumble = motor == 1
 
             controller.calibration = getAnalogState()
 

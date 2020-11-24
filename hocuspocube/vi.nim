@@ -285,7 +285,7 @@ of dpv, 0x2C, 2:
 of dph, 0x2E, 2:
     read: result = uint16(rasterXPos(geckoTimestamp) + 1); echo "read current hposition ", result
     write: echo "raster beam position horizontally welp (is that even possible welp!)"
-of di, 0x34, 4, 4:
+of di, 0x30, 4, 4:
     read: uint32 di[idx]
     write:
         di[idx].mutable = val

@@ -1,1 +1,2 @@
-switch "gc", "arc"
+--gc:arc
+--d:swapBytesBuiltin

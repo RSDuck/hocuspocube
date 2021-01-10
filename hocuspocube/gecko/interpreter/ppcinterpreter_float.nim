@@ -1,19 +1,19 @@
 import
-    ../ppcstate,
-    math
+    ../ppcstate, ppcinterpreter_aux,
+
+    math,
+    strformat
 
 using state: var PpcState
 
 template fr(num: uint32): PairedSingle {.dirty.} = state.fr[num]
 
-# TODO: handle more of these thousand float flags and exceptions
-
-proc isNan[T: SomeFloat](x: T): bool = x != x
+# TODO: handle more of those thousands of float flags and exceptions
 
 template setFprf(x: float64) {.dirty.} =
     state.fpscr.fprf = (case classify(x)
-        of fcNormal: (if x < 0.0: 0b00100'u32 else: 0b01000'u32)
-        of fcSubnormal: (if x < 0.0: 0b11000'u32 else: 0b10100'u32)
+        of fcNormal: (if x > 0.0: 0b00100'u32 else: 0b01000'u32)
+        of fcSubnormal: (if x > 0.0: 0b10100'u32 else: 0b11000'u32)
         of fcZero: 0b00010'u32
         of fcNegZero: 0b10010'u32
         of fcNan: 0b10001'u32
@@ -96,7 +96,10 @@ proc fmsubx*(state; d, a, b, c, rc: uint32) =
     doAssert false, "instr not implemented"
 
 proc fmsubsx*(state; d, a, b, c, rc: uint32) =
-    doAssert false, "instr not implemented"
+    fr(d).ps0 = fr(a).ps0 * fr(c).ps0 - fr(b).ps0
+    fr(d).ps1 = fr(d).ps0
+    setFprf fr(d).ps0
+    handleRc
 
 proc fnmaddx*(state; d, a, b, c, rc: uint32) =
     fr(d).double = -(fr(a).double * fr(c).double + fr(b).double)
@@ -134,27 +137,36 @@ proc fctiwzx*(state; d, b, rc: uint32) =
 
 proc frspx*(state; d, b, rc: uint32) =
     fr(d).ps0 = fr(b).double
-    fr(d).ps1 = fr(d).ps0
     setFprf fr(d).ps0
     handleRc
 
 proc fcmpo*(state; crfD, a, b: uint32) =
-    state.cr.crf int crfD, 0'u32
+    var cr = 0'u32
     if isNan(fr(a).double) or isNan(fr(b).double):
-        state.cr.so int crfD, true
+        cr = 0b0001
     else:
-        state.cr.eq int crfD, fr(a).double == fr(b).double
-        state.cr.gt int crfD, fr(a).double > fr(b).double
-        state.cr.lt int crfD, fr(a).double < fr(b).double
+        if fr(a).double < fr(b).double:
+            cr = 0b1000
+        elif fr(a).double > fr(b).double:
+            cr = 0b0100
+        else:
+            cr = 0b0010
+    state.cr.crf int crfD, cr
+    state.fpscr.fprf = cr
 
 proc fcmpu*(state; crfD, a, b: uint32) =
-    state.cr.crf int crfD, 0'u32
+    var cr = 0'u32
     if isNan(fr(a).double) or isNan(fr(b).double):
-        state.cr.so int crfD, true
+        cr = 0b0001
     else:
-        state.cr.eq int crfD, fr(a).double == fr(b).double
-        state.cr.gt int crfD, fr(a).double > fr(b).double
-        state.cr.lt int crfD, fr(a).double < fr(b).double
+        if fr(a).double < fr(b).double:
+            cr = 0b1000
+        elif fr(a).double > fr(b).double:
+            cr = 0b0100
+        else:
+            cr = 0b0010
+    state.cr.crf int crfD, cr
+    state.fpscr.fprf = cr
 
 proc mffsx*(state; d, rc: uint32) =
     fr(d).double = cast[float64](uint64(state.fpscr))
@@ -165,17 +177,22 @@ proc mtfsb0x*(state; crbD, rc: uint32) =
     handleRc
 
 proc mtfsb1x*(state; crbD, rc: uint32) =
-    state.fpscr.bit int crbD, false
+    state.fpscr.bit int crbD, true
     handleRc
 
 proc mtfsfx*(state; fm, b, rc: uint32) =
-    echo "mtfsfx stubbed"
+    let mask = makeFieldMask(fm)
+    # TODO: fex and vx shouldn't be setable by themselves
+    state.fpscr = Fpscr(uint32(state.fpscr) and not(mask) or (uint32(cast[uint64](fr(b).double)) and mask))
 
 proc mtfsfix*(state; crfD, imm, rc: uint32) =
-    echo "mtfsfix stubbed"
+    # TODO: same thing here
+    state.fpscr.crf int crfD, imm
+    handleRc
 
 proc fabsx*(state; d, b, rc: uint32) =
-    doAssert false, "instr not implemented"
+    fr(d).double = abs(fr(b).double)
+    handleRc
 
 proc fmrx*(state; d, b, rc: uint32) =
     fr(d).double = fr(b).double

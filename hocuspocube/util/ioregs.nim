@@ -28,7 +28,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
         reg[2].expectKind nnkIntLit
 
         var
-            `addr` = reg[1].intVal
+            adr = reg[1].intVal
             writeProc = NimNode nil
             readProc = NimNode nil
 
@@ -57,7 +57,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
 
                 result.add(quote do:
                     proc `procName`(addrFull: uint32): `underlyingTyp` {.inline.} =
-                        let `idxIdent` {.used.} = (addrFull - `addr`) div `stride`
+                        let `idxIdent` {.used.} = (addrFull - `adr`) div `stride`
                         `body`)
 
                 readProc = procName
@@ -68,7 +68,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
 
                 result.add(quote do:
                     proc `procName`(addrFull: uint32, `valueIdent`: `underlyingTyp`) {.inline.} =
-                        let `idxIdent` {.used.} = (addrFull - `addr`) div `stride`
+                        let `idxIdent` {.used.} = (addrFull - `adr`) div `stride`
                         `body`)
 
                 writeProc = procName
@@ -81,10 +81,10 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
             readRegistersProc.add readProc
             writeRegistersProcs.add writeProc
 
-            if (`addr` and (regSize - 1)) != 0:
+            if (adr and (regSize - 1)) != 0:
                 error("unaligned register", reg)
 
-            for j in `addr`..<`addr`+regSize:
+            for j in adr..<adr+regSize:
                 if associations[j][1] != 0:
                     error("conflict between " & name & " and " & regNames[associations[j][1]], reg)
                 associations[j] = (uint32 regSize, regNames.len)
@@ -94,14 +94,14 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
             else:
                 regNames.add name & $repeat
 
-            `addr` += stride
+            adr += stride
 
     let
         readName = ident($name & "Read")
         writeName = ident($name & "Write")
 
-        addrSymRead = nskParam.genSym("addr")
-        addrSymWrite = nskParam.genSym("addr")
+        addrSymRead = nskParam.genSym("adr")
+        addrSymWrite = nskParam.genSym("adr")
         valueSym = nskParam.genSym("value")
 
         readCases = [nnkCaseStmt.newNimNode(), nnkCaseStmt.newNimNode(), nnkCaseStmt.newNimnode(), nnkCaseStmt.newNimNode()]
@@ -121,48 +121,48 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
 
         # endianess makes this all complicated
         # because the values in/out are in pseudo little endian
-        var `addr` = 0'u32
-        while `addr` < size:
-            if associations[`addr`][0] >= accessSize:
+        var adr = 0'u32
+        while adr < size:
+            if associations[adr][0] >= accessSize:
                 let
-                    idx = associations[`addr`][1]
+                    idx = associations[adr][1]
                     readProc = readRegistersProc[idx]
                     writeProc = writeRegistersProcs[idx]
 
-                    regSize = associations[`addr`][0]
+                    regSize = associations[adr][0]
                     regMask = regSize - 1
                 if regSize == accessSize:
                     # it's a match, how lovely
                     if readProc != nil:
-                        readCases[i].add(nnkOfBranch.newTree(newLit `addr`,
-                            quote do: toBE `readProc`(`addr`)))
+                        readCases[i].add(nnkOfBranch.newTree(newLit adr,
+                            quote do: toBE `readProc`(`adr`)))
                     if writeProc != nil:
-                        writeCases[i].add(nnkOfBranch.newTree(newLit `addr`,
-                            quote do: `writeProc`(`addr`, fromBE `valueSym`)))
-                    `addr` += accessSize
+                        writeCases[i].add(nnkOfBranch.newTree(newLit adr,
+                            quote do: `writeProc`(`adr`, fromBE `valueSym`)))
+                    adr += accessSize
                 else:
                     # only a part of the register is accessed
                     if readProc != nil:
-                        readCases[i].add nnkOfBranch.newTree(nnkInfix.newTree(bindSym"..", newLit `addr`, newLit(`addr` + regSize - 1)),
-                            quote do: `accessTyp`(toBE(`readProc`(`addr`)) shr ((`addrSymRead` and `regMask`) * 8)))
+                        readCases[i].add nnkOfBranch.newTree(nnkInfix.newTree(bindSym"..", newLit adr, newLit(adr + regSize - 1)),
+                            quote do: `accessTyp`(toBE(`readProc`(`adr`)) shr ((`addrSymRead` and `regMask`) * 8)))
                     if writeProc != nil:
                         let
                             sizeMask = toMask[uint32](0..int(accessSize)*8-1)
                             regTyp = sizeToType(regSize)
-                        writeCases[i].add nnkOfBranch.newTree(nnkInfix.newTree(bindSym"..", newLit `addr`, newLit(`addr` + regSize - 1)),
+                        writeCases[i].add nnkOfBranch.newTree(nnkInfix.newTree(bindSym"..", newLit adr, newLit(adr + regSize - 1)),
                             quote do:
                                 let
                                     writeShift = `regTyp`((`addrSymWrite` and `regMask` xor (`regMask` and not(`mask`))) * 8)
                                     writeMask = `regTyp`(`sizeMask`) shl writeShift
 
-                                `writeProc`(`addr`, (`readProc`(`addr`) and not(writeMask)) or (`regTyp`(fromBE(`valueSym`)) shl writeShift)))
-                    `addr` += regSize
+                                `writeProc`(`adr`, (`readProc`(`adr`) and not(writeMask)) or (`regTyp`(fromBE(`valueSym`)) shl writeShift)))
+                    adr += regSize
             else:
                 # multiple registers are accessed at once
 
                 let
-                    readBranch = nnkOfBranch.newTree(newLit `addr`)
-                    writeBranch = nnkOfBranch.newTree(newLit `addr`, newStmtList())
+                    readBranch = nnkOfBranch.newTree(newLit adr)
+                    writeBranch = nnkOfBranch.newTree(newLit adr, newStmtList())
 
                 var
                     readValue = newLit(0)
@@ -176,7 +176,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
                     partiallyUnknownWrite = false
                 while offset < accessSize:
                     let
-                        (regSize, regIdx) = associations[`addr`]
+                        (regSize, regIdx) = associations[adr]
                     
                         readProc = readRegistersProc[regIdx]
                         writeProc = writeRegistersProcs[regIdx]
@@ -187,17 +187,17 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
 
                     if readProc != nil:
                         atleastOneRead = true
-                        readValue = quote do: `readValue` or (`accessTyp`(`readProc`(`addr`)) shl `invOffset`)
+                        readValue = quote do: `readValue` or (`accessTyp`(`readProc`(`adr`)) shl `invOffset`)
                     else:
                         partiallyUnknownRead = true
                     if writeProc != nil:
                         atleastOneWrite = true
-                        writeBranch[1].add quote do: `writeProc`(`addr`, `regTyp`(fromBE(`valueSym`) shr `invOffset`))
+                        writeBranch[1].add quote do: `writeProc`(`adr`, `regTyp`(fromBE(`valueSym`) shr `invOffset`))
                     else:
                         partiallyUnknownWrite = true
 
                     offset += max(regSize, 1)
-                    `addr` += max(regSize, 1)
+                    adr += max(regSize, 1)
 
                 let bitsize = accessSize * 8
 

@@ -62,26 +62,29 @@ macro makeBitStruct*(baseTyp: typedesc, name, body: untyped): untyped =
                 error("expected either a bit range or a single bit")
 
             let
-                getterName = exportifyIdent(location[0], `export`)
-                setterName = exportifyIdent(ident($location[0] & "="), `export`)
-
                 slice = if location[1].kind == nnkInfix:
                     Slice[int](a: int location[1][1].intVal, b: int location[1][2].intVal) else:
                     Slice[int](a: int location[1].intVal, b: int location[1].intVal)
 
-                shift = slice.a
                 mask = toMask[uint64](slice)
-                invMask = newLit(not mask)
 
             if field[0].kind == nnkPragmaExpr:
                 for tag in field[0][1]:
                     tagMasks.mgetOrPut($tag, 0'u64).setMask(uint64 mask)
 
-            result.add(quote do:
-                proc `getterName`(struct: `name`): `typ` {.inline, used.} =
-                    `typ`((`baseTyp`(struct) and `mask`) shr `shift`)
-                proc `setterName`(struct: var `name`, newVal: `typ`) {.inline, used.} =
-                    struct = `name`((`baseTyp`(struct) and `invMask`) or ((`baseTyp`(newVal) shl `shift`) and `mask`)))
+            if $location[0] != "_":
+                let
+                    getterName = exportifyIdent(location[0], `export`)
+                    setterName = exportifyIdent(ident($location[0] & "="), `export`)
+
+                    shift = slice.a
+                    invMask = newLit(not mask)
+
+                result.add(quote do:
+                    proc `getterName`(struct: `name`): `typ` {.inline, used.} =
+                        `typ`((`baseTyp`(struct) and `mask`) shr `shift`)
+                    proc `setterName`(struct: var `name`, newVal: `typ`) {.inline, used.} =
+                        struct = `name`((`baseTyp`(struct) and `invMask`) or ((`baseTyp`(newVal) shl `shift`) and `mask`)))
 
     for tagName, mask in tagMasks:
         let

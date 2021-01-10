@@ -10,4 +10,4 @@ bin           = @["hocuspocube"]
 
 # Dependencies
 
-requires @["nim >= 1.3.5", "sdl2", "https://github.com/status-im/nim-stew.git#a99dafab420bcbbffee35e9bd847a9014eafaffe"]
+requires @["nim >= 1.3.5", "sdl2", "https://github.com/status-im/nim-stew.git#5cf4feabea0820d7f03b146b0973a57973bcc4c1"]

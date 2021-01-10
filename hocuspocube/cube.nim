@@ -1,7 +1,8 @@
 import
     streams, strformat,
-    gecko/interpreter/ppcinterpreter, gecko/gecko,
+    gecko/[interpreter/ppcinterpreter, gecko],
     dsp/interpreter/dspinterpreter,
+    flipper/[rasterinterface, cp],
     util/dolfile,
     cycletiming
 
@@ -20,10 +21,13 @@ proc loadDol*(input: Stream) =
     geckoState.pc = file.entrypoint - 0x80000000'u32
 
 proc run*() =
+    rasterinterface.init()
     while true:
         let sliceEnd = min(geckoTimestamp + geckoMaxSlice, nearestEvent())
 
         geckoRun geckoTimestamp, sliceEnd
         dspRun dspTimestamp, geckoTimestamp
+
+        cpRun()
 
         processEvents()

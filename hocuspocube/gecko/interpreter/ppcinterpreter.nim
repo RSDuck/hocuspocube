@@ -19,11 +19,12 @@ proc undefinedInstr(state: var PpcState, instr: uint32) =
 
 proc geckoRun*(timestamp: var int64, target: int64) =
     let startTimestamp = timestamp
+
     while true:
         {.computedGoto.}
 
         # TODO: handle translation or fetch failure
-        let instr = fromBE readPhysical[uint32](geckoState.translateInstrAddr(geckoState.pc).get)
+        let instr = fromBE readBus[uint32](geckoState.translateInstrAddr(geckoState.pc).get)
 
         dispatchPpc instr, geckoState, undefinedInstr
         

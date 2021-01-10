@@ -116,7 +116,7 @@ proc divwux*(state; d, a, b, oe, rc: uint32) =
         handleRc d
 
 proc mulhwx*(state; d, a, b, rc: uint32) =
-    r(d) = uint32(cast[uint64](int64(cast[int32](r(a))) * int64(cast[int32](r(b)))) shr 32'u64)
+    r(d) = uint32((int64(cast[int32](r(a))) * int64(cast[int32](r(b)))) shr 32'u64)
     handleRc d
 
 proc mulhwux*(state; d, a, b, rc: uint32) =
@@ -124,7 +124,7 @@ proc mulhwux*(state; d, a, b, rc: uint32) =
     handleRc d
 
 proc mulli*(state; d, a, imm: uint32) =
-    r(d) = cast[uint32](cast[int32](r(a)) * cast[int32](signExtend(imm, 16)))
+    r(d) = cast[uint32](int64(cast[int32](r(a))) * int64(cast[int32](signExtend(imm, 16))))
 
 proc mullwx*(state; d, a, b, oe, rc: uint32) =
     let resFull = int64(cast[int32](r(a))) * int64(cast[int32](r(b)))
@@ -162,7 +162,7 @@ proc subfcx*(state; d, a, b, oe, rc: uint32) =
 proc subfex*(state; d, a, b, oe, rc: uint32) =
     let
         carry = uint32 state.xer.ca
-        immRes = r(b) + not r(a)
+        immRes = r(b) + not(r(a))
     state.xer.ca = carryAdd(r(b), not r(a)) or carryAdd(immRes, carry)
     if oe != 0:
         state.xer.ov = overflowAdd(r(b), not r(a)) or overflowAdd(immRes, carry)
@@ -192,7 +192,7 @@ proc subfzex*(state; d, a, oe, rc: uint32) =
     if oe != 0:
         state.xer.ov = overflowAdd(not r(a), carry)
         state.updateSo()
-    r(d) = carry + not r(a)
+    r(d) = carry + not(r(a))
     handleRc d
 
 proc cmp*(state; crfD, l, a, b: uint32) =

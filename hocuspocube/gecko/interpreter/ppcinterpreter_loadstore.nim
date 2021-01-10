@@ -26,18 +26,18 @@ template calcAddr(update: bool, body: untyped): untyped {.dirty.} =
         r(a) = ea
 
 template doMemOp(body: untyped): untyped {.dirty.} =
-    if (let `addr` = state.translateDataAddr(ea); `addr`.isSome):
+    if (let adr = state.translateDataAddr(ea); adr.isSome):
         body
     else:
-        return
+        echo "memory translation failed"
 
 template loadByte: untyped {.dirty.} =
     doMemOp:
-        r(d) = uint32 readPhysical[uint8](`addr`.get)
+        r(d) = uint32 state.readMemory[:uint8](adr.get)
 
 template loadHalf(rev = false): untyped {.dirty.} =
     doMemOp:
-        let val = readPhysical[uint16](`addr`.get)
+        let val = state.readMemory[:uint16](adr.get)
         if rev:
             r(d) = val
         else:
@@ -45,11 +45,11 @@ template loadHalf(rev = false): untyped {.dirty.} =
 
 template loadHalfAlgebraic: untyped {.dirty.} =
     doMemOp:
-        r(d) = signExtend(uint32 fromBE readPhysical[uint16](`addr`.get), 16)
+        r(d) = signExtend(uint32 fromBE state.readMemory[:uint16](adr.get), 16)
 
 template loadWord(rev = false): untyped {.dirty.} =
     doMemOp:
-        let val = readPhysical[uint32](`addr`.get)
+        let val = state.readMemory[:uint32](adr.get)
         if rev:
             r(d) = val
         else:
@@ -57,15 +57,15 @@ template loadWord(rev = false): untyped {.dirty.} =
 
 template storeByte: untyped {.dirty.} =
     doMemOp:
-        writePhysical[uint8](`addr`.get, uint8 r(s))
+        state.writeMemory[:uint8](adr.get, uint8 r(s))
 
 template storeHalf(rev = false): untyped {.dirty.} =
     doMemOp:
-        writePhysical[uint16](`addr`.get, if rev: uint16 r(s) else: toBE uint16 r(s))
+        state.writeMemory[:uint16](adr.get, if rev: uint16 r(s) else: toBE uint16 r(s))
 
 template storeWord(rev = false): untyped {.dirty.} =
     doMemOp:
-        writePhysical[uint32](`addr`.get, if rev: uint32 r(s) else: toBE uint32 r(s))
+        state.writeMemory[:uint32](adr.get, if rev: uint32 r(s) else: toBE uint32 r(s))
 
 proc lbz*(state; d, a, imm: uint32) =
     calcAddrImm false:
@@ -208,11 +208,12 @@ template calcAddrMultiple(start: uint32, body: untyped): untyped {.dirty.} =
 proc lmw*(state; d, a, imm: uint32) =
     # TODO alignment exception
     calcAddrMultiple d:
-        r(r) = fromBE readPhysical[uint32](state.translateDataAddr(ea).get)
+        doMemOp:
+            r(r) = fromBE state.readMemory[:uint32](adr.get)
 
 proc stmw*(state; s, a, imm: uint32) =
     calcAddrMultiple s:
-        writePhysical[uint32](state.translateDataAddr(ea).get, toBE r(r))
+        state.writeMemory[:uint32](state.translateDataAddr(ea).get, toBE r(r))
 
 proc lswi*(state; d, a, nb: uint32) =
     doAssert false, "instr not implemented"
@@ -230,28 +231,28 @@ proc stswx*(state; s, a, b: uint32) =
 
 template loadDouble: untyped {.dirty.} =
     doMemOp:
-        fr(d).double = cast[float64](fromBE readPhysical[uint64](`addr`.get))
+        fr(d).double = cast[float64](fromBE state.readMemory[:uint64](adr.get))
 
 template loadSingle: untyped {.dirty.} =
     doMemOp:
-        fr(d).ps0 = float64 cast[float32](fromBE readPhysical[uint32](`addr`.get))
+        fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
         fr(d).ps1 = fr(d).ps0
 
 template storeDouble: untyped {.dirty.} =
     doMemOp:
-        writePhysical[uint64](`addr`.get, toBE cast[uint64](fr(s).double))
+        state.writeMemory[:uint64](adr.get, toBE cast[uint64](fr(s).double))
 
 template storeSingle: untyped {.dirty.} =
     doMemOp:
-        writePhysical[uint32](`addr`.get, toBE cast[uint32](fr(s).ps0))
+        state.writeMemory[:uint32](adr.get, toBE cast[uint32](fr(s).ps0))
 
 template loadQuant: untyped {.dirty.} =
     doMemOp:
         assert state.gqr[i].ldType == 0, "quantisised load/store integer conversion not implemented"
 
-        fr(d).ps0 = cast[float32](fromBE readPhysical[uint32](`addr`.get))
+        fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
         if w == 0:
-            fr(d).ps1 = float64 cast[float32](fromBE readPhysical[uint32](`addr`.get + 4))
+            fr(d).ps1 = float64 cast[float32](fromBE state.readMemory[:uint32](adr.get + 4))
         else:
             fr(d).ps1 = 1.0
 
@@ -259,9 +260,9 @@ template storeQuant: untyped {.dirty.} =
     doMemOp:
         assert state.gqr[i].stType == 0, "quantisised load/store integer conversion not implemented"
 
-        writePhysical[uint32](`addr`.get, toBE cast[uint32](fr(s).ps0))
+        state.writeMemory[:uint32](adr.get, toBE cast[uint32](fr(s).ps0))
         if w == 0:
-            writePhysical[uint32](`addr`.get + 4, toBE cast[uint32](fr(s).ps1))
+            state.writeMemory[:uint32](adr.get + 4, toBE cast[uint32](fr(s).ps1))
 
 proc lfd*(state; d, a, imm: uint32) =
     calcAddrImm false:
@@ -314,7 +315,7 @@ proc stfdx*(state; s, a, b: uint32) =
 proc stfiwx*(state; s, a, b: uint32) =
     calcAddr false:
         doMemOp:
-            writePhysical[uint32](`addr`.get, uint32 cast[uint64](fr(s).double))
+            state.writeMemory[:uint32](adr.get, toBE uint32 cast[uint64](fr(s).double))
 
 proc stfs*(state; s, a, imm: uint32) =
     calcAddrImm false:

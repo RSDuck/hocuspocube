@@ -2,9 +2,9 @@ import
     heapqueue
 
 const
-    geckoCyclesPerSecond* = 486'i64*10000*10000
+    geckoCyclesPerSecond* = 486'i64*1000*1000
     geckoCyclesPerFrame* = geckoCyclesPerSecond div 60
-    geckoMaxSlice* = 10000'i64
+    geckoMaxSlice* = 1000'i64
 
     geckoCyclesPerDspCycle* = 486'i64 div 81'i64
 

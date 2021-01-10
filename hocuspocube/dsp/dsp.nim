@@ -81,39 +81,39 @@ var
 dspCsr.halt = true
 
 # DSP side memory
-proc instrRead*(`addr`: uint16): uint16 =
-    if `addr` < IRomStartAddr:
-        iram[`addr` and 0xFFF]
+proc instrRead*(adr: uint16): uint16 =
+    if adr < IRomStartAddr:
+        iram[adr and 0xFFF]
     else:
-        irom[`addr` and 0xFFF]
+        irom[adr and 0xFFF]
 
-proc instrWrite*(`addr`, val: uint16) =
-    if `addr` < IRomStartAddr:
-        iram[`addr` and 0xFFF] = val
+proc instrWrite*(adr, val: uint16) =
+    if adr < IRomStartAddr:
+        iram[adr and 0xFFF] = val
     else:
-        echo &"unknown dsp instr write {`addr`:04X} {`val`:X}"
+        echo &"unknown dsp instr write {adr:04X} {`val`:X}"
 
-proc dataRead*(`addr`: uint16): uint16 =
-    if `addr` < DRomStartAddr:
-        dram[`addr` and 0xFFF]
-    elif `addr` < DRomStartAddr + uint16(dram.len):
-        drom[`addr` and uint16(drom.len - 1)]
+proc dataRead*(adr: uint16): uint16 =
+    if adr < DRomStartAddr:
+        dram[adr and 0xFFF]
+    elif adr < DRomStartAddr + uint16(dram.len):
+        drom[adr and uint16(drom.len - 1)]
     else:
-        case `addr`
+        case adr
         of 0xFFFC: dmb.hi
         of 0xFFFD: dmb.lo
         of 0xFFFE: cmb.hi
         of 0xFFFF: dmb.status = false; cmb.lo
-        else: echo &"unknown dsp data read {`addr`:X}"; 0'u16
+        else: echo &"unknown dsp data read {adr:X}"; 0'u16
 
-proc dataWrite*(`addr`, val: uint16) =
-    if `addr` < DromStartAddr:
-        dram[`addr`] = val
+proc dataWrite*(adr, val: uint16) =
+    if adr < DromStartAddr:
+        dram[adr] = val
     else:
-        case `addr`
+        case adr
         of 0xFFFC: dmb.hiWrite = val
         of 0xFFFD: dmb.status = true; dmb.lo = val
-        else: echo &"unknown dsp data write {`addr`:04X} {`val`:X}"
+        else: echo &"unknown dsp data write {adr:04X} {`val`:X}"
 
 ioBlock dsp, 0x200:
 of cmbh, 0x00, 2:

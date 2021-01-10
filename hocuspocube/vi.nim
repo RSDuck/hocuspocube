@@ -8,6 +8,8 @@ import
 
 # cycles here generally refer to VI cycles
 
+# by convention odd fields refer to the top fields while even refer to the bottom fields
+
 makeBitStruct uint16, Vtr: # vertical timing
     equ[0..3] {.mutable.}: uint32 # equalisation pulse, apparently in one and a half lines
     acv[4..13] {.mutable.}: uint32 # active video in full lines
@@ -16,7 +18,7 @@ makeBitStruct uint16, Dcr: # display config
     # TODO: find out how these two behave
     enb[0] {.mutable.}: bool # enable
     rst[1] {.mutable.}: bool # reset
-    i[2] {.mutable.}: bool # interlacing
+    prog[2] {.mutable.}: bool # progressive
     d[3] {.mutable.}: bool # stereo 3D mode
     le0[4..5] {.mutable.}: uint32 # display latch 0
     le1[6..7] {.mutable.}: uint32 # display latch 1
@@ -92,10 +94,8 @@ proc rasterYPos(timestamp: int64): int64 =
 proc rasterXPos(timestamp: int64): int64 =
     (timestamp - framestartTimestamp) div geckoCyclesPerViCycle[viclk.s] mod (int64(htr0.hlw) * 2)
 
-proc triggerInt(num: int) =
-    #echo "vi interrupt ", num, " ", di[num].hct, " ", di[num].vct
-    di[num].sts = true
-    triggerInt extintVi
+proc updateInt() =
+    setExtInt extintVi, di[0].sts or di[1].sts or di[2].sts or di[3].sts
 
 proc rescheduleInt(timestamp: int64, num: int) =
     if diEvents[num] != InvalidEventToken:
@@ -118,7 +118,8 @@ proc rescheduleInt(timestamp: int64, num: int) =
         diEvents[num] = scheduleEvent(intTimestamp,
             1, proc(timestamp: int64) =
                 diEvents[num] = InvalidEventToken
-                triggerInt(num))
+                di[num].sts = true
+                updateInt())
 
 
 func toFix8(x: float): int32 =
@@ -140,21 +141,20 @@ func convertYuvToRgb(y, cb, cr: uint8): (uint8, uint8, uint8) =
 proc packRgb(r, g, b: uint8): uint32 =
     uint32(r) or (uint32(g) shl 8) or (uint32(b) shl 16) or (0xFF'u32 shl 24)
 
-proc convertYuvToRgb(dst: var openArray[uint32], src: openArray[uint32], width, height: int) =
-    for y in 0..<height:
-        for x in 0..<width div 2:
-            let
-                srcSample = src[y * (width div 2) + x]
-                y1 = uint8 srcSample
-                y2 = uint8(srcSample shr 16)
-                cb = uint8(srcSample shr 8)
-                cr = uint8(srcSample shr 24)
+proc convertLineYuvToRgb(dst: var openArray[uint32], src: openArray[uint32], width: int) =
+    for x in 0..<width div 2:
+        let
+            srcSample = src[x]
+            y1 = uint8 srcSample
+            y2 = uint8(srcSample shr 16)
+            cb = uint8(srcSample shr 8)
+            cr = uint8(srcSample shr 24)
 
-                (r1, g1, b1) = convertYuvToRgb(y1, cb, cr)
-                (r2, g2, b2) = convertYuvToRgb(y2, cb, cr)
+            (r1, g1, b1) = convertYuvToRgb(y1, cb, cr)
+            (r2, g2, b2) = convertYuvToRgb(y2, cb, cr)
 
-            dst[y * width + x * 2] = packRgb(r1, g1, b1)
-            dst[y * width + x * 2 + 1] = packRgb(r2, g2, b2)
+        dst[x * 2] = packRgb(r1, g1, b1)
+        dst[x * 2 + 1] = packRgb(r2, g2, b2)
 
 proc calcFramebufferAddr(odd: bool): uint32 =
     let fieldBase = if odd: tfbl else: bfbl
@@ -170,22 +170,30 @@ proc calcFramebufferAddr(odd: bool): uint32 =
 proc onVblank(odd: bool, timestamp: int64) =
     startSiPoll timestamp, int64(htr0.hlw) * 2 * geckoCyclesPerViCycle[viclk.s]
 
-    let
-        frameWidth = hsw.wpl * 16
+    let frameWidth = hsw.wpl * 16
+    var
         frameHeight = vtr.acv
-    
-    assert dcr.i, "interlacing is currently not supported!"
+        frameStride = hsw.std * 32
+        frameAdr = calcFramebufferAddr(odd)
 
-    echo &"field out read {frameWidth}*{frameHeight}"
+    if not dcr.prog:
+        assert frameStride == frameWidth*2*4 and
+            calcFramebufferAddr(true) == calcFramebufferAddr(false) - (frameStride div 2),
+            "proper interlacing isn't supported"
+        frameHeight *= 2
+        frameStride = frameStride div 2
+        if not odd:
+            frameAdr -= frameStride
+
+    echo &"field out read {frameAdr:08X} {frameWidth}*{frameHeight} stride {frameStride}"
 
     var
-        frameDataYuv = newSeq[byte](frameWidth * frameHeight * 2)
         frameDataRgba = newSeq[uint32](frameWidth * frameHeight)
-    copyMem(addr frameDataYuv[0], addr MainRAM[calcFramebufferAddr odd], frameDataYuv.len)
-
-    convertYuvToRgb frameDataRgba,
-        toOpenArray(cast[ptr UncheckedArray[uint32]](addr frameDataYUV[0]), 0, int(frameWidth * frameHeight div 2)),
-        int(frameWidth), int(frameHeight)
+    for i in 0..<frameHeight:
+        convertLineYuvToRgb(toOpenArray(frameDataRgba, int(i*frameWidth), int((i+1)*frameWidth-1)),
+            toOpenArray(cast[ptr UncheckedArray[uint32]](addr MainRAM[frameAdr]), 0, int(frameWidth) div 2 - 1),
+            int frameWidth)
+        frameAdr += frameStride
 
     presentFrame int frameWidth, int frameHeight, frameDataRgba
 
@@ -211,7 +219,7 @@ proc startField(timestamp: int64, odd: bool) =
         nextFieldTimestamp = timestamp + int64(fieldHalfLines) * int64(htr0.hlw) * geckoCyclesPerViCycle[viclk.s]
         nextReadOut = timestamp + ((int64(fieldActiveEndHalfLines) - 1) * int64(htr0.hlw) + int64(htr1.hbs)) * geckoCyclesPerViCycle[viclk.s]
 
-    echo &"starting field {fieldHalfLines}, {odd} {vtr.acv}"
+    echo &"starting field {fieldHalfLines}, {odd} {vtr.acv} {timestamp}"
 
     nextFieldEvent = scheduleEvent(nextFieldTimestamp,
         0, proc(timestamp: int64) =
@@ -291,6 +299,7 @@ of di, 0x30, 4, 4:
         di[idx].mutable = val
         if not Di(val).sts:
             di[idx].sts = false
+            updateInt()
         rescheduleInt(geckoTimestamp, int idx)
 of hsw, 0x48, 2:
     read: uint16 hsw

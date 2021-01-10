@@ -12,7 +12,7 @@ proc bx*(state; li, aa, lk: uint32) =
         state.pc = (signExtend(li, 24) shl 2) - 4
     else:
         state.pc += (signExtend(li, 24) shl 2) - 4
-    #echo &"branch to {state.pc+4:X} {state.r} from {prevPc:08X}"
+    #echo &"branch to {state.pc+4:X} from {prevPc:08X}"
 
 template handleCondAndCtr: untyped {.dirty.} =
     let 

@@ -94,11 +94,11 @@ makeBitStruct uint32, *BatHi:
     vp[0]: bool
     vs[1]: bool
     bl[2..12]: uint32
-    bepi[17..31]: uint32
+    _[17..31] {.bepi.}: uint32
 makeBitStruct uint32, *BatLo:
     pp[0..1]: uint32
     wimg[3..6]: uint32
-    brpn[17..31]: uint32
+    _[17..31] {.brpn.}: uint32
 
 makeBitStruct uint32, *Hid0:
     noopti[0]: bool # disable dcbt and dcbtst
@@ -191,6 +191,10 @@ makeBitStruct uint32, *Pmc:
     counter[0..30]: uint32
     ov[31]: bool
 
+makeBitStruct uint32, *Wpar:
+    bne[0]: bool
+    _[5..31] {.gbAddr.}: uint32
+
 type
     PpcException* = enum
         # ordered by priority
@@ -227,6 +231,10 @@ type
         dbatHi*: array[4, BatHi]
         dbatLo*: array[4, BatLo]
 
+        wpar*: Wpar
+        gatherPipeOffset*: uint32
+        gatherpipe*: array[128, byte]
+
         gqr*: array[8, Gqr]
 
         pendingExceptions*: set[PpcException]
@@ -254,13 +262,11 @@ type
 
         dsisr*: uint32
 
-        wpar*: uint32
-
 proc ps0*(ps: PairedSingle): float32 {.inline.} = float32 ps[0]
 proc `ps0=`*(ps: var PairedSingle, val: float32) {.inline.} =
     ps[0] = float64 val
 
-proc ps1*(ps: PairedSingle): float32 {.inline.} = ps[1]
+proc ps1*(ps: PairedSingle): float32 {.inline.} = float32 ps[1]
 proc `ps1=`*(ps: var PairedSingle, val: float32) =
     ps[1] = float64 val
 

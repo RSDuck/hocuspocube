@@ -1,5 +1,6 @@
 .vscode
 *.exe
+*.out
 
 # Logs and test files
 miauz

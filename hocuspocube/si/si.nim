@@ -101,6 +101,10 @@ func pack4BytesBE(data: openArray[byte]): uint32 =
         (uint32(data[2]) shl 8) or
         uint32(data[3])
 
+proc updateInt() =
+    setExtInt extintSi, (siComCsr.rdstint and siComCsr.rdstintmask) or
+        (siComCsr.tcint and siComCsr.tcintmsk)
+
 proc poll(pollIdx: int, pollMask: uint32, timestamp: int64, scanlineLength: int64) =
     for i in 0..<4:
         if pollMask.getBit(3 - i):
@@ -119,8 +123,7 @@ proc poll(pollIdx: int, pollMask: uint32, timestamp: int64, scanlineLength: int6
             siSr.rdst(i, true)
 
             siComCsr.rdstint = true
-            if siComCsr.rdstintmask:
-                triggerInt extintSi
+            updateInt()
 
     nextPoll = scheduleEvent(timestamp + scanlineLength * int64(siPoll.x), 0,
         proc(timestamp: int64) = poll(pollIdx + 1, pollMask, timestamp, scanlineLength))
@@ -157,6 +160,7 @@ of siComCsr, 0x34, 4:
             siComCsr.tcint = false
         if val.rdstint:
             siComCsr.rdstint = false
+        updateInt()
 
         if val.tstart:
             let
@@ -175,9 +179,8 @@ of siComCsr, 0x34, 4:
                     siBuffer[i] = recvData[i]
 
             siComCsr.tcint = true
-            if siComCsr.tcintmsk:
-                triggerInt extintSi
-            
+            updateInt()
+
             echo &"tcom {siComCsr.comerr} {siComCsr.outLen} {siComCsr.inLen} {recvData.len} {resp} {uint32(siSr):08X}"
     read: uint32 siComCsr
 of siSr, 0x38, 4:

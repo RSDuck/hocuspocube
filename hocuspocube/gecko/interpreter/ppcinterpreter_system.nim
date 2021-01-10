@@ -1,19 +1,11 @@
 import
     stew/bitops2,
     strformat,
+
+    ppcinterpreter_aux,
     ../ppcstate
 
 using state: var PpcState
-
-#[
-    notes on the write gather pipe implementation:
-        for now we ignore it, which should work for the general case
-        of it being just a faster way for writing to the same address again and again.
-
-        Though there are some edge cases which aren't covered this way,
-        because it should only start to write once the pipe contains >=32 bytes.
-        Also writing to WPAR resets the FIFO.
-]#
 
 template r(num: uint32): uint32 {.dirty.} = state.r[num]
 #template fr(num: uint32): PairedSingle {.dirty.} = state.fr[num]
@@ -119,10 +111,7 @@ proc mftb*(state; d, tpr: uint32) =
             0'u32
 
 proc mtcrf*(state; s, crm: uint32) =
-    var mask = 0'u32
-    for i in 0..<8:
-        if crm.getBit(i):
-            mask = mask or (0xF'u32 shl (i * 4))
+    let mask = makeFieldMask(crm)
     state.cr = Cr(uint32(state.cr) and not(mask) or (r(s) and mask))
 
 proc mtmsr*(state; s: uint32) =
@@ -171,7 +160,9 @@ proc mtspr*(state; d, spr: uint32) =
         of 1009: state.hid1 = Hid1 r(d)
         of 912..919: state.gqr[n - 912] = Gqr r(d)
         of 920: state.hid2 = Hid2 r(d)
-        of 921: state.wpar = r(d)
+        of 921:
+            state.gatherpipeOffset = 0
+            state.wpar.gbAddr = r(d)
         of 1017: state.l2cr = L2Cr r(d)
         of 952: state.mmcr0 = Mmcr0 r(d)
         of 956: state.mmcr1 = Mmcr1 r(d)

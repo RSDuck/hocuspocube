@@ -320,14 +320,20 @@ proc srawx*(state; s, a, b, rc: uint32) =
         let
             shift = r(b) and 0x1F
             res = cast[int32](r(s)) shr shift
-        state.xer.ca = res < 0 and (r(s) and ((1'u32 shl shift) - 1)) != 0
+        if shift != 0:
+            state.xer.ca = res < 0 and (r(s) and (0..int(shift)-1).toMask[:uint32]()) != 0
+        else:
+            state.xer.ca = false
 
         r(a) = cast[uint32](res)
     handleRc a
 
 proc srawix*(state; s, a, sh, rc: uint32) =
     let res = cast[int32](r(s)) shr sh
-    state.xer.ca = res < 0 and (r(s) and (((1'u32 shl sh) - 1))) != 0
+    if sh != 0:
+        state.xer.ca = res < 0 and (r(s) and (0..int(sh)-1).toMask[:uint32]()) != 0
+    else:
+        state.xer.ca = false
     r(a) = cast[uint32](res)
 
     handleRc a

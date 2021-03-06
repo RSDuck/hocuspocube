@@ -351,4 +351,4 @@ const PpcPatterns =
         patterns)
 
 macro dispatchPpc*[T](instr: uint32, state: var T, undefinedInstr: proc(state: var T, instr: uint32)) =
-    generateDecoder[26..31, 1..10](PpcPatterns, 32, instr, state, undefinedInstr)
+    generateDecoder[26..31, 1..10](PpcPatterns, initTable[string, seq[(string, uint32)]](), 32, instr, state, undefinedInstr)

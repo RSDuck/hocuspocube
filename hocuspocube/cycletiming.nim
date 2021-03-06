@@ -6,9 +6,13 @@ const
     geckoCyclesPerFrame* = geckoCyclesPerSecond div 60
     geckoMaxSlice* = 1000'i64
 
+    geckoCyclesPerTbCycle* = 12
+
     geckoCyclesPerDspCycle* = 486'i64 div 81'i64
 
     geckoCyclesPerViCycle* = [486'i64 div 27'i64, 486'i64 div 54'i64]
+
+    geckoCyclesPerAiSample* = geckoCyclesPerSecond div 48_000
 
 type
     ScheduledEvent = object

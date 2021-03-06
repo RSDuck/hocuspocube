@@ -1,4 +1,5 @@
-import hashes
+import
+    strformat
 
 # here goes everything to be used by the backend
 
@@ -28,14 +29,14 @@ type
     VertexAttrSize* = enum
         vtxAttrPosition3
         vtxAttrNormalNBT
-        vtxAttrTexCoord03
-        vtxAttrTexCoord13
-        vtxAttrTexCoord23
-        vtxAttrTexCoord33
-        vtxAttrTexCoord43
-        vtxAttrTexCoord53
-        vtxAttrTexCoord63
-        vtxAttrTexCoord73
+        vtxAttrTexCoord0ST
+        vtxAttrTexCoord1ST
+        vtxAttrTexCoord2ST
+        vtxAttrTexCoord3ST
+        vtxAttrTexCoord4ST
+        vtxAttrTexCoord5ST
+        vtxAttrTexCoord6ST
+        vtxAttrTexCoord7ST
 
     PrimitiveKind* = enum
         primitiveQuads # on Switch we have those natively, otherwise we emulate them with geometry shaders
@@ -58,21 +59,73 @@ type
         curFmt*: DynamicVertexFmt
         data*: seq[byte]
 
-    XfMemoryUniform* = object
-        posTexMats*: array[64*4, float32]
-        nrmMats*: array[32*4, float32]
-        postTexMats*: array[64*4, float32]
-
-    XfRegistersUniform* = object
-        projection*: array[16, float32]
-        defaultMats*: array[4, uint32]
-
     NativeShader* = ref object of RootObj
 
     ShaderStage* = enum
         shaderStageVertex
         shaderStageFragment
         shaderStageGeometry
+
+    CompareFunction* = enum
+        compareNever
+        compareLess
+        compareEqual
+        compareLequal
+        compareGreater
+        compareNequal
+        compareGequal
+        compareAlways
+    
+    CullFace* = enum
+        cullNone
+        cullFront
+        cullBack
+        cullAll
+
+    BlendOp* = enum
+        blendAdd
+        blendSub
+
+    BlendFactor* = enum
+        blendFactorZero
+        blendFactorOne
+        blendFactorSrcColor
+        blendFactorInvSrcColor
+        blendFactorSrcAlpha
+        blendFactorInvSrcAlpha
+        blendFactorDstAlpha
+        blendFactorInvDstAlpha
+
+    TextureFormat* = enum
+        texfmtI8
+        texfmtIA8
+        texfmtRGBA8
+        texfmtRGB5
+        texfmtRGB565
+        texfmtDepth24
+
+    NativeTexture* = ref object of RootObj
+        width*, height*, miplevels*: int
+        fmt*: TextureFormat
+
+    XfMemoryUniform* = object
+        posTexMats*: array[64*4, float32]
+        nrmMats*: array[32*4, float32]
+        postTexMats*: array[64*4, float32]
+        lightColor*: array[4*2, uint32]
+        lightPositionA1*: array[4*4, float32]
+        lightDirectionA0*: array[4*4, float32]
+        lightA2K0K1K2*: array[4*4, float32]
+
+    RegistersUniform* = object
+        projection*: array[16, float32]
+        matIndices0*: uint32
+        matInidces1*: uint32
+        pad0, pad1: uint32
+        texcoordScale*: array[8*2, float32]
+        textureSizes*: array[8*2*2, float32]
+        konstants*: array[8, uint32]
+        matColors*: array[4, uint32]
 
 using vtxbuffer: var VertexBuffer
 
@@ -96,7 +149,7 @@ proc genDynamicVtxFmt*(attrs: set[VertexAttrKind], attrSizes: set[VertexAttrSize
     doAttr vtxAttrColor0, 4
     doAttr vtxAttrColor1, 4
     template doTexCoord(n): untyped =
-        doAttr `vtxAttrTexCoord n`, if `vtxAttrTexCoord n 3` in attrSizes: 3*4 else: 2*4
+        doAttr `vtxAttrTexCoord n`, if `vtxAttrTexCoord n ST` in attrSizes: 2*4 else: 1*4
     doTexCoord 0
     doTexCoord 1
     doTexCoord 2
@@ -115,20 +168,20 @@ proc startVertex*(vtxbuffer) =
     vtxbuffer.data.setLen(vtxbuffer.data.len + vtxbuffer.curFmt.vertexSize)
 
 proc define*[T](vtxbuffer; attr: VertexAttrKind, data: openArray[T], offset = 0) =
-    when not defined(release):
-        assert attr in vtxbuffer.curFmt.enabledAttrs
+    when #[not defined(release)]#true:
+        assert attr in vtxbuffer.curFmt.enabledAttrs, &"{attr} not in {vtxbuffer.curFmt.enabledAttrs}"
         let endOffset = data.len + offset
         case attr
         of vtxAttrPosition: assert endOffset <= (if vtxAttrPosition3 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
         of vtxAttrNormal: assert endOffset <= (if vtxAttrNormalNBT in vtxbuffer.curFmt.attrSizes: 9 else: 3)
-        of vtxAttrTexCoord0: assert endOffset <= (if vtxAttrTexCoord03 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
-        of vtxAttrTexCoord1: assert endOffset <= (if vtxAttrTexCoord13 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
-        of vtxAttrTexCoord2: assert endOffset <= (if vtxAttrTexCoord23 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
-        of vtxAttrTexCoord3: assert endOffset <= (if vtxAttrTexCoord33 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
-        of vtxAttrTexCoord4: assert endOffset <= (if vtxAttrTexCoord43 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
-        of vtxAttrTexCoord5: assert endOffset <= (if vtxAttrTexCoord53 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
-        of vtxAttrTexCoord6: assert endOffset <= (if vtxAttrTexCoord63 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
-        of vtxAttrTexCoord7: assert endOffset <= (if vtxAttrTexCoord73 in vtxbuffer.curFmt.attrSizes: 3 else: 2)
+        of vtxAttrTexCoord0: assert endOffset <= (if vtxAttrTexCoord0ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
+        of vtxAttrTexCoord1: assert endOffset <= (if vtxAttrTexCoord1ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
+        of vtxAttrTexCoord2: assert endOffset <= (if vtxAttrTexCoord2ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
+        of vtxAttrTexCoord3: assert endOffset <= (if vtxAttrTexCoord3ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
+        of vtxAttrTexCoord4: assert endOffset <= (if vtxAttrTexCoord4ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
+        of vtxAttrTexCoord5: assert endOffset <= (if vtxAttrTexCoord5ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
+        of vtxAttrTexCoord6: assert endOffset <= (if vtxAttrTexCoord6ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
+        of vtxAttrTexCoord7: assert endOffset <= (if vtxAttrTexCoord7ST in vtxbuffer.curFmt.attrSizes: 2 else: 1)
         else: discard
     let dataOffset =
         vtxbuffer.curOffset + int(vtxbuffer.curFmt.attrOffsets[attr]) + offset * sizeof(T)
@@ -137,3 +190,17 @@ proc define*[T](vtxbuffer; attr: VertexAttrKind, data: openArray[T], offset = 0)
         sizeof(T)*data.len)
     #echo data, " ", sizeof(T)*data.len
     #echo toOpenArray(vtxbuffer.data, dataOffset, dataOffset+sizeof(T)*data.len-1)
+
+proc generateQuadIndices*(data: ptr UncheckedArray[uint32], count: int): int =
+    var
+        count = count
+    while count >= 4:
+        data[result*5+0] = uint32(result*4) + 1
+        data[result*5+1] = uint32(result*4) + 2
+        data[result*5+2] = uint32(result*4) + 0
+        data[result*5+3] = uint32(result*4) + 3
+        data[result*5+4] = 0xFFFFFFFF'u32
+        count -= 4
+        result += 1
+
+    result *= 5

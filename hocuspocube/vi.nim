@@ -177,12 +177,17 @@ proc onVblank(odd: bool, timestamp: int64) =
         frameAdr = calcFramebufferAddr(odd)
 
     if not dcr.prog:
-        assert frameStride == frameWidth*2*4 and
-            calcFramebufferAddr(true) == calcFramebufferAddr(false) - (frameStride div 2),
-            "proper interlacing isn't supported"
+        assert frameStride == frameWidth*2*2 and
+            abs(int(calcFramebufferAddr(true)) - int(calcFramebufferAddr(false))) == int(frameStride div 2),
+            &"proper interlacing isn't supported {frameStride} {frameWidth} {calcFramebufferAddr(true):08X} {calcFramebufferAddr(false):08X}"
         frameHeight *= 2
         frameStride = frameStride div 2
-        if not odd:
+
+        # pretty pointless how everything is called "top" and "bottom" field here
+        # when in the end the field order is determined by the timing registers anyway
+        if odd and vto.prb == vte.prb + 1:
+            frameAdr -= frameStride
+        if not odd and vto.prb == vte.prb - 1:
             frameAdr -= frameStride
 
     echo &"field out read {frameAdr:08X} {frameWidth}*{frameHeight} stride {frameStride}"

@@ -3,7 +3,7 @@ template toSigned(x: uint16): int16 = cast[int16](x)
 template toSigned(x: uint32): int32 = cast[int32](x)
 template toSigned(x: uint64): int64 = cast[int64](x)
 
-proc signExtend*[T: SomeUnsignedInt](val, bits: T): T  {.inline.} =
+proc signExtend*[T: SomeUnsignedInt](val, bits: T): T {.inline.} =
     cast[T](toSigned(val) shl (sizeof(T)*8 - bits) shr (sizeof(T)*8 - bits))
 
 proc carryAdd*[T: SomeUnsignedInt](a, b: T): bool {.inline.} =

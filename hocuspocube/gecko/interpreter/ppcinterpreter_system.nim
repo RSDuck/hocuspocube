@@ -2,26 +2,32 @@ import
     stew/bitops2,
     strformat,
 
+    ../../util/aluhelper,
     ppcinterpreter_aux,
-    ../ppcstate
+    ../ppcstate,
+
+    ../../cycletiming
 
 using state: var PpcState
+
+template stubbedMemLog(msg: string): untyped =
+    discard
 
 template r(num: uint32): uint32 {.dirty.} = state.r[num]
 #template fr(num: uint32): PairedSingle {.dirty.} = state.fr[num]
 
 proc eieio*(state) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc isync*(state) =
     # do something?
     discard
 
 proc lwarx*(state; d, a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc stwcxdot*(state; s, a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc sync*(state) =
     # do something?
@@ -37,13 +43,19 @@ proc sc*(state) =
     state.pendingExceptions.incl exceptionSystemCall
 
 proc tw*(state; to, a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc twi*(state; to, a, imm: uint32) =
-    doAssert false, "instr not implemented"
+    let simm = signExtend(imm, 16)
+    # this is heavily todo:
+    assert not(to.getBit(4) and cast[int32](r(a)) < cast[int32](simm))
+    assert not(to.getBit(3) and cast[int32](r(a)) > cast[int32](simm))
+    assert not(to.getBit(2) and r(a) == simm)
+    assert not(to.getBit(1) and r(a) < simm), &"{r(a)} < {simm} {to:X}"
+    assert not(to.getBit(0) and r(a) > simm)
 
 proc mcrxr*(state; crfS: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc mfcr*(state; d: uint32) =
     r(d) = uint32 state.cr
@@ -97,17 +109,20 @@ proc mfspr*(state; d, spr: uint32) =
             of 957..958: uint32(state.pmc[n - 957])
             of 941..942: uint32(state.pmc[n - 941])
             else:
-                doAssert false, &"unknown spr register {n}"
+                raiseAssert &"unknown spr register {n}"
                 0'u32
+
+proc currentTb(state): uint64 =
+    uint64((geckoTimestamp - state.tbInitTimestamp) div geckoCyclesPerTbCycle) + state.tbInit
 
 proc mftb*(state; d, tpr: uint32) =
     let n = decodeSplitSpr(tpr)
 
     r(d) = case n
-        of 268: uint32(state.tb)
-        of 269: uint32(state.tb shr 32)
+        of 268: uint32(state.currentTb())
+        of 269: uint32(state.currentTb() shr 32)
         else:
-            doAssert false, &"unknown mftb register {n}"
+            raiseAssert &"unknown mftb register {n}"
             0'u32
 
 proc mtcrf*(state; s, crm: uint32) =
@@ -140,8 +155,12 @@ proc mtspr*(state; d, spr: uint32) =
         of 26: state.srr0 = r(d) and not(0x3'u32)
         of 27: state.srr1 = Srr1 r(d)
         of 272..275: state.sprg[n - 272] = r(d)
-        of 284: state.tb = (state.tb and not(0xFFFFFFFF'u64)) or r(d)
-        of 285: state.tb = (state.tb and 0xFFFFFFFF'u64) or (uint64(r(d)) shl 32)
+        of 284:
+            state.tbInit = (state.currentTb() and not(0xFFFFFFFF'u64)) or r(d)
+            state.tbInitTimestamp = geckoTimestamp
+        of 285:
+            state.tbInit = (state.currentTb() and 0xFFFFFFFF'u64) or (uint64(r(d)) shl 32)
+            state.tbInitTimestamp = geckoTimestamp
         of 528..535:
             let n = n - 528
             # TODO: validate ibats
@@ -169,52 +188,52 @@ proc mtspr*(state; d, spr: uint32) =
         of 953..954: state.pmc[n - 953] = Pmc r(d)
         of 957..958: state.pmc[n - 957] = Pmc r(d)
         else:
-            doAssert false, &"unknown spr register {n}"
+            raiseAssert &"unknown spr register {n}"
 
 proc dcbf*(state; a, b: uint32) =
-    echo "dcbf stubbed"
+    stubbedMemLog "dcbf stubbed"
 
 proc dcbi*(state; a, b: uint32) =
-    echo "dcbi stubbed"
+    stubbedMemLog "dcbi stubbed"
 
 proc dcbst*(state; a, b: uint32) =
-    doAssert false, "instr not implemented"
+    stubbedMemLog "dcbst stubbed"
 
 proc dcbt*(state; a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc dcbtst*(state; a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc dcbz*(state; a, b: uint32) =
-    doAssert false, "instr not implemented"
+    stubbedMemLog "dcbz stubbed"
 
 proc icbi*(state; a, b: uint32) =
-    echo "icbi stubbed"
+    stubbedMemLog "icbi stubbed"
 
 proc mfsr*(state; d, sr: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc mfsrin*(state; d, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc mtsr*(state; s, sr: uint32) =
     echo "mtsr instruction stubbed"
 
 proc mtsrin*(state; s, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc tlbie*(state; b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc tlbsync*(state) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc eciwx*(state; d, a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc ecowx*(state; s, a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc dcbz_l*(state; a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"

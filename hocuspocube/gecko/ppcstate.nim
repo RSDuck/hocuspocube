@@ -250,7 +250,9 @@ type
 
         dar*: uint32
 
-        tb*: uint64
+        tbInit*: uint64
+        tbInitTimestamp*: int64
+
         dec*: uint32
 
         l2cr*: L2cr
@@ -262,14 +264,15 @@ type
 
         dsisr*: uint32
 
-proc ps0*(ps: PairedSingle): float32 {.inline.} = float32 ps[0]
-proc `ps0=`*(ps: var PairedSingle, val: float32) {.inline.} =
-    ps[0] = float64 val
+# ppc is really weird when it comes to floats…
+func ps0*(ps: PairedSingle): float64 {.inline.} = ps[0]
+func `ps0=`*(ps: var PairedSingle, val: float64) {.inline.} =
+    ps[0] = float32(val)
 
-proc ps1*(ps: PairedSingle): float32 {.inline.} = float32 ps[1]
-proc `ps1=`*(ps: var PairedSingle, val: float32) =
-    ps[1] = float64 val
+func ps1*(ps: PairedSingle): float64 {.inline.} = ps[1]
+func `ps1=`*(ps: var PairedSingle, val: float64) =
+    ps[1] = float32(val)
 
-proc double*(ps: PairedSingle): float64 {.inline.} = ps[0]
-proc `double=`*(ps: var PairedSingle, val: float64) {.inline.} =
+func double*(ps: PairedSingle): float64 {.inline.} = ps[0]
+func `double=`*(ps: var PairedSingle, val: float64) {.inline.} =
     ps[0] = val

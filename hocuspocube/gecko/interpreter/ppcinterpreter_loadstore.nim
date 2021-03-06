@@ -17,9 +17,17 @@ template calcAddrImm(update: bool, body: untyped): untyped {.dirty.} =
     if update:
         r(a) = ea
 
+template calcAddrImmQuant(update: bool, body: untyped): untyped {.dirty.} =
+    let ea = (if not update and a == 0: 0'u32 else: r(a)) + signExtend(imm, 12)
+
+    body
+
+    if update:
+        r(a) = ea
+
 template calcAddr(update: bool, body: untyped): untyped {.dirty.} =
     let ea = (if not update and a == 0: 0'u32 else: r(a)) + r(b)
-    
+
     body
 
     if update:
@@ -202,7 +210,7 @@ template calcAddrMultiple(start: uint32, body: untyped): untyped {.dirty.} =
     while r <= 31:
         body
 
-        inc r
+        r += 1
         ea += 4
 
 proc lmw*(state; d, a, imm: uint32) =
@@ -213,29 +221,33 @@ proc lmw*(state; d, a, imm: uint32) =
 
 proc stmw*(state; s, a, imm: uint32) =
     calcAddrMultiple s:
-        state.writeMemory[:uint32](state.translateDataAddr(ea).get, toBE r(r))
+        doMemOp:
+            state.writeMemory[:uint32](adr.get, toBE r(r))
 
 proc lswi*(state; d, a, nb: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc lswx*(state; d, a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc stswi*(state; s, a, nb: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 proc stswx*(state; s, a, b: uint32) =
-    doAssert false, "instr not implemented"
+    raiseAssert "instr not implemented"
 
 # Float
 
 template loadDouble: untyped {.dirty.} =
     doMemOp:
         fr(d).double = cast[float64](fromBE state.readMemory[:uint64](adr.get))
+        if state.pc == 0x81374408'u32:
+            echo &"reading {fr(d).double} {cast[uint64](fr(d).double)} {state.r[3]:04X} {state.r[4]:04X} {fr(2).double}"
 
 template loadSingle: untyped {.dirty.} =
     doMemOp:
         fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
+        checkNan(fr(d).ps0)
         fr(d).ps1 = fr(d).ps0
 
 template storeDouble: untyped {.dirty.} =
@@ -244,15 +256,18 @@ template storeDouble: untyped {.dirty.} =
 
 template storeSingle: untyped {.dirty.} =
     doMemOp:
-        state.writeMemory[:uint32](adr.get, toBE cast[uint32](fr(s).ps0))
+        checkNan(fr(s).ps0)
+        state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
 
 template loadQuant: untyped {.dirty.} =
     doMemOp:
         assert state.gqr[i].ldType == 0, "quantisised load/store integer conversion not implemented"
 
         fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
+        checkNan(fr(d).ps0)
         if w == 0:
             fr(d).ps1 = float64 cast[float32](fromBE state.readMemory[:uint32](adr.get + 4))
+            checkNan(fr(d).ps1)
         else:
             fr(d).ps1 = 1.0
 
@@ -260,9 +275,11 @@ template storeQuant: untyped {.dirty.} =
     doMemOp:
         assert state.gqr[i].stType == 0, "quantisised load/store integer conversion not implemented"
 
-        state.writeMemory[:uint32](adr.get, toBE cast[uint32](fr(s).ps0))
+        checkNan(fr(s).ps0)
+        state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
         if w == 0:
-            state.writeMemory[:uint32](adr.get + 4, toBE cast[uint32](fr(s).ps1))
+            checkNan(fr(s).ps1)
+            state.writeMemory[:uint32](adr.get + 4, toBE cast[uint32](float32(fr(s).ps1)))
 
 proc lfd*(state; d, a, imm: uint32) =
     calcAddrImm false:
@@ -350,17 +367,17 @@ proc psq_stux*(state; s, a, b, w, i: uint32) =
         storeQuant
 
 proc psq_l*(state; d, a, w, i, imm: uint32) =
-    calcAddrImm false:
+    calcAddrImmQuant false:
         loadQuant
 
 proc psq_lu*(state; d, a, w, i, imm: uint32) =
-    calcAddrImm true:
+    calcAddrImmQuant true:
         loadQuant
 
 proc psq_st*(state; s, a, w, i, imm: uint32) =
-    calcAddrImm false:
+    calcAddrImmQuant false:
         storeQuant
 
 proc psq_stu*(state; s, a, w, i, imm: uint32) =
-    calcAddrImm true:
+    calcAddrImmQuant true:
         storeQuant

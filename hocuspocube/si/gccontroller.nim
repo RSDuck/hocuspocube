@@ -6,6 +6,9 @@ import
     ../frontend/sdl,
     si
 
+template controllerLog(msg: string): untyped =
+    discard
+
 type
     AnalogFullSet = object
         stickX, stickY: uint8
@@ -59,21 +62,21 @@ proc makeButtonState(controller: GcController): Buttons =
     result.x = SDL_SCANCODE_X in keysDown
     result.y = SDL_SCANCODE_U in keysDown
     result.start = SDL_SCANCODE_RETURN in keysDown
-    result.left = SDL_SCANCODE_LEFT in keysDown
-    result.right = SDL_SCANCODE_RIGHT in keysDown
-    result.up = SDL_SCANCODE_UP in keysDown
-    result.down = SDL_SCANCODE_DOWN in keysDown
+    result.left = SDL_SCANCODE_N in keysDown
+    result.right = SDL_SCANCODE_T in keysDown
+    result.up = SDL_SCANCODE_G in keysDown
+    result.down = SDL_SCANCODE_R in keysDown
     result.useOrigin = true
 
 proc getAnalogState(): AnalogFullSet =
     result.stickX = if SDL_SCANCODE_LEFT in keysDown: 0x20
         elif SDL_SCANCODE_RIGHT in keysDown: 0xFF-0x20
-        else: 0x10
-    result.stickY = if SDL_SCANCODE_UP in keysDown: 0x20
-        elif SDL_SCANCODE_DOWN in keysDown: 0xFF-0x20
-        else: 0x10
-    result.substickX = 0x10
-    result.substickY = 0x10
+        else: 0x80
+    result.stickY = if SDL_SCANCODE_UP in keysDown: 0xFF-0x20
+        elif SDL_SCANCODE_DOWN in keysDown: 0x20
+        else: 0x80
+    result.substickX = 0x80
+    result.substickY = 0x80
 
 func writeAnalogFullSet(stream: var seq[byte], analogSet: AnalogFullSet) =
     stream.add analogSet.stickX
@@ -93,7 +96,7 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
     let controller = GcController device
 
     if command.len >= 1:
-        echo &"si transaction type: {command[0]:02X}"
+        controllerLog &"si transaction type: {command[0]:02X}"
         case command[0]
         of cmdId:
             if command.len > 1:

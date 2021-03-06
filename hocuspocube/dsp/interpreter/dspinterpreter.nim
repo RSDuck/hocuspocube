@@ -1,6 +1,5 @@
 import
     ../dsp, ../dspdef, ../dspstate,
-    ../dspperipherals,
 
     ../../cycletiming,
 
@@ -17,30 +16,48 @@ proc undefinedInstr(state: var DspState, instr: uint16) =
 proc dspRun*(timestamp: var int64, target: int64) =
     runPeripherals()
 
-    if dspCsr.halt:
+    # is reset affected by global interrupt enable?
+    # also does a reset reset any registers (including the stack)?
+    if dspCsr.reset:
+        dspCsr.reset = false
+        echo "resetting to rom init vector"
+        mDspState.pc = IRomStartAdr
+
+    if dspCsr.halt or dspCsr.busyCopying:
         return
 
     while true:
         {.computedGoto.}
 
-        let instr = instrRead(theDspState.pc)
-        dspMainDispatch instr, theDspState, undefinedInstr
+        #[block triggeredInt:
+            if theDspState.status.te:
+                if theDspState.status.te3:
+                    if dspCsr.piint:
+                        theDspState.pc = ]#
 
-        while theDspState.loopAddrStack.sp > 0 and
-            theDspState.loopAddrStack.peek() == theDspState.pc:
+        let prevPc = mDspState.pc
 
-            theDspState.loopCountStack.peek() -= 1
+        let instr = instrRead(mDspState.pc)
+        dspMainDispatch instr, mDspState, undefinedInstr
 
-            if theDspState.loopCountStack.peek() == 0:
-                discard theDspState.callStack.pop()
-                discard theDspState.loopAddrStack.pop()
-                discard theDspState.loopCountStack.pop()
+        while mDspState.loopAddrStack.sp > 0 and
+            mDspState.loopAddrStack.peek() == mDspState.pc:
+
+            mDspState.loopCountStack.peek() -= 1
+
+            if mDspState.loopCountStack.peek() == 0:
+                discard mDspState.callStack.pop()
+                discard mDspState.loopAddrStack.pop()
+                discard mDspState.loopCountStack.pop()
             else:
-                theDspState.pc = theDspState.callStack.peek() - 1
+                mDspState.pc = mDspState.callStack.peek() - 1
 
-        theDspState.pc += 1
+        mDspState.pc += 1
         timestamp += geckoCyclesPerDspCycle
 
+        #if mDspState.pc < 0x8000 and mDspState.pc > 0x0ba4:
+        #    echo &"bad pc from {prevPc:04X}"
+
         if timestamp >= target or dspCsr.halt:
-            echo "dsp slice, halted:", dspCsr.halt
+            #echo &"dsp slice, halted: {dspCsr.halt} pc: {mDspState.pc:04X}"
             return

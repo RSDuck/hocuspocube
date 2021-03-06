@@ -1,8 +1,8 @@
 import
     ../ppcstate,
     ../memory,
-    options, strformat,
-    bitops, stew/bitops2
+    options, strformat, strutils,
+    bitops, stew/bitops2, stew/endians2, math
 
 proc updateSo*(state: var PpcState) =
     state.xer.so = state.xer.so or state.xer.ov
@@ -66,9 +66,20 @@ proc writeMemory*[T](state: var PpcState, adr: uint32, val: T) {.inline.} =
     # though for easier implementation of pair load/store we do it this way for now
     # it would probably be more correct to implement them via a 64-bit load/store
     if unlikely((adr and not(0x1F'u32)) == state.wpar.gbAddr and state.hid2.wpe):
+        #echo "writing to gather pipe ", toHex(fromBE val), " ", toHex(state.pc), " ", toHex(state.lr)
         copyMem(addr state.gatherpipe[state.gatherpipeOffset], unsafeAddr val, sizeof(T))
         state.gatherpipeOffset += uint32 sizeof(T) 
         if state.gatherpipeOffset >= 32'u32:
             state.flushGatherPipe()
     else:
         writeBus[T](adr, val)
+
+template checkNan*(val: float32) =
+    if isNan(val):
+        let pos = instantiationInfo()
+        echo "nan already here", toHex(state.pc), " ", pos
+template checkNan*(val: float32, body: untyped) =
+    if isNan(val):
+        let pos = instantiationInfo()
+        echo "nan already here", toHex(state.pc), " ", pos
+        body

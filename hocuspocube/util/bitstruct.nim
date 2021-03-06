@@ -19,6 +19,9 @@ macro makeBitStruct*(baseTyp: typedesc, name, body: untyped): untyped =
     result = newStmtList(quote do:
         type `nameDeclaration` = distinct `baseTyp`)
 
+    result.add((quote("@") do:
+        proc `==`*(a, b: @name): bool {.borrow.}))
+
     var
         tagMasks: Table[string, uint64]
 

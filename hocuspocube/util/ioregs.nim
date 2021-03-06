@@ -36,8 +36,8 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
             name = $reg[0]
             regSize = reg[2].intVal
 
-            repeats = if reg.len == 5: (reg[3].expectKind nnkIntLit; reg[3].intVal) else: 1
-            stride = if reg.len == 6: (reg[3].expectKind nnkIntLit; reg[4].intVal) else: regSize
+            repeats = if reg.len >= 5: (reg[3].expectKind nnkIntLit; reg[3].intVal) else: 1
+            stride = if reg.len == 6: (reg[4].expectKind nnkIntLit; reg[4].intVal) else: regSize
 
             underlyingTyp = sizeToType(uint32 regSize)
 
@@ -56,7 +56,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
                     procName = nskProc.genSym(name & "Read")
 
                 result.add(quote do:
-                    proc `procName`(addrFull: uint32): `underlyingTyp` {.inline.} =
+                    proc `procName`(addrFull: uint32): `underlyingTyp` =
                         let `idxIdent` {.used.} = (addrFull - `adr`) div `stride`
                         `body`)
 
@@ -67,7 +67,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
                     procName = nskProc.genSym(name & "Write")
 
                 result.add(quote do:
-                    proc `procName`(addrFull: uint32, `valueIdent`: `underlyingTyp`) {.inline.} =
+                    proc `procName`(addrFull: uint32, `valueIdent`: `underlyingTyp`) =
                         let `idxIdent` {.used.} = (addrFull - `adr`) div `stride`
                         `body`)
 
@@ -204,7 +204,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
                 if atleastOneRead:
                     readBranch.add(if partiallyUnknownRead: (quote do:
                             echo "partially unknown ", `regBankName`, " read ", `bitsize`, " ",
-                                toHex`addrSymRead`; toBE `readValue`) else:
+                                toHex`addrSymRead`; toBE(`readValue`)) else:
                         quote do: toBE `readValue`)
 
                     readCases[i].add readBranch
@@ -219,7 +219,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
         readCases[i].add(nnkElse.newTree(quote do:
             echo "unknown ", `regBankName`, " read ", `bitsize`, " ", toHex`addrSymRead`; 0))
         writeCases[i].add(nnkElse.newTree(quote do:
-            echo "unknown ", `regBankName`, " write ", `bitsize` ," ", toHex`addrSymWrite`, " ", toHex`valueSym`))
+            echo "unknown ", `regBankName`, " write ", `bitsize` ," ", toHex`addrSymWrite`, " ", toHex fromBE(`valueSym`)))
 
     block:
         let

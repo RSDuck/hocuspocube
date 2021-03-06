@@ -5,6 +5,9 @@ import
     ../util/ioregs, ../util/bitstruct,
     ../gecko/gecko
 
+template siLog(msg: string): untyped =
+    discard
+
 # data received from polling 
 makeBitStruct uint32, SicInBufH:
     inputData[0..29]: uint32
@@ -118,7 +121,7 @@ proc poll(pollIdx: int, pollMask: uint32, timestamp: int64, scanlineLength: int6
                 inBuffersH[i].inputData = pack4BytesBE(recvData)
                 inBuffersL[i] = pack4BytesBE(toOpenArray(recvData, 4, 7))
 
-            echo &"polled {inBuffersH[i].errstat} {recvData[0]:02X} {uint32(inBuffersH[i]):08X} {inBuffersL[i]:08X} {uint32(siSr):08X}"
+            siLog &"polled {inBuffersH[i].errstat} {recvData[0]:02X} {uint32(inBuffersH[i]):08X} {inBuffersL[i]:08X} {uint32(siSr):08X}"
 
             siSr.rdst(i, true)
 
@@ -137,7 +140,6 @@ proc startSiPoll*(timestamp: int64, scanlineLength: int64) =
 
 
 ioBlock si, 0x100:
-# since these registers are interlaced we unfortunately need to register them all by hand
 of sicoutbuf, 0x0, 4, 4, 12:
     read: outBuffers[idx]
     write: outBuffers[idx] = val
@@ -181,7 +183,7 @@ of siComCsr, 0x34, 4:
             siComCsr.tcint = true
             updateInt()
 
-            echo &"tcom {siComCsr.comerr} {siComCsr.outLen} {siComCsr.inLen} {recvData.len} {resp} {uint32(siSr):08X}"
+            siLog &"tcom {siComCsr.comerr} {siComCsr.outLen} {siComCsr.inLen} {recvData.len} {resp} {uint32(siSr):08X}"
     read: uint32 siComCsr
 of siSr, 0x38, 4:
     write:

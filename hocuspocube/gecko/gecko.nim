@@ -1,9 +1,12 @@
 import
-    stew/endians2,
+    stew/endians2, strformat,
     ../util/bitstruct, ../util/ioregs,
     ppcstate
 
 var geckoState*: PpcState
+
+template piLog(msg: string): untyped =
+    discard
 
 type
     ExternalInt* = enum
@@ -36,6 +39,11 @@ makeBitStruct uint32, FifoPtr:
     _[5..25] {.adr.}: uint32
     overflow[26]: bool
 
+type
+    MemoryTag* = enum
+        memoryTagNone
+        memoryTagTexture
+
 var
     intsr: Intsr
     intmr: Intmr
@@ -43,6 +51,7 @@ var
     fifoBase, fifoEnd, fifoCurrent: FifoPtr
 
     MainRAM*: array[0x1800000, byte]
+    MainRAMTagging*: array[0x1800000 div 32, MemoryTag]
 
 proc updateFifo*(): uint32 =
     result = fifoCurrent.adr
@@ -60,7 +69,7 @@ proc updateGeckoException() =
         geckoState.pendingExceptions.excl exceptionExternal
 
 proc setExtInt*(exception: ExternalInt, enable: bool) =
-    echo "extint ", exception, " ", enable
+    piLog &"extint {exception} {enable}"
     intsr.exception(int(exception), enable)
     updateGeckoException()
 

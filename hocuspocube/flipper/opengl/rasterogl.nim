@@ -5,11 +5,11 @@ import
 
 const
     VertexBufferSegments = 3
-    VertexBufferSegmentSize = 1024*128
+    VertexBufferSegmentSize = 1024*512
     VertexBufferSize = VertexBufferSegmentSize*VertexBufferSegments
 
     fullscreenQuadVtxShaderSource = """
-        #version 420 core
+        #version 430 core
 
         layout (location = 0) out vec2 outTexcoord;
 
@@ -28,8 +28,8 @@ const
             vec2(1.0, 1.0)
         );
 
-        uniform vec2 PositionScale;
-        uniform vec2 TexcoordScale;
+        layout (location = 0) uniform vec2 PositionScale;
+        layout (location = 1) uniform vec2 TexcoordScale;
 
         void main()
         {
@@ -40,13 +40,13 @@ const
         }
     """
     fullscreenQuadFragShaderSource = """
-        #version 420 core
+        #version 430 core
 
         layout (location = 0) in vec2 inTexcoord;
 
         layout (location = 0) out vec4 outColor;
 
-        uniform sampler2D inXfb;
+        layout (binding = 0) uniform sampler2D inXfb;
 
         void main()
         {
@@ -54,66 +54,172 @@ const
         }
     """
 
-    quadGeometryShaderSource = """
-        #version 420 core
-
-        layout (lines_adjacency) in;
-        layout (triangle_strip, max_vertices = 4) out;
-
-        layout (location = 0) in vec4 inColor0[];
-
-        layout (location = 0) out vec4 outColor0;
-
-        void main()
-        {
-            gl_Position = gl_in[1].gl_Position;
-            outColor0 = inColor0[1];
-            EmitVertex();
-            outColor0 = inColor0[2];
-            gl_Position = gl_in[2].gl_Position;
-            EmitVertex();
-            outColor0 = inColor0[0];
-            gl_Position = gl_in[0].gl_Position;
-            EmitVertex();
-            outColor0 = inColor0[3];
-            gl_Position = gl_in[3].gl_Position;
-            EmitVertex();
-        }
-    """
-
-var
-    vtxBuffer, flipperVao, metaVao: GLuint
-
-    flipperShaderPipeline, metaShaderPipeline: GLuint
-
-    vtxBufferPtr: array[VertexBufferSegments, pointer]
-    vtxBufferLocks: array[VertexBufferSegments, GLsync]
-    curWriteBufferIdx = 0
-    curWriteBufferOffset = 0
-
-    xfRegisters, xfMemory: GLuint
-
-    curBoundFormat: DynamicVertexFmt
-    lastPrimitve = primitiveTriangles
-    # as long as the same format is bound we must specify the offset via glDrawArrays
-    formatVertexOffset: int
-
-    efb, efbColorBuffer, efbDepthBuffer: GLuint
-
-    quadGeometryShader: GLuint
-
-    rawXfbTexture: GLuint
-
-    fullscreenQuadVtxShader, fullscreenQuadFragShader: GLuint
-
-    currentRenderstateMeta = false
+const
+    fullscreenQuadVtxShaderUniformPositionScale = 0
+    fullscreenQuadVtxShaderUniformTexcoordScale = 1
 
 type
     OGLVertexShader = ref object of NativeShader
         handle: GLuint
-        xfRegistersBlockIdx, xfMemoryBlockIdx: GLuint
     OGLFragmentShader = ref object of NativeShader
         handle: GLuint
+    OGLGeometryShader = ref object of NativeShader
+        handle: GLuint
+
+    OGLTexture = ref object of NativeTexture
+        handle: GLuint
+
+    OGLSampler = ref object
+
+    Framebuffer = ref object
+        handle: GLuint
+        colorbuffer, depthbuffer: NativeTexture
+
+    RenderStateEnable = enum
+        enableDepthTest
+        enableDepthWrite
+        enableScissor
+        enableCulling
+        enableBlending
+
+    RenderState = object
+        textures: array[8, NativeTexture]
+        textureUnit: int32
+        enable: set[RenderStateEnable]
+        depthFunc: CompareFunction
+        vertexShader, fragmentShader, geometryShader: NativeShader
+        framebuffer: Framebuffer
+        viewport: (int32, int32, int32, int32)
+        scissorBox: (int32, int32, int32, int32)
+        blendOp: BlendOp
+        blendSrcFactor, blendDstFactor: BlendFactor
+        cullface: CullFace
+
+var
+    vtxBuffer, idxBuffer, flipperVao, metaVao: GLuint
+
+    shaderPipeline: GLuint
+
+    vtxBufferPtr: pointer
+    vtxBufferLocks: array[VertexBufferSegments, GLsync]
+    curVtxBufferIdx = 0
+    curVtxBufferOffset = 0
+
+    idxBufferPtr: pointer
+    idxBufferLocks: array[VertexBufferSegments, GLsync]
+    curIdxBufferIdx = 0
+    curIdxBufferOffset = 0
+
+    registerUniform, xfMemory: GLuint
+
+    curBoundFormat: DynamicVertexFmt
+    curBatchPrimitive = primitiveTriangles
+    curBatchVerticesCount = 0
+    # as long as the same format is bound we must specify the offset via glDrawArrays
+    formatVertexOffset: int
+
+    efb: Framebuffer
+    rawXfbTexture: NativeTexture
+
+    quadGeometryShader: NativeShader
+    fullscreenQuadVtxShader, fullscreenQuadFragShader: NativeShader
+
+    currentRenderstate: RenderState
+
+    flipperRenderstate: RenderState
+    clearRenderstate: RenderState
+    metaRenderstate: RenderState
+
+
+proc editTexture(texture: NativeTexture) =
+    for i in 0..<8:
+        if currentRenderstate.textures[i] == texture:
+            if currentRenderstate.textureUnit != i:
+                glActiveTexture(cast[GLenum](cast[int](GL_TEXTURE0)+i))
+                currentRenderstate.textureUnit = int32(i)
+            return
+    currentRenderstate.textures[currentRenderstate.textureUnit] = texture
+    glBindTexture(GL_TEXTURE_2D, OGLTexture(texture).handle)
+
+proc createTexture*(width, height, miplevels: int, fmt: TextureFormat): NativeTexture =
+    let texture = OGLTexture(
+        width: width, height: height,
+        miplevels: miplevels,
+        fmt: fmt)
+
+    glGenTextures(1, addr texture.handle)
+    editTexture(texture)
+
+    const translateFmt: array[TextureFormat, GLenum] = [
+        GL_R8,
+        GL_RG8,
+        GL_RGBA8,
+        GL_RGB5,
+        GL_RGB565,
+        GL_DEPTH_COMPONENT24]
+    glTexStorage2D(GL_TEXTURE_2D, GLsizei miplevels, translateFmt[fmt], GLsizei width, GLsizei height)
+
+    if fmt in {texfmtI8, texfmtIA8, texfmtRGB565}:
+        let
+            swizzleI8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_RED)]
+            swizzleIA8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_GREEN)]
+            swizzleRGB565 = [GLint(GL_BLUE), GLint(GL_GREEN), GLint(GL_RED), GLint(GL_ONE)]
+        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA,
+            case fmt
+            of texfmtI8: unsafeAddr(swizzleI8[0])
+            of texfmtIA8: unsafeAddr(swizzleIA8[0])
+            of texfmtRGB565: unsafeAddr(swizzleRGB565[0])
+            else: raiseAssert("blah"))
+
+    # we still need a better way to define those properties
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+
+    texture
+
+proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data: pointer) =
+    editTexture(texture)
+    const
+        format: array[TextureFormat, GLenum] = [
+            GL_RED,
+            GL_RG,
+            GL_RGBA,
+            GL_RGB,
+            GL_RGB,
+            GL_DEPTH_COMPONENT]
+        typ: array[TextureFormat, GLenum] = [
+            GL_UNSIGNED_BYTE,
+            GL_UNSIGNED_BYTE,
+            GL_UNSIGNED_BYTE,
+            GL_UNSIGNED_SHORT_1_5_5_5_REV,
+            GL_UNSIGNED_SHORT_5_6_5_REV,
+            GL_UNSIGNED_SHORT]
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, GLint stride)
+    glTexSubImage2D(GL_TEXTURE_2D, GLint(level), GLint(x), GLint(y),
+        GLsizei(w), GLsizei(h),
+        format[texture.fmt], typ[texture.fmt],
+        data)
+
+proc createFramebuffer(width, height: int, depth: bool): Framebuffer =
+    let framebuffer = Framebuffer()
+
+    glGenFramebuffers(1, addr framebuffer.handle)
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.handle)
+
+    framebuffer.colorbuffer = createTexture(width, height, 1, texfmtRGBA8)
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, OGLTexture(framebuffer.colorbuffer).handle, 0)
+    if depth:
+        framebuffer.depthbuffer = createTexture(width, height, 1, texfmtDepth24)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, OGLTexture(framebuffer.depthbuffer).handle, 0)
+
+    assert glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE
+
+    currentRenderstate.framebuffer = framebuffer
+
+    framebuffer
 
 proc debugMessage(source: GLenum,
     typ: GLenum,
@@ -124,68 +230,188 @@ proc debugMessage(source: GLenum,
     userParam: pointer) {.stdcall.} =
     echo "debug message ", cast[cstring](message)
 
-proc internalShaderCompile(stage: ShaderStage, source: string): GLuint =
-    let sourceArray = allocCStringArray([source])
-    result = glCreateShaderProgramv(case stage
+proc compileShader*(stage: ShaderStage, source: string): NativeShader =
+    let
+        sourceArray = allocCStringArray([source])
+        shader = glCreateShaderProgramv(case stage
             of shaderStageVertex: GL_VERTEX_SHADER
             of shaderStageFragment: GL_FRAGMENT_SHADER
             of shaderStageGeometry: GL_GEOMETRY_SHADER, 1, sourceArray)
     deallocCStringArray(sourceArray)
 
     var linkStatus: GLint
-    glGetProgramiv(result, GL_LINK_STATUS, addr linkStatus)
+    glGetProgramiv(shader, GL_LINK_STATUS, addr linkStatus)
     if linkStatus == 0:
         var
             logLength: GLint
             log: string
-        glGetProgramiv(result, GL_INFO_LOG_LENGTH, addr logLength)
+        glGetProgramiv(shader, GL_INFO_LOG_LENGTH, addr logLength)
         log.setLen logLength - 1
-        glGetProgramInfoLog(result, GLsizei logLength, addr logLength, log)
+        glGetProgramInfoLog(shader, GLsizei logLength, addr logLength, log)
         echo "shader compilation failed:"
         echo log
         echo "source:"
         echo source
         doAssert false
 
-proc compileShader*(stage: ShaderStage, source: string): NativeShader =
-    let shader = internalShaderCompile(stage, source)
-
     case stage
     of shaderStageVertex:
-        let vtxShader = OGLVertexShader(handle: shader)
-        vtxShader.xfRegistersBlockIdx = glGetUniformBlockIndex(shader, "xfRegisters")
-        vtxShader.xfMemoryBlockIdx = glGetUniformBlockIndex(shader, "xfMemory")
-
-        glUniformBlockBinding(shader, vtxShader.xfRegistersBlockIdx, 0)
-        glUniformBlockBinding(shader, vtxShader.xfMemoryBlockIdx, 1)
-
-        vtxShader
+        OGLVertexShader(handle: shader)
     of shaderStageFragment:
         OGLFragmentShader(handle: shader)
     of shaderStageGeometry:
-        raise newException(ValueError, "not yet")
+        OGLGeometryShader(handle: shader)
 
-proc ensureRenderstate(meta: bool, force = false) =
-    if currentRenderstateMeta == meta and not force:
-        return
+proc applyRenderstate(state: RenderState, framebufferOnly = false, onChange: proc() = nil) =
+    let
+        toEnable = state.enable - currentRenderstate.enable
+        toDisable = currentRenderstate.enable - state.enable
 
-    currentRenderstateMeta = meta
-    if meta:
-        glBindFramebuffer(GL_FRAMEBUFFER, 0)
-        glBindProgramPipeline(metaShaderPipeline)
-        glBindVertexArray(metaVao)
-        glDisable(GL_DEPTH_TEST)
-        glDepthMask(GL_FALSE)
-    else:
-        glBindFramebuffer(GL_FRAMEBUFFER, efb)
-        glBindProgramPipeline(flipperShaderPipeline)
-        glBindVertexArray(flipperVao)
-        glEnable(GL_DEPTH_TEST)
+    var firstChange = true
+
+    template callback: untyped =
+        if firstChange and onChange != nil:
+            onChange()
+            firstChange = false
+
+    if (toEnable + toDisable) * {enableDepthWrite, enableScissor} != {}:
+        callback
+
+    if enableDepthWrite in toEnable:
         glDepthMask(GL_TRUE)
+        currentRenderstate.enable.incl enableDepthWrite
+    if enableScissor in toEnable:
+        glEnable(GL_SCISSOR_TEST)
+        currentRenderstate.enable.incl enableScissor
+
+    if enableDepthWrite in toDisable:
+        glDepthMask(GL_FALSE)
+        currentRenderstate.enable.excl enableDepthWrite
+    if enableScissor in toDisable:
+        glDisable(GL_SCISSOR_TEST)
+        currentRenderstate.enable.excl enableScissor
+
+    if enableScissor in currentRenderstate.enable and state.scissorBox != currentRenderstate.scissorBox:
+        callback
+
+        let (x, y, w, h) = state.scissorBox
+        glScissor(x, y, w, h)
+        currentRenderstate.scissorBox = state.scissorBox
+
+    if state.framebuffer != currentRenderstate.framebuffer:
+        callback
+
+        glBindFramebuffer(GL_FRAMEBUFFER,
+            if state.framebuffer != nil: state.framebuffer.handle else: 0)
+        currentRenderstate.framebuffer = state.framebuffer
+
+    if not framebufferOnly:
+        if toEnable + toDisable != {}:
+            callback
+
+        if enableDepthTest in toEnable:
+            glEnable(GL_DEPTH_TEST)
+        if enableCulling in toEnable:
+            glEnable(GL_CULL_FACE)
+        if enableBlending in toEnable:
+            glEnable(GL_BLEND)
+
+        if enableDepthTest in toDisable:
+            glDisable(GL_DEPTH_TEST)
+        if enableCulling in toDisable:
+            glDisable(GL_CULL_FACE)
+        if enableBlending in toDisable:
+            glDisable(GL_BLEND)
+        currentRenderstate.enable = state.enable
+
+        if enableCulling in currentRenderstate.enable and state.cullface != currentRenderstate.cullface:
+            const translateCulling: array[CullFace, GLenum] = [
+                GL_FRONT_AND_BACK, # should never appear
+                GL_FRONT,
+                GL_BACK,
+                GL_FRONT_AND_BACK]
+            glCullFace(translateCulling[state.cullface])
+            currentRenderstate.cullface = state.cullface
+
+        if enableDepthTest in currentRenderstate.enable and state.depthFunc != currentRenderstate.depthFunc:
+            callback
+            
+            const translateFunc: array[CompareFunction, GLenum] = [
+                GL_NEVER,
+                GL_LESS,
+                GL_EQUAL,
+                GL_LEQUAL,
+                GL_GREATER,
+                GL_NOTEQUAL,
+                GL_GEQUAL,
+                GL_ALWAYS]
+            glDepthFunc(translateFunc[state.depthFunc])
+            currentRenderstate.depthFunc = state.depthFunc
+
+        if state.vertexShader != currentRenderstate.vertexShader:
+            callback
+
+            glUseProgramStages(shaderPipeline, GL_VERTEX_SHADER_BIT, OGLVertexShader(state.vertexShader).handle)
+            currentRenderstate.vertexShader = state.vertexShader
+        if state.fragmentShader != currentRenderstate.fragmentShader:
+            callback
+
+            glUseProgramStages(shaderPipeline, GL_FRAGMENT_SHADER_BIT, OGLFragmentShader(state.fragmentShader).handle)
+            currentRenderstate.fragmentShader = state.fragmentShader
+        if state.geometryShader != currentRenderstate.geometryShader:
+            callback
+
+            glUseProgramStages(shaderPipeline, GL_GEOMETRY_SHADER_BIT,
+                if state.geometryShader != nil: OGLGeometryShader(state.geometryShader).handle else: 0)
+            currentRenderstate.geometryShader = state.geometryShader
+        
+        if state.viewport != currentRenderstate.viewport:
+            callback
+
+            let (x, y, w, h) = state.viewport
+            glViewport(x, y, w, h)
+            currentRenderstate.viewport = state.viewport
+
+        for i in 0..<8:
+            if state.textures[i] != currentRenderstate.textures[i] and state.textures[i] != nil:
+                callback
+
+                glBindTextureUnit(GLuint(i), OGLTexture(state.textures[i]).handle)
+                currentRenderstate.textures[i] = state.textures[i]
+        
+        if enableBlending in currentRenderstate.enable:
+            if state.blendOp != currentRenderstate.blendOp:
+                callback
+
+                const translateEquation: array[BlendOp, GLenum] = [
+                    GL_FUNC_ADD,
+                    GL_FUNC_SUBTRACT]
+                glBlendEquation(translateEquation[currentRenderstate.blendOp])
+
+                currentRenderstate.blendOp = state.blendOp
+            if state.blendSrcFactor != currentRenderstate.blendSrcFactor or
+                state.blendDstFactor != currentRenderstate.blendDstFactor:
+                
+                const translateFactor: array[BlendFactor, GLenum] = [
+                    GL_ZERO,
+                    GL_ONE,
+                    GL_SRC_COLOR,
+                    GL_ONE_MINUS_SRC_COLOR,
+                    GL_SRC_ALPHA,
+                    GL_ONE_MINUS_SRC_ALPHA,
+                    GL_DST_ALPHA,
+                    GL_ONE_MINUS_DST_ALPHA]
+
+                glBlendFunc(translateFactor[state.blendSrcFactor], translateFactor[state.blendDstFactor])
+                currentRenderstate.blendSrcFactor = state.blendSrcFactor
+                currentRenderstate.blendDstFactor = state.blendDstFactor
 
 proc init*() =
     glDebugMessageCallback(debugMessage, nil)
     glEnable(GL_DEBUG_OUTPUT)
+
+    glEnable(GL_PRIMITIVE_RESTART)
+    glPrimitiveRestartIndex(0xFFFFFFFF'u32)
 
     glGenVertexArrays(1, addr flipperVao)
     glBindVertexArray(flipperVao)
@@ -197,95 +423,106 @@ proc init*() =
     glBufferStorage(GL_ARRAY_BUFFER, VertexBufferSize, nil,
         GL_DYNAMIC_STORAGE_BIT or GL_MAP_WRITE_BIT or GL_MAP_PERSISTENT_BIT or GL_MAP_COHERENT_BIT)
 
-    vtxBufferPtr[0] = glMapBufferRange(GL_ARRAY_BUFFER, 0, VertexBufferSize,
+    vtxBufferPtr = glMapBufferRange(GL_ARRAY_BUFFER, 0, VertexBufferSize,
         GL_MAP_WRITE_BIT or GL_MAP_PERSISTENT_BIT or GL_MAP_COHERENT_BIT or GL_MAP_INVALIDATE_BUFFER_BIT)
-    for i in 1..<VertexBufferSegments:
-        vtxBufferPtr[i] = cast[pointer](cast[ByteAddress](vtxBufferPtr[0]) + i * VertexBufferSegmentSize)
 
-    glGenProgramPipelines(1, addr flipperShaderPipeline)
-    glBindProgramPipeline(flipperShaderPipeline)
+    glGenBuffers(1, addr idxBuffer)
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, idxBuffer)
+    glBufferStorage(GL_ELEMENT_ARRAY_BUFFER, VertexBufferSize, nil,
+        GL_DYNAMIC_STORAGE_BIT or GL_MAP_WRITE_BIT or GL_MAP_PERSISTENT_BIT or GL_MAP_COHERENT_BIT)
 
-    glGenBuffers(1, addr xfRegisters)
-    glBindBuffer(GL_UNIFORM_BUFFER, xfRegisters)
-    glBufferStorage(GL_UNIFORM_BUFFER, sizeof(XfRegistersUniform), nil, GL_DYNAMIC_STORAGE_BIT)
+    idxBufferPtr = glMapBufferRange(GL_ELEMENT_ARRAY_BUFFER, 0, VertexBufferSize,
+        GL_MAP_WRITE_BIT or GL_MAP_PERSISTENT_BIT or GL_MAP_COHERENT_BIT or GL_MAP_INVALIDATE_BUFFER_BIT)
+
+    glGenProgramPipelines(1, addr shaderPipeline)
+    glBindProgramPipeline(shaderPipeline)
+
+    glGenBuffers(1, addr registerUniform)
+    glBindBuffer(GL_UNIFORM_BUFFER, registerUniform)
+    glBufferStorage(GL_UNIFORM_BUFFER, sizeof(RegistersUniform), nil, GL_DYNAMIC_STORAGE_BIT)
 
     glGenBuffers(1, addr xfMemory)
     glBindBuffer(GL_UNIFORM_BUFFER, xfMemory)
     glBufferStorage(GL_UNIFORM_BUFFER, sizeof(XfMemoryUniform), nil, GL_DYNAMIC_STORAGE_BIT)
 
-    glGenTextures(1, addr rawXfbTexture)
-    glBindTexture(GL_TEXTURE_2D, rawXfbTexture)
-    # 1024*1024 is the theoretical maximum size of an xfb
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, 1024, 1024)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+    efb = createFramebuffer(640, 528, true)
 
-    glGenTextures(1, addr efbColorBuffer)
-    glBindTexture(GL_TEXTURE_2D, efbColorBuffer)
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 640, 480)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+    rawXfbTexture = createTexture(1024, 1024, 1, texfmtRGBA8)
 
-    glGenTextures(1, addr efbDepthBuffer)
-    glBindTexture(GL_TEXTURE_2D, efbDepthBuffer)
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, 640, 480)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+    fullscreenQuadVtxShader = compileShader(shaderStageVertex, fullscreenQuadVtxShaderSource)
+    fullscreenQuadFragShader = compileShader(shaderStageFragment, fullscreenQuadFragShaderSource)
 
-    glGenFramebuffers(1, addr efb)
-    glBindFramebuffer(GL_FRAMEBUFFER, efb)
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, efbColorBuffer, 0)
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, efbDepthBuffer, 0)
-    assert glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE
+    metaRenderstate = RenderState(
+        vertexShader: fullscreenQuadVtxShader,
+        fragmentShader: fullscreenQuadFragShader,
+        viewport: (0'i32, 0'i32, 640'i32, 480'i32)) # bah
 
-    quadGeometryShader = internalShaderCompile(shaderStageGeometry, quadGeometryShaderSource)
+    flipperRenderstate = RenderState(
+        viewport: (0'i32, 0'i32, 640'i32, 528'i32),
+        framebuffer: efb)
 
-    fullscreenQuadVtxShader = internalShaderCompile(shaderStageVertex, fullscreenQuadVtxShaderSource)
-    fullscreenQuadFragShader = internalShaderCompile(shaderStageFragment, fullscreenQuadFragShaderSource)
-
-    glGenProgramPipelines(1, addr metaShaderPipeline)
-    glUseProgramStages(metaShaderPipeline, GL_VERTEX_SHADER_BIT, fullscreenQuadVtxShader)
-    glUseProgramStages(metaShaderPipeline, GL_FRAGMENT_SHADER_BIT, fullscreenQuadFragShader)
-
-    ensureRenderstate true
+    clearRenderstate = RenderState(
+        enable: {enableDepthWrite},
+        framebuffer: efb)
 
 proc bindShader*(vertex, fragment: NativeShader) =
-    glUseProgramStages(flipperShaderPipeline, GL_VERTEX_SHADER_BIT, OGLVertexShader(vertex).handle)
-    glUseProgramStages(flipperShaderPipeline, GL_FRAGMENT_SHADER_BIT, OGLFragmentShader(fragment).handle)
+    flipperRenderstate.vertexShader = vertex
+    flipperRenderstate.fragmentShader = fragment
 
-    glBindBufferRange(GL_UNIFORM_BUFFER, 0, xfRegisters, 0, sizeof(XfRegistersUniform))
+    glBindBufferRange(GL_UNIFORM_BUFFER, 0, registerUniform, 0, sizeof(RegistersUniform))
     glBindBufferRange(GL_UNIFORM_BUFFER, 1, xfMemory, 0, sizeof(XfMemoryUniform))
 
 proc uploadXfMemory*(data: XfMemoryUniform) =
     glBindBuffer(GL_UNIFORM_BUFFER, xfMemory)
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(XfMemoryUniform), unsafeAddr data)
-proc uploadXfRegisters*(data: XfRegistersUniform) =
-    glBindBuffer(GL_UNIFORM_BUFFER, xfRegisters)
-    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(XfRegistersUniform), unsafeAddr data)
+proc uploadRegisters*(data: RegistersUniform) =
+    glBindBuffer(GL_UNIFORM_BUFFER, registerUniform)
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(RegistersUniform), unsafeAddr data)
 
 proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
-    ensureRenderstate false
-    glReadPixels(GLint x, GLint(480 - (y + height)), GLsizei width, GLsizei height, GL_RGBA, GL_UNSIGNED_BYTE, addr data[0])
+    applyRenderstate flipperRenderstate, framebufferOnly = true
+    glReadPixels(GLint x, GLint(528 - (y + height)), GLsizei width, GLsizei height, GL_RGBA, GL_UNSIGNED_BYTE, addr data[0])
 
 proc clear*(r, g, b, a: uint8, depth: uint32) =
+    applyRenderstate clearRenderstate, framebufferOnly = true
     glClearDepth(float(depth) / float((1'u32 shl 24) - 1))
     glClearColor(float32(r) / 255, float32(g) / 255, float32(b) / 255, float32(a) / 255)
     glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
-proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArray[byte]) =
-    ensureRenderstate false
+proc setViewport*(x, y, w, h: int32) =
+    flipperRenderstate.viewport = (x, 528 - (y + h), w, h)
+proc setScissor*(enable: bool, x, y, w, h: int32) =
+    flipperRenderstate.scissorBox = (x, 528 - (y + h), w, h)
+    flipperRenderstate.enable.excl enableScissor
+    if enable: flipperRenderstate.enable.incl enableScissor
+proc setZMode*(enable: bool, fun: CompareFunction, update: bool) =
+    flipperRenderstate.depthFunc = fun
+    flipperRenderstate.enable.excl enableDepthTest
+    if enable: flipperRenderstate.enable.incl enableDepthTest
+    flipperRenderstate.enable.excl enableDepthWrite
+    if update: flipperRenderstate.enable.incl enableDepthWrite
+proc bindTexture*(unit: int, texture: NativeTexture) =
+    flipperRenderstate.textures[unit] = texture
+proc setBlendState*(enable: bool, op: BlendOp, srcFactor, dstFactor: BlendFactor) =
+    flipperRenderstate.enable.excl enableBlending
+    if enable: flipperRenderstate.enable.incl enableBlending
+    flipperRenderstate.blendOp = op
+    flipperRenderstate.blendSrcFactor = srcFactor
+    flipperRenderstate.blendDstFactor = dstFactor
+proc setCullFace*(mode: CullFace) =
+    if mode == cullNone:
+        flipperRenderstate.enable.excl enableCulling
+    else:    
+        flipperRenderstate.enable.incl enableCulling
+        flipperRenderstate.cullface = mode
 
-    if kind == primitiveQuads and lastPrimitve != primitiveQuads:
-        glUseProgramStages(flipperShaderPipeline, GL_GEOMETRY_SHADER_BIT, quadGeometryShader)
-    elif kind != primitiveQuads and lastPrimitve == primitiveQuads:
-        glUseProgramStages(flipperShaderPipeline, GL_GEOMETRY_SHADER_BIT, 0)
-    lastPrimitve = kind
+proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArray[byte]) =
+    if kind in {primitiveQuads, primitiveQuads2}:
+        flipperRenderstate.geometryShader = quadGeometryShader
+    else:
+        flipperRenderstate.geometryShader = nil
+    applyRenderstate(flipperRenderstate, false, proc() = discard)
+    curBatchPrimitive = kind
 
     if fmt != curBoundFormat:
         let
@@ -298,7 +535,7 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
             for i in numEnabled..<numToEnable:
                 glEnableVertexAttribArray(GLuint i)
 
-        glBindVertexBuffer(0, vtxBuffer, curWriteBufferOffset + curWriteBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
+        glBindVertexBuffer(0, vtxBuffer, curVtxBufferOffset + curVtxBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
 
         var attribIdx = GLuint 0
         template doCoord(attr, tripple): untyped =
@@ -306,60 +543,99 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
             glVertexAttribBinding(attribIdx, 0)
             attribIdx += 1
         template doColor(attr): untyped =
-            glVertexAttribFormat(attribIdx, 4, GL_UNSIGNED_BYTE, GL_TRUE, GLuint(fmt.attrOffsets[attr]))
+            if attr in fmt.enabledAttrs:
+                glVertexAttribFormat(attribIdx, 4, GL_UNSIGNED_BYTE, GL_TRUE, GLuint(fmt.attrOffsets[attr]))
+                glVertexAttribBinding(attribIdx, 0)
+                attribIdx += 1
+        template doTexcoord(attr, double): untyped =
+            if attr in fmt.enabledAttrs:
+                glVertexAttribFormat(attribIdx, GLint(if double in fmt.attrSizes: 2 else: 1), cGL_FLOAT, GL_FALSE, GLuint(fmt.attrOffsets[attr]))
+                glVertexAttribBinding(attribIdx, 0)
+                attribIdx += 1
+        doCoord(vtxAttrPosition, vtxAttrPosition3)
+        if vtxAttrNormal in fmt.enabledAttrs:
+            glVertexAttribFormat(attribIdx, 3, cGL_FLOAT, GL_FALSE, GLuint(fmt.attrOffsets[vtxAttrNormal]))
             glVertexAttribBinding(attribIdx, 0)
             attribIdx += 1
-        doCoord(vtxAttrPosition, vtxAttrPosition3)
-        doColor(vtxAttrColor0)
-        doColor(vtxAttrColor1)
+            if vtxAttrNormalNBT in fmt.attrSizes:
+                glVertexAttribFormat(attribIdx, 3, cGL_FLOAT, GL_FALSE, GLuint(fmt.attrOffsets[vtxAttrNormal] + 3*4))
+                glVertexAttribBinding(attribIdx, 0)
+                attribIdx += 1
+                glVertexAttribFormat(attribIdx, 3, cGL_FLOAT, GL_FALSE, GLuint(fmt.attrOffsets[vtxAttrNormal] + 6*4))
+                glVertexAttribBinding(attribIdx, 0)
+                attribIdx += 1
+        for i in 0..<2:
+            doColor(vtxAttrColor0.succ(i))
+        for i in 0..<8:
+            doTexcoord(vtxAttrTexCoord0.succ(i), vtxAttrTexCoord0ST.succ(i))
 
         curBoundFormat = fmt
         formatVertexOffset = 0
 
-    if curWriteBufferOffset + data.len > VertexBufferSegmentSize:
-        vtxBufferLocks[curWriteBufferIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, GLbitfield 0)
-        curWriteBufferIdx += 1
-        if curWriteBufferIdx >= 3: curWriteBufferIdx = 0
-        curWriteBufferOffset = 0
-        if pointer(vtxBufferLocks[curWriteBufferIdx]) != nil:
-            glWaitSync(vtxBufferLocks[curWriteBufferIdx], GLbitfield 0, GL_TIMEOUT_IGNORED)
-            glDeleteSync(vtxBufferLocks[curWriteBufferIdx])
-        
+    if curVtxBufferOffset + data.len > VertexBufferSegmentSize:
+        vtxBufferLocks[curVtxBufferIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, GLbitfield 0)
+        curVtxBufferIdx += 1
+        if curVtxBufferIdx >= VertexBufferSegments: curVtxBufferIdx = 0
+        curVtxBufferOffset = 0
+        if pointer(vtxBufferLocks[curVtxBufferIdx]) != nil:
+            discard glClientWaitSync(vtxBufferLocks[curVtxBufferIdx], GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED)
+            glDeleteSync(vtxBufferLocks[curVtxBufferIdx])
+            vtxBufferLocks[curVtxBufferIdx] = nil
+
         formatVertexOffset = 0
-        glBindVertexBuffer(0, vtxBuffer, curWriteBufferOffset + curWriteBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
+        glBindVertexBuffer(0, vtxBuffer, curVtxBufferOffset + curVtxBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
 
-    copyMem(cast[pointer](cast[ByteAddress](vtxBufferPtr[curWriteBufferIdx]) + curWriteBufferOffset), unsafeAddr data[0], data.len)
-    curWriteBufferOffset += data.len
+    copyMem(cast[pointer](cast[ByteAddress](vtxBufferPtr) + VertexBufferSegmentSize * curVtxBufferIdx + curVtxBufferOffset),
+        unsafeAddr data[0],
+        data.len)
+    curVtxBufferOffset += data.len
 
-    glDrawArrays(case kind
-        of primitiveTriangles: GL_TRIANGLES
-        of primitiveQuads, primitiveQuads2: GL_LINES_ADJACENCY
-        of primitiveTriangleStrips: GL_TRIANGLE_STRIP
-        of primitiveTriangleFan: GL_TRIANGLE_FAN
-        of primitivePoints: GL_POINTS
-        of primitiveLines: GL_LINES
-        of primitiveLineStrip: GL_LINE_STRIP,
-        GLint formatVertexOffset,
-        GLsizei count)
+    if kind in {primitiveQuads, primitiveQuads2}:
+        if curIdxBufferOffset + (count div 4) * 5 * 4 > VertexBufferSegmentSize:
+            idxBufferLocks[curIdxBufferIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, GLbitfield 0)
+            curIdxBufferIdx += 1
+            if curIdxBufferIdx >= VertexBufferSegments: curIdxBufferIdx = 0
+            curIdxBufferOffset = 0
+            if pointer(idxBufferLocks[curIdxBufferIdx]) != nil:
+                discard glClientWaitSync(idxBufferLocks[curIdxBufferIdx], GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED)
+                glDeleteSync(idxBufferLocks[curIdxBufferIdx])
+                idxBufferLocks[curIdxBufferIdx] = nil
+
+        let
+            indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset
+            indicesCount = generateQuadIndices(cast[ptr UncheckedArray[uint32]](cast[ByteAddress](idxBufferPtr) + indexBufferOffset), count)
+        curIdxBufferOffset += indicesCount*4
+
+        glDrawElementsBaseVertex(GL_TRIANGLE_STRIP, GLsizei indicesCount, GL_UNSIGNED_INT, cast[pointer](indexBufferOffset), GLint formatVertexOffset)
+    else:
+        glDrawArrays(case kind
+            of primitiveTriangles: GL_TRIANGLES
+            of primitiveTriangleStrips: GL_TRIANGLE_STRIP
+            of primitiveTriangleFan: GL_TRIANGLE_FAN
+            of primitivePoints: GL_POINTS
+            of primitiveLines: GL_LINES
+            of primitiveLineStrip: GL_LINE_STRIP
+            else: raiseAssert("can't happen"),
+            GLint formatVertexOffset,
+            GLsizei count)
 
     formatVertexOffset += count
+    curBatchVerticesCount += count
 
 proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
-    ensureRenderstate true
+    uploadTexture(rawXfbTexture, 0, 0, 0, width, height, width, unsafeAddr pixelData[0])
+
+    metaRenderstate.textures[0] = rawXfbTexture
+    applyRenderstate metaRenderstate
 
     glClear(GL_COLOR_BUFFER_BIT)
 
-    glActiveTexture(GL_TEXTURE0)
-    glBindTexture(GL_TEXTURE2D, rawXfbTexture)
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GLsizei width, GLsizei height, GL_RGBA, GL_UNSIGNED_BYTE, unsafeAddr pixelData[0])
-
-    # urgh those uniforms neeed to be cached
-    glProgramUniform2f(fullscreenQuadVtxShader, glGetUniformLocation(fullscreenQuadVtxShader, "PositionScale"), 1f, 1f)
-    glProgramUniform2f(fullscreenQuadVtxShader, glGetUniformLocation(fullscreenQuadVtxShader, "TexcoordScale"), float32(width) / 1024f, float32(height) / 1024f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionScale, 1f, 1f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordScale, float32(width) / 1024f, float32(height) / 1024f)
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
 proc presentBlankFrame*() =
-    ensureRenderstate true
+    applyRenderstate metaRenderstate
 
     glClear(GL_COLOR_BUFFER_BIT)

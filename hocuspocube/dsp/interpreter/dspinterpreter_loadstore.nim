@@ -1,29 +1,47 @@
 import
     ../dspstate, ../dsp, ../../util/aluhelper,
-    dspinterpreter_aux
+    dspinterpreter_aux,
+    strformat
 
 using state: var DspState
 
-proc lr*(state; d: uint32) =
-    writeReg d, dataRead(fetchFollowingImm)
+proc pld*(state; d, m, r: uint16) =
+    state.loadAccum int d, instrRead(adrReg(int r))
+    state.loadStoreAdrInc(m, int r)
 
-proc lrri*(state; s, d: uint32) =
-    writeReg d, dataRead(addrReg s)
-    (addrReg s) += 1
+proc ld*(state; m, r, d: uint16) =
+    state.writeReg(DspReg d, dataRead(adrReg(int r)))
+    state.loadStoreAdrInc(m, int r)
 
-proc srri*(state; d, s: uint32) =
-    dataWrite addrReg(d), readReg(s)
-    (addrReg d) += 1
+proc st*(state; m, r, s: uint16) =
+    dataWrite(adrReg(int r), state.readReg(DspReg s))
+    state.loadStoreAdrInc(m, int r)
 
-proc sr*(state; s: uint32) =
-    dataWrite fetchFollowingImm, readReg(s)
+proc ldsa*(state; d, a: uint16) =
+    let val = dataRead(state.dppAdr(a))
+    if d < 6:
+        state.writeReg(dspRegX0.succ(int d), val)
+    else:
+        state.loadAccum(int d - 6, val)
 
-proc si*(state; m: uint32) =
-    dataWrite signExtend(uint16(m), 8), fetchFollowingImm
+proc stsa*(state; s, a: uint16) =
+    let val = case range[0..7](s)
+        of 0..1: state.readReg(dspRegA2.succ(int s))
+        of 2..3: 0'u16
+        of 4..5: state.readReg(dspRegA0.succ(int s - 4))
+        of 6..7: state.storeAccum(int s - 6)
+    echo &"storing {val:04X} ({s} {state.status.xl}) to {state.dppAdr(a):04X}"
+    dataWrite(state.dppAdr(a), val)
 
-proc ilrr*(state; acD, arS: uint32) =
-    midAccum(acD) = instrRead(addrReg arS)
+proc ldla*(state; d: uint16) =
+    let adr = fetchFollowingImm
+    state.writeReg(DspReg d, dataRead(adr))
 
-proc ilrri*(state; acD, arS: uint32) =
-    midAccum(acD) = instrRead(addrReg arS)
-    (addrReg arS) += 1
+proc stla*(state; s: uint16) =
+    let adr = fetchFollowingImm
+    dataWrite(adr, state.readReg(DspReg s))
+
+proc stli*(state; a: uint16) =
+    let imm = fetchFollowingImm
+    dataWrite(a or 0xFF00'u16, imm)
+

@@ -3,24 +3,62 @@ import
 
 # refer to https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/Core/DSP/DSPCore.h#L181
 makeBitStruct uint16, *Status:
-    ca[0]: bool
-    ov[1]: bool
-    zr[2]: bool
-    mi[3]: bool
+    ca[0]: bool # carry
+    ov[1]: bool # overflow
+    zr[2]: bool # zero
+    mi[3]: bool # negative
 
-    overs32[4]: bool
-    top2bits[5]: bool
+    ext[4]: bool
+    unnorm[5]: bool
 
-    lz[6]: bool
-    ovSticky[7]: bool
+    bit[n, n]: bool
+    tb[6]: bool
+    sv[7]: bool
 
-    ie[9]: bool
+    te0[8]: bool
+    te1[9]: bool
+    te2[10]: bool
+    te3[11]: bool
+    et[12]: bool
 
-    ieExt[11]: bool
+    im[13]: bool
+    xl[14]: bool
+    dp[15]: bool
 
-    am[13]: bool # TODO: Dolphin and duddie disagree on this one, check this
-    mode40bit[14]: bool
-    mulUnsigned[15]: bool
+type
+    DspReg* = enum
+        dspRegAdr0
+        dspRegAdr1
+        dspRegAdr2
+        dspRegAdr3
+        dspRegInc0
+        dspRegInc1
+        dspRegInc2
+        dspRegInc3
+        dspRegWrap0
+        dspRegWrap1
+        dspRegWrap2
+        dspRegWrap3,
+        dspRegCallStack
+        dspRegStatusStack
+        dspRegLoopAdrStack
+        dspRegLoopCountStack
+        dspRegA2
+        dspRegB2
+        dspRegDpp
+        dspRegStatus
+        dspRegPs0
+        dspRegPs1
+        dspRegPs2
+        dspRegPc1
+        dspRegX0
+        dspRegY0
+        dspRegX1
+        dspRegY1
+        dspRegA0
+        dspRegB0
+        dspRegA1
+        dspRegB1
 
 type
     Stack*[Size: static[int]] = object
@@ -28,7 +66,7 @@ type
         values: array[Size, uint16]
 
     DspState* = object
-        r*: array[32, uint16]
+        r*: array[DspReg, uint16]
 
         config*, pc*: uint16
         status*: Status
@@ -55,5 +93,5 @@ proc push*[Size: static[int]](stack: var Stack[Size], val: uint16) =
     stack.sp += 1
 
 proc pop*[Size: static[int]](stack: var Stack[Size]): uint16 =
-    result = stack.values[stack.sp]
     stack.sp -= 1
+    result = stack.values[stack.sp]

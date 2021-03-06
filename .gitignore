@@ -2,6 +2,10 @@
 *.exe
 *.out
 
+*.bin
+
 # Logs and test files
 miauz
 *.dol
+
+settings.ini

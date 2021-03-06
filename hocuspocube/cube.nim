@@ -1,6 +1,6 @@
 import
     streams, strformat,
-    gecko/[interpreter/ppcinterpreter, gecko],
+    gecko/[interpreter/ppcinterpreter, gecko, ppcstate],
     dsp/interpreter/dspinterpreter,
     flipper/[rasterinterface, cp],
     util/dolfile,
@@ -19,6 +19,10 @@ proc loadDol*(input: Stream) =
         writeSection section
 
     geckoState.pc = file.entrypoint - 0x80000000'u32
+
+proc boot*() =
+    geckoState.msr.ip = true
+    geckoState.pendingExceptions.incl exceptionSystemReset
 
 proc run*() =
     rasterinterface.init()

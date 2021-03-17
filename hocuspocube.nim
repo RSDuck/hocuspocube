@@ -12,7 +12,7 @@ initFrontend()
 
 let cfg = loadConfig("settings.ini")
 
-loadIpl cfg.getSectionValue("General", "IPLPath")
+loadIplSram cfg.getSectionValue("General", "IPLPath"), cfg.getSectionValue("General", "SRAMPath")
 
 setupDspRom cfg.getSectionValue("General", "DSPIROMPath"), cfg.getSectionValue("General", "DSPDROMPath")
 

@@ -108,7 +108,10 @@ type
         native: NativeTexture
         dataSize: uint32
         invalid: bool
-var textures: Table[TextureKey, TextureCacheEntry]
+var
+    textures: Table[TextureKey, TextureCacheEntry]
+
+    samplers: array[8, NativeSampler]
 
 proc hash(key: TextureKey): Hash =
     result = result !& hash(key.width)
@@ -123,8 +126,11 @@ proc getTargetFmt(fmt: TxTextureFmt): TextureFormat =
     of txTexfmtI4, txTexfmtI8: texfmtI8
     else: raiseAssert(&"texfmt {fmt} not supported yet!")
 
+proc setupSampler*(n: int) =
+    discard
+
 proc setupTexture*(n: int) =
-    let 
+    let
         texmap = texMaps[n]
         key = TextureKey(
             fmt: texmap.setImage0.fmt,
@@ -132,8 +138,8 @@ proc setupTexture*(n: int) =
             height: texmap.height,
             adr: texmap.adr)
 
-    #echo "setup texture"
-    
+    echo "setup texture"
+
     assert(not texmap.setImage1.preloaded)
 
     var texture: TextureCacheEntry
@@ -175,9 +181,9 @@ proc setupTexture*(n: int) =
             nil]
         const targetFmtPixelSize: array[TextureFormat, byte] = [1'u8, 2, 4, 2, 2, 3]
 
-        let (_, roundedWidth, _) = calculateTexSize(key.fmt, key.width, key.height, 1)
+        let (_, roundedWidth, roundedHeight) = calculateTexSize(key.fmt, key.width, key.height, 1)
 
-        var data = newSeq[byte](key.width*key.height*uint32(targetFmtPixelSize[getTargetFmt(key.fmt)]))
+        var data = newSeq[byte](roundedWidth*roundedHeight*uint32(targetFmtPixelSize[getTargetFmt(key.fmt)]))
         decodingFuncs[key.fmt](cast[ptr UncheckedArray[byte]](addr data[0]),
             cast[ptr UncheckedArray[byte]](addr MainRAM[texmap.adr]),
             int(key.width), int(key.height))

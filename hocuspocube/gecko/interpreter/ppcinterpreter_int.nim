@@ -19,7 +19,7 @@ proc addx*(state; d, a, b, oe, rc: uint32) =
     r(d) = r(a) + r(b)
 
     handleRc d
-    
+
 proc addcx*(state; d, a, b, oe, rc: uint32) =
     if oe != 0:
         state.xer.ov = overflowAdd(r(a), r(b))

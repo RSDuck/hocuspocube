@@ -1,4 +1,5 @@
 import
+    bitops, stew/bitops2,
     ../dspstate, ../dsp,
     ../../util/aluhelper,
     dspinterpreter_aux,
@@ -16,37 +17,70 @@ proc mr*(state; m, r: uint16) =
     of 3: state.writeReg dspRegAdr0.succ(r), decAdr(adrReg(r), wrapReg(r), cast[int16](incReg(r)))
     of 4..7: state.writeReg dspRegAdr0.succ(r), incAdr(adrReg(r), wrapReg(r), cast[int16](incReg(int m - 4)))
 
-proc adsi*(state; d, i: uint16) =
-    raiseAssert "unimplemented dsp instr"
-
-proc adli*(state; d: uint16) =
+template addAccumOp(accumReg, addend: untyped, parallel: untyped): untyped =
     let
-        imm = int64(fetchFollowingImm) shl 16
+        addendVal = addend
+        accum = state.readAccum(accumReg)
+        sum = accum + addendVal
 
-        accum = state.readAccum(int d)
-        sum = accum + imm
+    parallel
 
-    state.writeAccum(int d, sum)
-    state.setC1(cast[uint64](accum), cast[uint64](imm))
-    state.setV1(cast[uint64](sum), cast[uint64](accum), cast[uint64](imm))
+    state.writeAccum(accumReg, cast[int64](sum))
+    state.setC1(cast[uint64](accum), cast[uint64](addendVal))
+    state.setV1(cast[uint64](sum), cast[uint64](accum), cast[uint64](addendVal))
     state.setZ1(cast[uint64](sum))
     state.setN1(cast[uint64](sum))
     state.setE1(cast[uint64](sum))
     state.setU1(cast[uint64](sum))
 
+proc adsi*(state; d, i: uint16) =
+    addAccumOp(int d, cast[int64](signExtend(uint64(i), 8))):
+        discard
+
+proc adli*(state; d: uint16) =
+    addAccumOp(int d, int64(cast[int16](fetchFollowingImm)) shl 16):
+        discard
+
 proc cmpsi*(state; s, i: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        subtrahend = cast[int64](signExtend(uint64(i), 8))
+        accum = state.readAccum(int s)
+        diff = accum - subtrahend
+
+    state.setC2(cast[uint64](accum), cast[uint64](subtrahend))
+    state.setV2(cast[uint64](diff), cast[uint64](accum), cast[uint64](subtrahend))
+    state.setZ1(cast[uint64](diff))
+    state.setN1(cast[uint64](diff))
+    state.setE1(cast[uint64](diff))
+    state.setU1(cast[uint64](diff))
 
 proc cmpli*(state; s: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        imm = int64(fetchFollowingImm) shl 16
 
-proc lsfi*(state; d, i: uint16) =
-    let 
-        shift = cast[int16](signExtend(i, 7))
-        val = (if shift < 0:
-            state.readAccum(int d) shr -shift
-        else:
-            state.readAccum(int d) shl shift)
+        a = state.readAccum(int s)
+        diff = a - imm
+
+    state.setC2(cast[uint64](a), cast[uint64](imm))
+    state.setV2(cast[uint64](diff), cast[uint64](a), cast[uint64](imm))
+    state.setZ1(cast[uint64](diff))
+    state.setN1(cast[uint64](diff))
+    state.setE1(cast[uint64](diff))
+    state.setU1(cast[uint64](diff))
+
+template shiftOp(logical, shift: untyped, parallel: untyped): untyped =
+    let
+        shiftAmount = shift
+        val =
+            if shiftAmount < 0:
+                if logical:
+                    state.readAccum(int d) shr -shiftAmount
+                else:
+                    cast[int64](cast[uint64](state.readAccum(int d)) shr -shiftAmount)
+            else:
+                (state.readAccum(int d) shl shiftAmount)
+
+    parallel
 
     state.writeAccum(int d, val)
 
@@ -57,16 +91,20 @@ proc lsfi*(state; d, i: uint16) =
     state.setE1(cast[uint64](val))
     state.setU1(cast[uint64](val))
 
+
+proc lsfi*(state; d, i: uint16) =
+    shiftOp(true, cast[int16](signExtend(i, 7))):
+        discard
+
 proc asfi*(state; d, i: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(false, cast[int16](signExtend(i, 7))):
+        discard
 
-proc xorli*(state; d: uint16) =
-    raiseAssert "unimplemented dsp instr"
-
-proc anli*(state; d: uint16) =
+template logicLongImmOp(doOp: untyped) =
     let
-        mask = fetchFollowingImm
-        val = state.readReg(dspRegA1.succ(int d)) and mask
+        imm {.inject.} = fetchFollowingImm
+        reg {.inject.} = state.readReg(dspRegA1.succ(int d))
+        val = doOp
 
     state.writeReg(dspRegA1.succ(int d), val)
 
@@ -77,8 +115,14 @@ proc anli*(state; d: uint16) =
     state.setE1(state.readReg(dspRegA2.succ(int d)))
     state.setU1(val)
 
+proc xorli*(state; d: uint16) =
+    logicLongImmOp(reg xor imm)
+
+proc anli*(state; d: uint16) =
+    logicLongImmOp(reg and imm)
+
 proc orli*(state; d: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    logicLongImmOp(reg or imm)
 
 proc norm*(state; d, r: uint16) =
     raiseAssert "unimplemented dsp instr"
@@ -98,17 +142,21 @@ proc negc*(state; d: uint16) =
 proc max*(state; d, s: uint16) =
     raiseAssert "unimplemented dsp instr"
 
-proc lfs*(state; d, s: uint16) =
-    raiseAssert "unimplemented dsp instr"
+proc lsfn*(state; d, s: uint16) =
+    shiftOp(true, -cast[int16](state.readReg(dspRegX1.succ(int s)))):
+        discard
 
-proc lfs2*(state; d: uint16) =
-    raiseAssert "unimplemented dsp instr"
+proc lsfn2*(state; d: uint16) =
+    shiftOp(true, -cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+        discard
 
-proc asf*(state; d, s: uint16) =
-    raiseAssert "unimplemented dsp instr"
+proc asfn*(state; d, s: uint16) =
+    shiftOp(false, -cast[int16](state.readReg(dspRegX1.succ(int s)))):
+        discard
 
-proc asf2*(state; d: uint16) =
-    raiseAssert "unimplemented dsp instr"
+proc asfn2*(state; d: uint16) =
+    shiftOp(false, -cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+        discard
 
 proc mv*(state; d, s: uint16) =
     state.writeReg DspReg(d), state.r[DspReg(s)]
@@ -137,27 +185,16 @@ proc btsth*(state; d: uint16) =
     state.status.tb = (state.readReg(dspRegA1.succ(int d)) and mask) == mask
 
 proc add*(state; s, d, x: uint16) =
-    let
-        addend = case range[0..7](s)
+    addAccumOp(int d, case range[0..7](s)
             of 0..3: int64(state.readReg(dspRegX0.succ(int s))) shl 16
             of 4..5: state.readAuxAccum(int s - 4)
             of 6: state.readAccum((int s - 6) xor 1)
-            of 7: state.readProduct()
-        accum = state.readAccum(int d)
-        sum = addend + accum
-
-    state.dispatchSecondary(x)
-
-    state.writeAccum(int d, sum)
-    state.setC1(cast[uint64](accum), cast[uint64](addend))
-    state.setV1(cast[uint64](sum), cast[uint64](accum), cast[uint64](addend))
-    state.setZ1(cast[uint64](sum))
-    state.setN1(cast[uint64](sum))
-    state.setE1(cast[uint64](sum))
-    state.setU1(cast[uint64](sum))
+            of 7: state.readProduct()):
+        state.dispatchSecondary(x)
 
 proc addl*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    addAccumOp(int d, int64(state.readReg(dspRegX0.succ(int s)))):
+        state.dispatchSecondary(x)
 
 proc sub*(state; s, d, x: uint16) =
     let
@@ -180,19 +217,45 @@ proc sub*(state; s, d, x: uint16) =
     state.setU1(cast[uint64](diff))
 
 proc amv*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        val = case range[0..7](s)
+            of 0..3: int64(state.readReg(dspRegX0.succ(int s)))
+            of 4..5: int64(state.readAuxAccum(int s - 4))
+            of 6: state.readAccum(int d xor 1)
+            of 7: state.readProduct()
+    state.dispatchSecondary(x)
+
+    state.writeAccum(int d, val)
+    state.status.ca = false
+    state.status.ov = false
+    state.setZ1(cast[uint64](val))
+    state.setN1(cast[uint64](val))
+    state.setE1(cast[uint64](val))
+    state.setU1(cast[uint64](val))
 
 proc cmp*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        a = state.readAccum(int d)
+        b = int64(cast[int16](state.readReg(dspRegX1.succ(int s)))) shl 16
+        diff = a - b
+
+    state.dispatchSecondary(x)
+
+    state.setC2(cast[uint64](a), cast[uint64](b))
+    state.setV2(cast[uint64](diff), cast[uint64](a), cast[uint64](b))
+    state.setZ1(cast[uint64](diff))
+    state.setN1(cast[uint64](diff))
+    state.setE1(cast[uint64](diff))
+    state.setU1(cast[uint64](diff))
 
 proc cmpa*(state; x: uint16) =
     let
         a = state.readAccum(0)
         b = state.readAccum(1)
+        diff = a - b
 
     state.dispatchSecondary(x)
 
-    let diff = a - b
     state.setC2(cast[uint64](a), cast[uint64](b))
     state.setV2(cast[uint64](diff), cast[uint64](a), cast[uint64](b))
     state.setZ1(cast[uint64](diff))
@@ -202,21 +265,49 @@ proc cmpa*(state; x: uint16) =
     echo &"comparing {a:04X} by {b:04X} {diff:04X} {state.status.ca} {state.status.ov} {state.status.zr} {state.status.mi} {state.status.ext} {state.status.unnorm}"
 
 proc inc*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    addAccumOp(int(d.getBit(0)), if d.getBit(1): 0x10000 else: 1):
+        state.dispatchSecondary(x)
 
 proc dec*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        accum = state.readAccum(int(d.getBit(0)))
+        subtrahend = if d.getBit(1): 0x10000 else: 1
+        diff = accum - subtrahend
+
+    state.dispatchSecondary(x)
+
+    state.setC2(cast[uint64](accum), cast[uint64](subtrahend))
+    state.setV2(cast[uint64](diff), cast[uint64](accum), cast[uint64](subtrahend))
+    state.setZ1(cast[uint64](diff))
+    state.setN1(cast[uint64](diff))
+    state.setE1(cast[uint64](diff))
+    state.setU1(cast[uint64](diff))
+    state.writeAccum(int(d.getBit(0)), diff)
 
 proc abs*(state; d, x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
 proc neg*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        accum = state.readAccum(int d)
+        diff = 0 - accum
+
+    state.dispatchSecondary(x)
+
+    state.setC2(0'u64, cast[uint64](accum))
+    state.setV2(cast[uint64](diff), 0'u64, cast[uint64](accum))
+    state.setZ1(cast[uint64](diff))
+    state.setN1(cast[uint64](diff))
+    state.setE1(cast[uint64](diff))
+    state.setU1(cast[uint64](diff))
+    state.writeAccum(int d, diff)
 
 proc negp*(state; d, x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
 proc clra*(state; d, x: uint16) =
+    state.dispatchSecondary(x)
+
     state.writeAccum int(d), 0
     state.status.ca = false
     state.status.ov = false
@@ -226,13 +317,28 @@ proc clra*(state; d, x: uint16) =
     state.status.unnorm = false
 
 proc clrp*(state; x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    state.dispatchSecondary(x)
+
+    state.writeProduct(0)
 
 proc rnd*(state; d, x: uint16) =
     raiseAssert &"unimplemented dsp instr {state.pc:04X}"
 
 proc rndp*(state; d, x: uint16) =
-    raiseAssert &"unimplemented dsp instr {state.pc:04X}"
+    var prod = state.readProduct()
+    if (prod and 0xFFFF) > 0x8000 or ((prod and 0xFFFF) == 0x8000 and (prod and 0x10000) == 0x10000):
+        prod += 0x10000
+    prod.clearMask(0xFFFF'i64)
+    state.dispatchSecondary(x)
+
+    # carry and overflow are weird in this, needs some investigation
+    state.setC7(cast[uint64](prod), cast[uint64](state.readAccum(int d)))
+    state.setV6(cast[uint64](prod), cast[uint64](state.readAccum(int d)))
+    state.setZ1(cast[uint64](prod))
+    state.setN1(cast[uint64](prod))
+    state.setE1(cast[uint64](prod))
+    state.setU1(cast[uint64](prod))
+    state.writeAccum(int d, prod)
 
 proc tst*(state; s, x: uint16) =
     let accum = state.readAccum(int s)
@@ -247,7 +353,16 @@ proc tst*(state; s, x: uint16) =
     state.setU1(cast[uint64](accum))
 
 proc tst2*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let accum = state.readReg(dspRegX1.succ(int s))
+
+    state.dispatchSecondary(x)
+
+    state.status.ca = false
+    state.status.ov = false
+    state.setZ2(accum)
+    state.setN2(accum)
+    state.status.ext = false
+    state.setU1(accum)
 
 proc tstp*(state; x: uint16) =
     raiseAssert "unimplemented dsp instr"
@@ -262,13 +377,27 @@ proc asr16*(state; d, x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
 proc addp*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        prod = cast[int64](signExtend(cast[uint64](state.readProduct()), 32))
+        addend = int64(cast[int32](state.readReg(dspRegX1.succ(int s)) shl 16))
+        sum = prod + addend
+
+    state.dispatchSecondary(x)
+
+    state.setC1(cast[uint64](prod), cast[uint64](addend))
+    state.setV1(cast[uint64](sum), cast[uint64](prod), cast[uint64](addend))
+    state.setZ1(cast[uint64](sum))
+    state.setN1(cast[uint64](sum))
+    state.setE1(cast[uint64](sum))
+    state.setU1(cast[uint64](sum))
+    state.writeAccum(int d, prod)
 
 proc pnop*(state; x: uint16) =
     state.dispatchSecondary(x)
 
 proc clrim*(state; x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    state.dispatchSecondary(x)
+    state.status.im = false
 
 proc clrdp*(state; x: uint16) =
     state.dispatchSecondary(x)
@@ -290,8 +419,31 @@ proc setxl*(state; x: uint16) =
     state.dispatchSecondary(x)
     state.status.xl = true
 
+proc getMulOperands(state; s: uint16): (uint16, uint16, bool, bool) =
+    case range[2..11](s)
+    of 2: (state.readReg(dspRegX1), state.readReg(dspRegX0), false, false)
+    of 3: (state.readReg(dspRegY1), state.readReg(dspRegY0), false, false)
+    of 4: (state.readReg(dspRegX0), state.readReg(dspRegY0), true, true)
+    of 5: (state.readReg(dspRegX0), state.readReg(dspRegY1), true, false)
+    of 6: (state.readReg(dspRegX1), state.readReg(dspRegY0), false, true)
+    of 7: (state.readReg(dspRegX1), state.readReg(dspRegY1), false, false)
+    of 8: (state.readReg(dspRegA1), state.readReg(dspRegX1), false, false)
+    of 9: (state.readReg(dspRegA1), state.readReg(dspRegY1), false, false)
+    of 10: (state.readReg(dspRegB1), state.readReg(dspRegX1), false, false)
+    of 11: (state.readReg(dspRegB1), state.readReg(dspRegY1), false, false)
+
 proc mpy*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        (a, b, aImUnsigned, bImUnsigned) = state.getMulOperands(s)
+
+        aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
+        bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
+
+        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+
+    state.dispatchSecondary(x)
+
+    state.writeProduct(prod)
 
 proc mpy2*(state; x: uint16) =
     raiseAssert "unimplemented dsp instr"
@@ -303,7 +455,15 @@ proc mac2*(state; s, x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
 proc mac3*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        a = int64(cast[int16](state.readReg(dspRegX1.pred(int s))))
+        b = int64(cast[int16](state.readReg(dspRegY1.pred(int s))))
+
+        prod = state.readProduct() + a * (if state.status.im: b * 2 else: b)
+
+    state.dispatchSecondary(x)
+
+    state.writeProduct(prod)
 
 proc macn*(state; s, x: uint16) =
     raiseAssert "unimplemented dsp instr"
@@ -315,16 +475,61 @@ proc macn3*(state; s, x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
 proc mvmpy*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        (a, b, aImUnsigned, bImUnsigned) = state.getMulOperands(s)
+
+        aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
+        bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
+
+        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+
+    state.dispatchSecondary(x)
+
+    state.writeAccum(int d, state.readProduct())
+    state.writeProduct(prod)
 
 proc rnmpy*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        accum = state.readAccum(int d) + state.readProduct()
+
+        (a, b, aImUnsigned, bImUnsigned) = state.getMulOperands(s)
+
+        aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
+        bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
+
+        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+
+    state.dispatchSecondary(x)
+
+    state.writeProduct(prod)
+    state.writeAccum(int d, accum)
 
 proc admpy*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        accum = state.readAccum(int d) + state.readProduct()
+
+        (a, b, aImUnsigned, bImUnsigned) = state.getMulOperands(s)
+
+        aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
+        bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
+
+        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+
+    state.dispatchSecondary(x)
+
+    state.writeProduct(prod)
+    state.writeAccum(int d, accum)
 
 proc nnot*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let inv = not(state.readReg(dspRegA1.succ(int d)))
+    state.dispatchSecondary(x)
+    state.writeReg(dspRegA1.succ(int d), inv)
+    state.status.ca = false
+    state.status.ov = false
+    state.setZ2(inv)
+    state.setN2(inv)
+    state.setE1(inv)
+    state.setU1(inv)
 
 proc xxor*(state; s, d, x: uint16) =
     raiseAssert "unimplemented dsp instr"
@@ -345,13 +550,17 @@ proc oor2*(state; d, x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
 proc lsf*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(true, cast[int16](state.readReg(dspRegX1.succ(int s)))):
+        state.dispatchSecondary(x)
 
 proc lsf2*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(true, cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+        state.dispatchSecondary(x)
 
 proc asf*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(false, cast[int16](state.readReg(dspRegX1.succ(int s)))):
+        state.dispatchSecondary(x)
 
 proc asf2*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(false, cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+        state.dispatchSecondary(x)

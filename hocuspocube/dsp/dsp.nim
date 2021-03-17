@@ -119,6 +119,10 @@ makeBitStruct uint32, DsMa:
     lo[0..15]: uint16
     hi[16..25]: uint16
 
+makeBitStruct uint16, AidLen:
+    play[15] {.mutable.}: bool
+    len[0..14] {.mutable.}: uint32
+
 var
     mDspState*: DspState
 
@@ -136,6 +140,12 @@ var
     arDmaMmAdr, arDmaArAdr: DspDmaAdr
 
     arInfo: ArInfo
+
+    aidMAdr: DspDmaAdr
+    aidLen: AidLen
+    aidCntInit: uint16
+    aidCntInitTimestamp: int64
+    aidDoneEvent = InvalidEventToken
 
     aiCr: AiCr
     aiVr: AiVr
@@ -155,6 +165,8 @@ var
     aram*: array[0x1000000, uint8]
 
 const
+    SamplesPer32byte = 32 div (2*2)
+
     IRamStartAdr* = 0'u16
     IRomStartAdr* = 0x8000'u16
 
@@ -257,6 +269,12 @@ proc dataWrite*(adr, val: uint16) =
         of 0xFFCE: dsma.hi = val
         of 0xFFCF: dsma.loWrite = val
 
+        of 0xFFFB:
+            if (val and 1) != 0:
+                echo "cpu interrupt triggered by dsp"
+                dspCsr.dspint = true
+                updateDspInt()
+
         of 0xFFFC: dspLog "dsp: writing dmb hi"; dmb.hiWrite = val
         of 0xFFFD: dspLog &"dsp: writing dmb lo status {dmb.status}"; dmb.status = true; dmb.lo = val
         else: echo &"unknown dsp data write {adr:04X} {`val`:X} from {mDspState.pc:04X}"
@@ -288,6 +306,52 @@ proc doDspDma(mmPtr: ptr UncheckedArray[byte], transferLines: uint32,
                 copyMem(addr mmPtr[offset], addr aram[aramAdr], 32)
             of dspDmaToAram:
                 copyMem(addr aram[aramAdr], addr mmPtr[offset], 32)
+
+proc curAiSCnt(): uint32 =
+    if aiCr.pstat:
+        result = uint32((geckoTimestamp - aiSCntInitTimestamp) div geckoCyclesPerAiSample) + aiSCntInit
+        #dspLog "current samples ", result, " timestamp: ", geckoTimestamp, " ", aiSCntInitTimestamp
+    else:
+        result = aiSCntInit
+
+proc curAidCnt(): uint16 =
+    let blocksPast = uint16((geckoTimestamp - aidCntInitTimestamp) div ((case aiCr.dfr
+                    of dmaFreq32Khz: geckoCyclesPerSecond div 32_000
+                    of dmaFreq48Khz: geckoCyclesPerSecond div 48_000) * SamplesPer32byte))
+    if blocksPast > aidCntInit:
+        0'u16
+    else:
+        aidCntInit - blocksPast
+
+proc startAid(timestamp: int64) =
+    if aidCntInit > 0:
+        let cycles = int64(aidCntInit * 32 div (2*2)) *
+            (case aiCr.dfr
+                of dmaFreq32Khz: geckoCyclesPerSecond div 32_000
+                of dmaFreq48Khz: geckoCyclesPerSecond div 48_000)
+        dspLog &"playing {aidLen.len * 32 div (2*2)} stereo samples"
+        aidDoneEvent = scheduleEvent(timestamp + cycles, 0, proc(timestamp: int64) =
+            aidCntInitTimestamp = timestamp
+            if aidLen.play:
+                aidCntInit = uint16 aidLen.len
+            else:
+                aidCntInit = 0
+            startAid(timestamp)
+            dspCsr.aidint = true
+            updateDspInt())
+
+proc rescheduleAi(timestamp: int64) =
+    if aiItIntEvent != InvalidEventToken:
+        cancelEvent aiItIntEvent
+
+    let curSample = curAiSCnt()
+    # TODO: what about overflow?
+    if aiCr.pstat and not aiCr.aiintvld and curSample <= aiIt:
+        aiItIntEvent = scheduleEvent(timestamp + geckoCyclesPerAiSample * int64(curSample - aiIt), 0,
+            proc(timestamp: int64) =
+                aiItIntEvent = InvalidEventToken
+                aiCr.aiint = true
+                updateAiInt())
 
 # cpu side memory
 ioBlock dsp, 0x200:
@@ -363,25 +427,20 @@ of arDmaCntLo, 0x2A, 2:
 
         updateDspInt()
 
-proc curAiSCnt(): uint32 =
-    if aiCr.pstat:
-        result = uint32((geckoTimestamp - aiSCntInitTimestamp) div geckoCyclesPerAiSample) + aiSCntInit
-        #dspLog "current samples ", result, " timestamp: ", geckoTimestamp, " ", aiSCntInitTimestamp
-    else:
-        result = aiSCntInit
-
-proc rescheduleAiTimingInt() =
-    if aiItIntEvent != InvalidEventToken:
-        cancelEvent aiItIntEvent
-
-    let curSample = curAiSCnt()
-    # TODO: what about overflow?
-    if aiCr.pstat and not aiCr.aiintvld and curSample <= aiIt:
-        aiItIntEvent = scheduleEvent(geckoTimestamp + geckoCyclesPerAiSample * int64(curSample - aiIt), 0,
-            proc(timestamp: int64) =
-                aiItIntEvent = InvalidEventToken
-                aiCr.aiint = true
-                updateAiInt())
+of aidMAdr, 0x30, 4:
+    read: uint32 aidMAdr
+    write:
+        aidMAdr.adr = val
+of aidLen, 0x36, 2:
+    read: uint16 aidLen
+    write:
+        aidLen.mutable = val
+        dspLog &"writing aidlen {aidLen.play} {aidLen.len}"
+        if aidCntInit == 0 and aidLen.play:
+            aidCntInit = uint16 aidLen.len
+            startAid(geckoTimestamp)
+of aidCnt, 0x3A, 2:
+    read: curAidCnt()
 
 ioBlock ai, 0x20:
 of aiCr, 0x0, 4:
@@ -410,7 +469,7 @@ of aiCr, 0x0, 4:
             aiCr.aiint = false
 
         updateAiInt()
-        rescheduleAiTimingInt()
+        rescheduleAi(geckoTimestamp)
 of aiVr, 0x4, 4:
     read: uint32 aiVr
 of aiSCnt, 0x8, 4:

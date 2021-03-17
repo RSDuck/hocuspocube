@@ -2,7 +2,7 @@ import
     ../ppcstate, ../memory, ../../util/aluhelper,
     ppcinterpreter_aux,
     options, stew/endians2,
-    strformat
+    strformat, math
 
 using state: var PpcState
 
@@ -241,8 +241,6 @@ proc stswx*(state; s, a, b: uint32) =
 template loadDouble: untyped {.dirty.} =
     doMemOp:
         fr(d).double = cast[float64](fromBE state.readMemory[:uint64](adr.get))
-        if state.pc == 0x81374408'u32:
-            echo &"reading {fr(d).double} {cast[uint64](fr(d).double)} {state.r[3]:04X} {state.r[4]:04X} {fr(2).double}"
 
 template loadSingle: untyped {.dirty.} =
     doMemOp:
@@ -259,27 +257,71 @@ template storeSingle: untyped {.dirty.} =
         checkNan(fr(s).ps0)
         state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
 
+# quantisation is a bad approximation for now
+# because I'm too lazy to mess with float guts
+const scaleTable = (proc(): array[64, float32] =
+        for i in 0'u32..<64:
+            # the scale is inverted
+            let exponent = cast[int](signExtend(i, 6))
+
+            if exponent < 0:
+                result[i] = 1f / float32(1 shl -exponent)
+            else:
+                result[i] = float32(1 shl exponent))()
+
+proc dequantise[T](x: T, scale: uint32): float32 =
+    let negScale = (not(scale) + 1) and 0x3F
+    float32(x) * scaleTable[negScale]
+
+proc quantise[T](x: float32, scale: uint32): T =
+    let adjustedVal = x * scaleTable[scale]
+
+    if adjustedVal >= float32(high(T)) or isNaN(x):
+        high(T)
+    elif adjustedVal <= float32(low(T)):
+        low(T)
+    else:
+        T(adjustedVal)
+
+template loadQuant(T: typedesc; U: typedesc): untyped =
+    fr(d).ps0 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get)), state.gqr[i].ldScale)
+    if w == 0:
+        fr(d).ps1 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get + 4)), state.gqr[i].ldScale)
+    else:
+        fr(d).ps1 = 1.0
+
+template storeQuant(T: typedesc, U: typedesc): untyped =
+    state.writeMemory[:U](adr.get, toBE cast[U](quantise[T](float32(fr(s).ps0), state.gqr[i].stScale)))
+    if w == 0:
+        state.writeMemory[:U](adr.get + 4, toBE cast[U](quantise[T](float32(fr(s).ps1), state.gqr[i].stScale)))
+
 template loadQuant: untyped {.dirty.} =
     doMemOp:
-        assert state.gqr[i].ldType == 0, "quantisised load/store integer conversion not implemented"
-
-        fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
-        checkNan(fr(d).ps0)
-        if w == 0:
-            fr(d).ps1 = float64 cast[float32](fromBE state.readMemory[:uint32](adr.get + 4))
-            checkNan(fr(d).ps1)
-        else:
-            fr(d).ps1 = 1.0
+        case state.gqr[i].ldType
+        of gqrFloat:
+            fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
+            if w == 0:
+                fr(d).ps1 = cast[float32](fromBE state.readMemory[:uint32](adr.get + 4))
+            else:
+                fr(d).ps1 = 1.0
+        of gqrU8: loadQuant(uint8, uint8)
+        of gqrU16: loadQuant(uint16, uint16)
+        of gqrS8: loadQuant(int8, uint8)
+        of gqrS16: loadQuant(int16, uint16)
+        else: raiseAssert("undefined gqr type load")
 
 template storeQuant: untyped {.dirty.} =
     doMemOp:
-        assert state.gqr[i].stType == 0, "quantisised load/store integer conversion not implemented"
-
-        checkNan(fr(s).ps0)
-        state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
-        if w == 0:
-            checkNan(fr(s).ps1)
-            state.writeMemory[:uint32](adr.get + 4, toBE cast[uint32](float32(fr(s).ps1)))
+        case state.gqr[i].stType
+        of gqrFloat:
+            state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
+            if w == 0:
+                state.writeMemory[:uint32](adr.get + 4, toBE cast[uint32](float32(fr(s).ps1)))
+        of gqrU8: storeQuant(uint8, uint8)
+        of gqrU16: storeQuant(uint16, uint16)
+        of gqrS8: storeQuant(int8, uint8)
+        of gqrS16: storeQuant(int16, uint16)
+        else: raiseAssert("undefined gqr type store")
 
 proc lfd*(state; d, a, imm: uint32) =
     calcAddrImm false:

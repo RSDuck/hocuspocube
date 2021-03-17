@@ -150,11 +150,15 @@ func setC1*(state; ds, s: uint64) =
 func setC2*(state; ds, s: uint64) =
     state.status.ca = (ds and 0xFF_FFFF_FFFF'u64) >= (s and 0xFF_FFFF_FFFF'u64)
     #state.status.ca = (dd.getBit(39) and not(s.getBit(39))) or (not(dd.getBit(39)) and (ds.getBit(39) or not(s.getBit(39))))
+func setC7*(state; p, d: uint64) =
+    state.status.ca = p.getBit(39) and not(d.getBit(39))
 
 func setV1*(state; dd, ds, s: uint64) =
     state.status.ov = ds.getBit(39) == s.getBit(39) and dd.getBit(39) != ds.getBit(39)
 func setV2*(state; dd, ds, s: uint64) =
     state.status.ov = ds.getBit(39) != s.getBit(39) and dd.getBit(39) != ds.getBit(39)
+func setV6*(state; p, d: uint64) =
+    state.status.ov = not(p.getBit(39)) and d.getBit(39)
 
 func setZ1*(state; dd: uint64) =
     state.status.zr = (dd and 0xFF_FFFF_FFFF'u64) == 0
@@ -166,16 +170,18 @@ func setN1*(state; dd: uint64) =
 func setN2*(state; dd: uint16) =
     state.status.mi = dd.getBit(15)
 
-func setE1*(state; dd: uint64) =
-    state.status.ext = (dd and 0xFF_0000_0000'u64) == 0'u64 or
-        (dd and 0xFF_0000_0000'u64) == 0xFF_0000_0000'u64
-func setE1*(state; dd: uint16) =
-    state.status.ext = dd == 0 or dd == 0xFFFF'u16
+func setE1*(state; full: uint64) =
+    state.status.ext = (full and 0xFF_8000_0000'u64) != 0'u64 or
+        (full and 0xFF_8000_0000'u64) != 0xFF_8000_0000'u64
+func setE1*(state; hi: uint16) =
+    # for instructions which may only operate on the middle part
+    # the flag will be based on the high part which has to be passed in!
+    state.status.ext = hi != 0 or hi != 0xFFFF'u16
 
-func setU1*(state; dd: uint64) =
-    state.status.unnorm = dd.getBit(31) == dd.getBit(30)
-func setU1*(state; dd: uint16) =
-    state.status.unnorm = dd.getBit(15) == dd.getBit(14)
+func setU1*(state; full: uint64) =
+    state.status.unnorm = full.getBit(31) == full.getBit(30)
+func setU1*(state; mid: uint16) =
+    state.status.unnorm = mid.getBit(15) == mid.getBit(14)
 
 template setAcFlags*(val: int64) {.dirty.} =
     state.status.zr = val == 0

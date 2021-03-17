@@ -65,21 +65,29 @@ var
 
     sram: array[512, byte]
 
+    sramPath: string
+
 let
     firstOfJanuary2000 = initDateTime(1, mJan, 2000, 0, 0, 0, 0, local())
 
-proc loadIpl*(path: string) =
-    echo "reading ipl from ", path
-    let file = newFileStream(path, fmRead)
-    assert file != nil
+proc loadIplSram*(iplPath, inSramPath: string) =
+    block:
+        let file = newFileStream(iplPath, fmRead)
+        assert file != nil
 
-    let readBytes = file.readData(addr ipl[0], sizeof(ipl))
-    assert readBytes == sizeof(ipl)
-    file.close()
+        let readBytes = file.readData(addr ipl[0], sizeof(ipl))
+        assert readBytes == sizeof(ipl)
+        file.close()
 
-    descramble(iplBios, toOpenArray(ipl, 0x100, 0x100+0x1AFE00-1))
-
+        descramble(iplBios, toOpenArray(ipl, 0x100, 0x100+0x1AFE00-1))
     #writeFile("ipl_descrambled.bin", iplBios)
+    block:
+        sramPath = inSramPath
+        let file = newFileStream(sramPath, fmRead)
+        if file != nil:
+            let readBytes = file.readData(addr sram[0], sizeof(sram))
+            assert readBytes == sizeof(sram)
+            file.close()
 
 proc iplRead*[T](adr: uint32): T =
     let
@@ -103,12 +111,22 @@ type
         transactionPos: uint32
         inputCmd: InputCmd
 
+        sramDirty: bool
+
 proc select(dev: ExiDevice, status: bool) =
     let dev = RtcRamRom dev
 
     if status:
         dev.inputCmd = InputCmd 0
         dev.transactionPos = 0
+    elif dev.sramDirty:
+        echo "flush sram to file"
+        let file = newFileStream(sramPath, fmWrite)
+        if file == nil:
+            echo "failed to open file"
+        else:
+            file.writeData(addr sram[0], sizeof(sram))
+            file.close()
 
 proc exchange(dev: ExiDevice, response: var openArray[byte], input: openArray[byte]) =
     let dev = RtcRamRom dev
@@ -135,6 +153,7 @@ proc exchange(dev: ExiDevice, response: var openArray[byte], input: openArray[by
             of 0x800000..0x8001FF:
                 let adr = (dev.inputCmd.offset*4+dev.transactionPos-4) and 0x1FF
                 if dev.inputCmd.write:
+                    dev.sramDirty = true
                     sram[adr] = data
                 else:
                     if adr == 0:

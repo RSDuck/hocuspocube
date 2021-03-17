@@ -207,7 +207,7 @@ proc genVertexShader*(key: VertexShaderKey): string =
                     line "float aattn = dot(transformedNormal, lightDir);"
                     line "float d = aattn;"
 
-                line &"""float atten = max(LightDirectionA0[{light}].w + LightPositionA1[{light}].w * aattn + aattn * aattn * LightRemainingFactors[{light}].x) /
+                line &"""float atten = max((LightDirectionA0[{light}].w + LightPositionA1[{light}].w * aattn + aattn * aattn * LightRemainingFactors[{light}].x) /
                                         (LightRemainingFactors[{light}].y + LightRemainingFactors[{light}].z * aattn + aattn * aattn * LightRemainingFactors[{light}].w), 0);"""
             else:
                 line "float atten = 1.0;"

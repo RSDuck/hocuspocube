@@ -69,7 +69,8 @@ type
     OGLTexture = ref object of NativeTexture
         handle: GLuint
 
-    OGLSampler = ref object
+    OGLSampler = ref object of NativeSampler
+        handle: GLuint
 
     Framebuffer = ref object
         handle: GLuint
@@ -84,6 +85,7 @@ type
 
     RenderState = object
         textures: array[8, NativeTexture]
+        samplers: array[8, NativeSampler]
         textureUnit: int32
         enable: set[RenderStateEnable]
         depthFunc: CompareFunction
@@ -121,7 +123,6 @@ var
     efb: Framebuffer
     rawXfbTexture: NativeTexture
 
-    quadGeometryShader: NativeShader
     fullscreenQuadVtxShader, fullscreenQuadFragShader: NativeShader
 
     currentRenderstate: RenderState
@@ -202,6 +203,43 @@ proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data
         format[texture.fmt], typ[texture.fmt],
         data)
 
+proc createSampler*(): NativeSampler =
+    let sampler = OGLSampler()
+    glGenSamplers(1, addr sampler.handle)
+
+    sampler
+
+proc configure*(sampler: NativeSampler, wrapS, wrapT: TextureWrapMode, magFilter: TextureMagFilter, minFilter: TextureMinFilter) =
+    let sampler = OGLSampler(sampler)
+
+    const
+        translateWrapMode: array[TextureWrapMode, GLint] = [
+            GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT, GL_CLAMP_TO_EDGE]
+        translateMagFilter: array[TextureMagFilter, GLint] = [
+            GL_NEAREST, GL_LINEAR]
+        translateMinFilter: array[TextureMinFilter, GLint] = [
+            GL_NEAREST, GL_NEAREST, GL_NEAREST, # as we currently only upload the first mip level we can't enable mip mapping yet
+            GL_NEAREST,
+            GL_LINEAR, GL_LINEAR, GL_LINEAR,
+            GL_LINEAR
+        ]
+
+    if sampler.wrapS != wrapS:
+        glSamplerParameteri(sampler.handle, GL_TEXTURE_WRAP_S, translateWrapMode[wrapS])
+        sampler.wrapS = wrapS
+
+    if sampler.wrapT != wrapT:
+        glSamplerParameteri(sampler.handle, GL_TEXTURE_WRAP_T, translateWrapMode[wrapT])
+        sampler.wrapT = wrapT
+    
+    if sampler.magFilter != magFilter:
+        glSamplerParameteri(sampler.handle, GL_TEXTURE_MAG_FILTER, translateMagFilter[magFilter])
+        sampler.magFilter = magFilter
+
+    if sampler.minFilter != minFilter:
+        glSamplerParameteri(sampler.handle, GL_TEXTURE_MIN_FILTER, translateMinFilter[minFilter])
+        sampler.minFilter = minFilter
+    
 proc createFramebuffer(width, height: int, depth: bool): Framebuffer =
     let framebuffer = Framebuffer()
 
@@ -262,7 +300,7 @@ proc compileShader*(stage: ShaderStage, source: string): NativeShader =
     of shaderStageGeometry:
         OGLGeometryShader(handle: shader)
 
-proc applyRenderstate(state: RenderState, framebufferOnly = false, onChange: proc() = nil) =
+proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = false, onChange: proc() = nil) =
     let
         toEnable = state.enable - currentRenderstate.enable
         toDisable = currentRenderstate.enable - state.enable
@@ -372,13 +410,19 @@ proc applyRenderstate(state: RenderState, framebufferOnly = false, onChange: pro
             glViewport(x, y, w, h)
             currentRenderstate.viewport = state.viewport
 
-        for i in 0..<8:
+        for i in 0..<textureUnits:
             if state.textures[i] != currentRenderstate.textures[i] and state.textures[i] != nil:
                 callback
 
                 glBindTextureUnit(GLuint(i), OGLTexture(state.textures[i]).handle)
                 currentRenderstate.textures[i] = state.textures[i]
-        
+        for i in 0..<textureUnits:
+            if state.samplers[i] != currentRenderstate.samplers[i] and state.textures[i] != nil:
+                callback
+
+                glBindSampler(GLuint(i), if state.samplers[i] != nil: OGLSampler(state.samplers[i]).handle else: 0)
+                currentRenderstate.samplers[i] = state.samplers[i]
+
         if enableBlending in currentRenderstate.enable:
             if state.blendOp != currentRenderstate.blendOp:
                 callback
@@ -515,13 +559,12 @@ proc setCullFace*(mode: CullFace) =
     else:    
         flipperRenderstate.enable.incl enableCulling
         flipperRenderstate.cullface = mode
+proc bindSampler*(i: int, sampler: NativeSampler) =
+    flipperRenderstate.samplers[i] = sampler
 
 proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArray[byte]) =
-    if kind in {primitiveQuads, primitiveQuads2}:
-        flipperRenderstate.geometryShader = quadGeometryShader
-    else:
-        flipperRenderstate.geometryShader = nil
-    applyRenderstate(flipperRenderstate, false, proc() = discard)
+    applyRenderstate(flipperRenderstate)
+
     curBatchPrimitive = kind
 
     if fmt != curBoundFormat:
@@ -591,7 +634,9 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
     curVtxBufferOffset += data.len
 
     if kind in {primitiveQuads, primitiveQuads2}:
-        if curIdxBufferOffset + (count div 4) * 5 * 4 > VertexBufferSegmentSize:
+        let indicesCount = (count div 4) * 5
+
+        if curIdxBufferOffset + indicesCount*4 > VertexBufferSegmentSize:
             idxBufferLocks[curIdxBufferIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, GLbitfield 0)
             curIdxBufferIdx += 1
             if curIdxBufferIdx >= VertexBufferSegments: curIdxBufferIdx = 0
@@ -601,9 +646,8 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
                 glDeleteSync(idxBufferLocks[curIdxBufferIdx])
                 idxBufferLocks[curIdxBufferIdx] = nil
 
-        let
-            indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset
-            indicesCount = generateQuadIndices(cast[ptr UncheckedArray[uint32]](cast[ByteAddress](idxBufferPtr) + indexBufferOffset), count)
+        let indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset
+        generateQuadIndices(cast[ptr UncheckedArray[uint32]](cast[ByteAddress](idxBufferPtr) + indexBufferOffset), 0, count)
         curIdxBufferOffset += indicesCount*4
 
         glDrawElementsBaseVertex(GL_TRIANGLE_STRIP, GLsizei indicesCount, GL_UNSIGNED_INT, cast[pointer](indexBufferOffset), GLint formatVertexOffset)
@@ -626,7 +670,7 @@ proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
     uploadTexture(rawXfbTexture, 0, 0, 0, width, height, width, unsafeAddr pixelData[0])
 
     metaRenderstate.textures[0] = rawXfbTexture
-    applyRenderstate metaRenderstate
+    applyRenderstate metaRenderstate, textureUnits = 1
 
     glClear(GL_COLOR_BUFFER_BIT)
 
@@ -636,6 +680,6 @@ proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
 proc presentBlankFrame*() =
-    applyRenderstate metaRenderstate
+    applyRenderstate metaRenderstate, framebufferOnly = true
 
     glClear(GL_COLOR_BUFFER_BIT)

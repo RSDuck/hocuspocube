@@ -108,6 +108,29 @@ type
         width*, height*, miplevels*: int
         fmt*: TextureFormat
 
+    TextureWrapMode* = enum
+        textureWrapClamp
+        textureWrapRepeat
+        textureWrapMirror
+        textureWrapUnused
+    TextureMagFilter* = enum
+        textureMagFilterNear
+        textureMagFilterLinear
+    TextureMinFilter* = enum
+        textureMinFilterNear
+        textureMinFilterNearMipNear
+        textureMinFilterNearMipLin
+        textureMinFilterReserved1
+        textureMinFilterLin
+        textureMinFilterLinMipNear
+        textureMinFilterLinMipLin
+        textureMinFilterReserved2
+
+    NativeSampler* = ref object of RootObj
+        wrapS*, wrapT*: TextureWrapMode
+        magFilter*: TextureMagFilter
+        minFilter*: TextureMinFilter
+
     XfMemoryUniform* = object
         posTexMats*: array[64*4, float32]
         nrmMats*: array[32*4, float32]
@@ -191,16 +214,15 @@ proc define*[T](vtxbuffer; attr: VertexAttrKind, data: openArray[T], offset = 0)
     #echo data, " ", sizeof(T)*data.len
     #echo toOpenArray(vtxbuffer.data, dataOffset, dataOffset+sizeof(T)*data.len-1)
 
-proc generateQuadIndices*(data: ptr UncheckedArray[uint32], count: int): int =
+proc generateQuadIndices*(data: ptr UncheckedArray[uint32], offset, count: int) =
     var
         count = count
+        i = 0
     while count >= 4:
-        data[result*5+0] = uint32(result*4) + 1
-        data[result*5+1] = uint32(result*4) + 2
-        data[result*5+2] = uint32(result*4) + 0
-        data[result*5+3] = uint32(result*4) + 3
-        data[result*5+4] = 0xFFFFFFFF'u32
+        data[i*5+0] = uint32(offset + i*4) + 1
+        data[i*5+1] = uint32(offset + i*4) + 2
+        data[i*5+2] = uint32(offset + i*4) + 0
+        data[i*5+3] = uint32(offset + i*4) + 3
+        data[i*5+4] = 0xFFFFFFFF'u32
         count -= 4
-        result += 1
-
-    result *= 5
+        i += 1

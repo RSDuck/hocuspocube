@@ -20,31 +20,37 @@ proc jmp*(state; cc: uint16) =
 
 proc jmpr*(state; r, cc: uint16) =
     if state.conditionHolds(cc):
-        echo &"jump by address to {adrReg(int r):04X}"
+        #echo &"jump by address to {adrReg(int r):04X}"
         state.pc = adrReg(int r) - 1
 
 proc call*(state; cc: uint16) =
     let dst = fetchFollowingImm
     if state.conditionHolds(cc):
-        echo &"calling {dst:04X} {state.pc:04X}"
+        #echo &"calling {dst:04X} {state.pc:04X}"
         state.callStack.push(state.pc + 1)
         state.pc = dst - 1
 
 proc callr*(state; r, cc: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let dst = adrReg(int r)
+    if state.conditionHolds(cc):
+        #echo &"calling (indirectly) {dst:04X} {state.pc:04X}"
+        state.callStack.push(state.pc + 1)
+        state.pc = dst - 1
 
 proc rets*(state; cc: uint16) =
     if state.conditionHolds(cc):
         state.pc = state.callStack.pop() - 1
-        echo &"returning to {state.pc+1:04X}"
+        #echo &"returning to {state.pc+1:04X}"
     else:
-        echo &"return skipped! {state.pc:04X} {cc}"
+        #echo &"return skipped! {state.pc:04X} {cc}"
+        discard
 
 proc reti*(state; cc: uint16) =
     raiseAssert &"unimplemented dsp instr {state.pc:04X}"
 
 proc exec*(state; cc: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    if not state.conditionHolds(cc):
+        state.pc += 1
 
 proc loopi*(state; c: uint16) =
     let lastInstr = fetchFollowingImm

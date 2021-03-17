@@ -14,24 +14,6 @@ type
         copyTexture
         copyXfb
     
-    TextureWrapMode* = enum
-        textureWrapClamp
-        textureWrapRepeat
-        textureWrapMirror
-        textureWrapUnused
-    TextureMagFilter* = enum
-        textureMagFilterNear
-        textureMagFilterLinear
-    TextureMinFilter* = enum
-        textureMinFilterNear
-        textureMinFilterNearMipNear
-        textureMinFilterNearMipLin
-        textureMinFilterReserved1
-        textureMinFilterLin
-        textureMinFilterLinMipNear
-        textureMinFilterLinMipLin
-        textureMinFilterReserved2
-    
     TxTextureFmt* = enum
         txTexfmtI4
         txTexfmtI8
@@ -269,7 +251,7 @@ makeBitStruct uint32, *SuSize:
 
 makeBitStruct uint32, *TxSetMode0:
     wrapS[0..1]: TextureWrapMode
-    wrapS[2..3]: TextureWrapMode
+    wrapT[2..3]: TextureWrapMode
     magFilter[4]: TextureMagFilter
     minFilter[5..7]: TextureMinFilter
     diaglod[8]: bool
@@ -438,6 +420,8 @@ proc bpWrite*(adr, val: uint32) =
         efbCopyDstStride = EfbCopyStride(val).stride shl 5
     of 0x45:
         if (val and 0x2) != 0:
+            finishFrame()
+
             pe.flagFinish()
             echo "pe finish!"
     of 0x4F:
@@ -473,53 +457,53 @@ proc bpWrite*(adr, val: uint32) =
     of 0x80..0x83:
         let idx = adr - 0x80
         texMaps[idx].setMode0 = TxSetMode0 val
-        textureStateDirty.incl idx
+        samplerStateDirty.incl idx
     of 0x84..0x87:
         let idx = adr - 0x84
         texMaps[idx].setMode1 = TxSetMode1 val
-        textureStateDirty.incl idx
+        samplerStateDirty.incl idx
     of 0x88..0x8B:
         let idx = adr - 0x88
         texMaps[idx].setImage0 = TxSetImage0 val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
         registerUniformDirty = true
     of 0x8C..0x8F:
         let idx = adr - 0x8C
         texMaps[idx].setImage1 = TxSetImage12 val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
     of 0x90..0x93:
         let idx = adr - 0x90
         texMaps[idx].setImage2 = TxSetImage12 val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
     of 0x94..0x97:
         let idx = adr - 0x94
         texMaps[idx].setImage3 = val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
     of 0xA0..0xA3:
         let idx = adr - 0xA0 + 4
         texMaps[idx].setMode0 = TxSetMode0 val
-        textureStateDirty.incl idx
+        samplerStateDirty.incl idx
     of 0xA4..0xA7:
         let idx = adr - 0xA4 + 4
         texMaps[idx].setMode1 = TxSetMode1 val
-        textureStateDirty.incl idx
+        samplerStateDirty.incl idx
     of 0xA8..0xAB:
         let idx = adr - 0xA8 + 4
         texMaps[idx].setImage0 = TxSetImage0 val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
         registerUniformDirty = true
     of 0xAC..0xAF:
         let idx = adr - 0xAC + 4
         texMaps[idx].setImage1 = TxSetImage12 val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
     of 0xB0..0xB3:
         let idx = adr - 0xB0 + 4
         texMaps[idx].setImage2 = TxSetImage12 val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
     of 0xB4..0xB7:
         let idx = adr - 0xb4 + 4
         texMaps[idx].setImage3 = val
-        textureStateDirty.incl idx
+        imageStateDirty.incl idx
     of 0xC0..0xDF:
         if (adr mod 2) == 0:
             colorEnv[(adr - 0xC0) div 2] = TevColorEnv val

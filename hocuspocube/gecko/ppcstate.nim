@@ -150,11 +150,21 @@ makeBitStruct uint32, *Hid2:
     wpe[30]: bool # write gather pipe enabled
     lsqe[31]: bool # load store quantisied instructions enabled
 
+type
+    GqrType* = enum
+        gqrFloat
+        gqrReserved1
+        gqrReserved2
+        gqrReserved3
+        gqrU8
+        gqrU16
+        gqrS8
+        gqrS16
+
 makeBitStruct uint32, *Gqr:
-    # types: 0 = single precision float, 4 = u8, 5 = u16, 6 = s8, 7 = s16
-    stType[0..2]: uint32 # type for store
+    stType[0..2]: GqrType # type for store
     stScale[8..13]: uint32 # scale for store
-    ldType[16..18]: uint32 # type for load
+    ldType[16..18]: GqrType # type for load
     ldScale[24..29]: uint32 # scale for load
 
 makeBitStruct uint32, *L2cr:

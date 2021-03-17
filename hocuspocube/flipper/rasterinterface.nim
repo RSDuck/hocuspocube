@@ -11,10 +11,17 @@ var
     registerUniform*: RegistersUniform
     registerUniformDirty* = false
     rasterStateDirty* = true
-    textureStateDirty*: set[0..7]
+    imageStateDirty*: set[0..7]
+    samplerStateDirty*: set[0..7]
+
+    samplers: array[8, NativeSampler]
 
 proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
     rasterogl.retrieveFrame(data, x, y, width, height)
+
+proc finishFrame*() =
+    #rasterogl.dispatchBatch()
+    discard
 
 proc clear*(r, g, b, a: uint8, depth: uint32) =
     rasterogl.clear(r, g, b, a, depth)
@@ -69,11 +76,16 @@ proc usedTextures(): set[0..7] =
             result.incl texmap
 
 proc setupTextures() =
-    let dirtyTexturesInUse = textureStateDirty * usedTextures()
-    for i in dirtyTexturesInUse:
+    let dirtyImagesInUse = imageStateDirty * usedTextures()
+    for i in dirtyImagesInUse:
         #echo &"texture dirty {i} {texMaps[i].setImage0.width} {texMaps[i].setImage0.height} {texMaps[i].setImage0.fmt} {float(texMaps[i].setMode1.minlod)/16.0} {float(texMaps[i].setMode1.maxlod)/16.0} {(texMaps[i].setImage3 shl 5):08X}"
         setupTexture(i)
-        textureStateDirty.excl i
+        imageStateDirty.excl i
+    let dirtySamplersInUse = samplerStateDirty * usedTextures()
+    for i in dirtySamplersInUse:
+        rasterogl.configure(samplers[i], 
+            texMaps[i].setMode0.wrapS, texMaps[i].setMode0.wrapT,
+            texMaps[i].setMode0.magFilter, texMaps[i].setMode0.minFilter)
 
 proc getVtxShaderKey(fmt: DynamicVertexFmt): VertexShaderKey =
     result.enabledAttrs = fmt.enabledAttrs
@@ -92,6 +104,10 @@ proc getFragShaderKey(): FragmentShaderKey =
 
 proc init*() =
     rasterogl.init()
+
+    for i in 0..<8:
+        samplers[i] = rasterogl.createSampler()
+        rasterogl.bindSampler(i, samplers[i])
 
 proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt) =
     assert(genMode.nbmp == 0)

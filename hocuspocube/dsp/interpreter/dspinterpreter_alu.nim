@@ -321,24 +321,29 @@ proc clrp*(state; x: uint16) =
 
     state.writeProduct(0)
 
+proc round(x: int64): int64 =
+    result = x
+    if (result and 0xFFFF) > 0x8000 or ((result and 0xFFFF) == 0x8000 and (x and 0x10000) == 0x10000):
+        result += 0x10000
+    result.clearMask(0xFFFF'i64)
+
 proc rnd*(state; d, x: uint16) =
     raiseAssert &"unimplemented dsp instr {state.pc:04X}"
 
 proc rndp*(state; d, x: uint16) =
-    var prod = state.readProduct()
-    if (prod and 0xFFFF) > 0x8000 or ((prod and 0xFFFF) == 0x8000 and (prod and 0x10000) == 0x10000):
-        prod += 0x10000
-    prod.clearMask(0xFFFF'i64)
+    let
+        prod = state.readProduct()
+        roundedProd = round(prod)
+
     state.dispatchSecondary(x)
 
-    # carry and overflow are weird in this, needs some investigation
-    state.setC7(cast[uint64](prod), cast[uint64](state.readAccum(int d)))
-    state.setV6(cast[uint64](prod), cast[uint64](state.readAccum(int d)))
-    state.setZ1(cast[uint64](prod))
-    state.setN1(cast[uint64](prod))
-    state.setE1(cast[uint64](prod))
-    state.setU1(cast[uint64](prod))
-    state.writeAccum(int d, prod)
+    state.setC7(cast[uint64](prod), cast[uint64](roundedProd))
+    state.setV6(cast[uint64](prod), cast[uint64](roundedProd))
+    state.setZ1(cast[uint64](roundedProd))
+    state.setN1(cast[uint64](roundedProd))
+    state.setE1(cast[uint64](roundedProd))
+    state.setU1(cast[uint64](roundedProd))
+    state.writeAccum(int d, roundedProd)
 
 proc tst*(state; s, x: uint16) =
     let accum = state.readAccum(int s)
@@ -448,31 +453,35 @@ proc mpy*(state; s, x: uint16) =
 proc mpy2*(state; x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
-proc mac*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
-
-proc mac2*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
-
-proc mac3*(state; s, x: uint16) =
+template macOp(a, b: untyped, negate: bool): untyped =
     let
-        a = int64(cast[int16](state.readReg(dspRegX1.pred(int s))))
-        b = int64(cast[int16](state.readReg(dspRegY1.pred(int s))))
+        aVal = int64(cast[int16](a))
+        bVal = int64(cast[int16](b))
 
-        prod = state.readProduct() + a * (if state.status.im: b * 2 else: b)
+        prod = aVal * (if state.status.im: bVal * 2 else: bVal)
+        sum = state.readProduct() + (if negate: -prod else: prod)
 
     state.dispatchSecondary(x)
 
-    state.writeProduct(prod)
+    state.writeProduct(sum)
+
+proc mac*(state; s, x: uint16) =
+    macOp(state.readReg(dspRegX0.succ(int s.getBit(1))), state.readReg(dspRegY0.succ(int s.getBit(0))), false)
+
+proc mac2*(state; s, x: uint16) =
+    macOp(state.readReg(dspRegA1.succ(int s.getBit(1))), state.readReg(dspRegX1.succ(int s.getBit(0))), false)
+
+proc mac3*(state; s, x: uint16) =
+    macOp(state.readReg(dspRegX1.succ(int s)), state.readReg(dspRegX0.succ(int s)), false)
 
 proc macn*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    macOp(state.readReg(dspRegX0.succ(int s.getBit(1))), state.readReg(dspRegY0.succ(int s.getBit(0))), true)
 
 proc macn2*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    macOp(state.readReg(dspRegA1.succ(int s.getBit(1))), state.readReg(dspRegX1.succ(int s.getBit(0))), true)
 
 proc macn3*(state; s, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    macOp(state.readReg(dspRegX1.succ(int s)), state.readReg(dspRegX0.succ(int s)), true)
 
 proc mvmpy*(state; s, d, x: uint16) =
     let
@@ -481,16 +490,18 @@ proc mvmpy*(state; s, d, x: uint16) =
         aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
         bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
 
+        oldProd = state.readProduct()
         prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
 
     state.dispatchSecondary(x)
 
-    state.writeAccum(int d, state.readProduct())
+    state.writeAccum(int d, oldProd)
     state.writeProduct(prod)
 
 proc rnmpy*(state; s, d, x: uint16) =
     let
-        accum = state.readAccum(int d) + state.readProduct()
+        oldProd = state.readProduct()
+        oldProdRounded = round(oldProd)
 
         (a, b, aImUnsigned, bImUnsigned) = state.getMulOperands(s)
 
@@ -501,12 +512,20 @@ proc rnmpy*(state; s, d, x: uint16) =
 
     state.dispatchSecondary(x)
 
+    state.setC7(cast[uint64](oldProd), cast[uint64](oldProdRounded))
+    state.setV6(cast[uint64](oldProd), cast[uint64](oldProdRounded))
+    state.setZ1(cast[uint64](oldProdRounded))
+    state.setN1(cast[uint64](oldProdRounded))
+    state.setE1(cast[uint64](oldProdRounded))
+    state.setU1(cast[uint64](oldProdRounded))
+    state.writeAccum(int d, oldProdRounded)
     state.writeProduct(prod)
-    state.writeAccum(int d, accum)
 
 proc admpy*(state; s, d, x: uint16) =
     let
-        accum = state.readAccum(int d) + state.readProduct()
+        accum = state.readAccum(int d)
+        oldProd = state.readProduct()
+        sum = accum + oldProd
 
         (a, b, aImUnsigned, bImUnsigned) = state.getMulOperands(s)
 
@@ -518,7 +537,13 @@ proc admpy*(state; s, d, x: uint16) =
     state.dispatchSecondary(x)
 
     state.writeProduct(prod)
-    state.writeAccum(int d, accum)
+    state.setC1(cast[uint64](accum), cast[uint64](oldProd))
+    state.setV1(cast[uint64](accum), cast[uint64](oldProd), cast[uint64](sum))
+    state.setZ1(cast[uint64](sum))
+    state.setN1(cast[uint64](sum))
+    state.setE1(cast[uint64](sum))
+    state.setU1(cast[uint64](sum))
+    state.writeAccum(int d, sum)
 
 proc nnot*(state; d, x: uint16) =
     let inv = not(state.readReg(dspRegA1.succ(int d)))

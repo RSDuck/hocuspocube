@@ -2,7 +2,7 @@ import
     strformat,
     stew/endians2,
 
-    gecko,
+    gekko,
     ../dsp/dsp,
     ../vi,
     ../si/si,

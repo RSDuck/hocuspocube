@@ -1,7 +1,7 @@
 import
     bitops, strformat,
     ../util/[ioregs, bitstruct],
-    ../gecko/gecko
+    ../gekko/gekko
 
 template exiLog(message: string) =
     discard

@@ -6,7 +6,8 @@ import
     ppcinterpreter_aux,
     ../ppcstate,
 
-    ../../cycletiming
+    ../../cycletiming,
+    ../gekko # kind of stupid breaks loose coupling a bit
 
 using state: var PpcState
 
@@ -17,17 +18,17 @@ template r(num: uint32): uint32 {.dirty.} = state.r[num]
 #template fr(num: uint32): PairedSingle {.dirty.} = state.fr[num]
 
 proc eieio*(state) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented eieio"
 
 proc isync*(state) =
     # do something?
     discard
 
 proc lwarx*(state; d, a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented lwarx"
 
 proc stwcxdot*(state; s, a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented stwcxdot"
 
 proc sync*(state) =
     # do something?
@@ -39,11 +40,11 @@ proc rfi*(state) =
     state.pc = state.srr0 - 4    
 
 proc sc*(state) =
-    echo "system call"
+    #echo "system call"
     state.pendingExceptions.incl exceptionSystemCall
 
 proc tw*(state; to, a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented tw"
 
 proc twi*(state; to, a, imm: uint32) =
     let simm = signExtend(imm, 16)
@@ -55,7 +56,7 @@ proc twi*(state; to, a, imm: uint32) =
     assert not(to.getBit(0) and r(a) > simm)
 
 proc mcrxr*(state; crfS: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented mcrxr"
 
 proc mfcr*(state; d: uint32) =
     r(d) = uint32 state.cr
@@ -65,6 +66,13 @@ proc mfmsr*(state; d: uint32) =
 
 proc decodeSplitSpr(spr: uint32): uint32 =
     ((spr and 0x1F) shl 5) or (spr shr 5)
+
+proc getDecrementer(state): uint32 =
+    let cyclesPassed = uint32((geckoTimestamp - state.decInitTimestamp) div geckoCyclesPerTbCycle)
+    if cyclesPassed >= state.decInit:
+        0'u32
+    else:
+        state.decInit - cyclesPassed
 
 proc mfspr*(state; d, spr: uint32) =
     let n = decodeSplitSpr spr
@@ -78,7 +86,8 @@ proc mfspr*(state; d, spr: uint32) =
             case n
             of 18: state.dsisr
             of 19: state.dar
-            of 22: state.dec
+            of 22:
+                state.getDecrementer()
             of 26: state.srr0
             of 27: uint32(state.srr1)
             of 272..275: state.sprg[n - 272]
@@ -110,7 +119,6 @@ proc mfspr*(state; d, spr: uint32) =
             of 941..942: uint32(state.pmc[n - 941])
             else:
                 raiseAssert &"unknown spr register {n}"
-                0'u32
 
 proc currentTb(state): uint64 =
     uint64((geckoTimestamp - state.tbInitTimestamp) div geckoCyclesPerTbCycle) + state.tbInit
@@ -123,7 +131,6 @@ proc mftb*(state; d, tpr: uint32) =
         of 269: uint32(state.currentTb() shr 32)
         else:
             raiseAssert &"unknown mftb register {n}"
-            0'u32
 
 proc mtcrf*(state; s, crm: uint32) =
     let mask = makeFieldMask(crm)
@@ -151,7 +158,23 @@ proc mtspr*(state; d, spr: uint32) =
         case n
         of 18: state.dsisr = r(d)
         of 19: state.dar = r(d)
-        of 22: state.dec = r(d)
+        of 22:
+            # weird thingy
+            let topBitChanged = r(d).getBit(31) != state.getDecrementer().getBit(31)
+
+            if state.decDoneEvent != InvalidEventToken:
+                cancelEvent state.decDoneEvent
+
+            state.decInit = r(d)
+            state.decInitTimestamp = geckoTimestamp
+
+            if state.decInit > 0:
+                state.decDoneEvent = scheduleEvent(state.decInitTimestamp + int64(state.decInit) * geckoCyclesPerTbCycle, 0,
+                    proc(timestamp: int64) =
+                        geckoState.pendingExceptions.incl exceptionDecrementer)
+            if topBitChanged:
+                echo "weird top bit changed decrementer interrupt"
+                state.pendingExceptions.incl exceptionDecrementer
         of 26: state.srr0 = r(d) and not(0x3'u32)
         of 27: state.srr1 = Srr1 r(d)
         of 272..275: state.sprg[n - 272] = r(d)
@@ -200,40 +223,37 @@ proc dcbst*(state; a, b: uint32) =
     stubbedMemLog "dcbst stubbed"
 
 proc dcbt*(state; a, b: uint32) =
-    raiseAssert "instr not implemented"
+    stubbedMemLog "dcbt stubbed"
 
 proc dcbtst*(state; a, b: uint32) =
-    raiseAssert "instr not implemented"
-
-proc dcbz*(state; a, b: uint32) =
-    stubbedMemLog "dcbz stubbed"
+    stubbedMemLog "dcbst stubbed"
 
 proc icbi*(state; a, b: uint32) =
     stubbedMemLog "icbi stubbed"
 
 proc mfsr*(state; d, sr: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented mfsr"
 
 proc mfsrin*(state; d, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented mfsrin"
 
 proc mtsr*(state; s, sr: uint32) =
     echo "mtsr instruction stubbed"
 
 proc mtsrin*(state; s, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented mtsrin"
 
 proc tlbie*(state; b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented tlbie"
 
 proc tlbsync*(state) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented tlbsync"
 
 proc eciwx*(state; d, a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented eciwx"
 
 proc ecowx*(state; s, a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented ecowx"
 
 proc dcbz_l*(state; a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented dcbz_l"

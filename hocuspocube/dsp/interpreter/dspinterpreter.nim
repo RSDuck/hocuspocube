@@ -8,10 +8,12 @@ import
     dspinterpreter_loadstore,
     dspinterpreter_system,
 
-    strformat
+    strformat, stew/endians2
 
 proc undefinedInstr(state: var DspState, instr: uint16) =
     echo &"undefined dsp instr {instr:04X} at {state.pc:X}"
+
+var logstuff = false
 
 proc dspRun*(timestamp: var int64, target: int64) =
     runPeripherals()
@@ -21,6 +23,7 @@ proc dspRun*(timestamp: var int64, target: int64) =
     if dspCsr.reset:
         dspCsr.reset = false
         echo "resetting to rom init vector"
+        mDspState = default(DspState)
         mDspState.pc = IRomStartAdr
 
     if dspCsr.halt or dspCsr.busyCopying:
@@ -29,13 +32,23 @@ proc dspRun*(timestamp: var int64, target: int64) =
     while true:
         {.computedGoto.}
 
-        #[block triggeredInt:
-            if theDspState.status.te:
-                if theDspState.status.te3:
-                    if dspCsr.piint:
-                        theDspState.pc = ]#
+        if mDspState.status.et:
+            if dspCsr.piint and mDspState.status.te3:
+                mDspState.callStack.push(mDspState.pc)
+                mDspState.statusStack.push(uint16 mDspState.status)
+                mDspState.pc = 0x000E'u16
+
+                echo "piint!"
+                #logstuff = true
+
+                dspCsr.piint = false
 
         let prevPc = mDspState.pc
+
+        if logStuff:
+            echo &"dspstate {mDspState.pc:02X} {uint16(mDspState.status):02X}"
+            for i in 0..<32:
+                echo &"r {i}: {mDspState.r[DspReg(i)]:02X}"
 
         let instr = instrRead(mDspState.pc)
         dspMainDispatch instr, mDspState, undefinedInstr

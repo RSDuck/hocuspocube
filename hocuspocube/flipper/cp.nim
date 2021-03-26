@@ -1,7 +1,7 @@
 import
     ../util/[ioregs, bitstruct],
 
-    ../gecko/gecko,
+    ../gekko/gekko,
 
     cpinternal
 

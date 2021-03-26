@@ -55,3 +55,5 @@ proc presentBlankFrame*() =
     handleEvents()
 
     rasterogl.presentBlankFrame()
+
+    window.glSwapWindow()

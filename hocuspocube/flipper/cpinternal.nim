@@ -2,7 +2,7 @@ import
     strformat, stew/endians2,
     ../util/bitstruct,
 
-    ../gecko/gecko,
+    ../gekko/gekko,
 
     xf, bp,
     rasterinterface,
@@ -441,7 +441,7 @@ proc processVertices(data: openArray[byte], offset: int, draw: DrawCallDesc, ver
         processCoord(vtxAttrTexcoord4, fmt.vcdHi.tex4, fmt.vatB.tex4fmt, numElementsTexCoord(fmt.vatB.tex4cnt), fmt.vatC.tex4shift, vtxArrayTexcoord4, 3)
         processCoord(vtxAttrTexcoord5, fmt.vcdHi.tex5, fmt.vatC.tex5fmt, numElementsTexCoord(fmt.vatC.tex5cnt), fmt.vatC.tex5shift, vtxArrayTexcoord5, 3)
         processCoord(vtxAttrTexcoord6, fmt.vcdHi.tex6, fmt.vatC.tex6fmt, numElementsTexCoord(fmt.vatC.tex6cnt), fmt.vatC.tex6shift, vtxArrayTexcoord6, 3)
-        processCoord(vtxAttrTexcoord7, fmt.vcdHi.tex7, fmt.vatC.tex7fmt, numElementsTexCoord(fmt.vatC.tex6cnt), fmt.vatC.tex7shift, vtxArrayTexcoord7, 3)
+        processCoord(vtxAttrTexcoord7, fmt.vcdHi.tex7, fmt.vatC.tex7fmt, numElementsTexCoord(fmt.vatC.tex7cnt), fmt.vatC.tex7shift, vtxArrayTexcoord7, 3)
 
     cpLog &"ate {verticesToProcess} vertices (size: {vertexSize} end offset {result} total: {result-offset} bytes | bytes remaining: {data.len-result})"
     verticesRemaining -= verticesToProcess

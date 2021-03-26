@@ -147,6 +147,9 @@ proc generateDecoder*[primaryBits, secondaryBits: static[Slice[int]]](patterns: 
 
         decodedPatterns.add((mask, fixbits, branch))
 
+        if pattern.len != instrWidth:
+            error(&"pattern for instruction {name} is either too long or too short (want {instrWidth} got {pattern.len})")
+
         #if instrWidth == 16:
         #    branch[0].add(quote do: echo "executing dsp instr ", `name`, " ", `instr`)
         branch[0].add(nnkCall.newTree(ident name, state))
@@ -196,7 +199,7 @@ proc generateDecoder*[primaryBits, secondaryBits: static[Slice[int]]](patterns: 
                         let
                             name = patterns[patternIdx][0]
                             otherName = patterns[caseMapping[int secEncoding] - 1][0]
-                        error(&"Conflict between {name} and {otherName}")
+                        error(&"Conflict between {name} and {otherName} {primEncoding:08X}")
 
                     caseMapping[int secEncoding] = patternIdx + 1
 

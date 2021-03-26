@@ -1,14 +1,12 @@
 import
     util/ioregs, util/bitstruct,
     cycletiming,
-    gecko/gecko, si/si,
+    gekko/gekko, si/si,
     frontend/sdl,
 
     strformat
 
 # cycles here generally refer to VI cycles
-
-# by convention odd fields refer to the top fields while even refer to the bottom fields
 
 makeBitStruct uint16, Vtr: # vertical timing
     equ[0..3] {.mutable.}: uint32 # equalisation pulse, apparently in one and a half lines
@@ -16,8 +14,8 @@ makeBitStruct uint16, Vtr: # vertical timing
 
 makeBitStruct uint16, Dcr: # display config
     # TODO: find out how these two behave
-    enb[0] {.mutable.}: bool # enable
-    rst[1] {.mutable.}: bool # reset
+    enb[0]: bool # enable
+    rst[1]: bool # reset
     prog[2] {.mutable.}: bool # progressive
     d[3] {.mutable.}: bool # stereo 3D mode
     le0[4..5] {.mutable.}: uint32 # display latch 0
@@ -62,12 +60,29 @@ makeBitStruct uint16, Visel: # VI DTV status register
     digital[0]: bool # whether the digital video output is used
     ntscj[1]: bool # Dolphin sets this if the console region is NTSC-J, but is it constant?
 
+type
+    FramePhase = enum
+        framePhaseEquOdd
+        framePhasePrbOdd
+        framePhaseAcvOdd
+        framePhasePsbOdd
+        framePhaseEquEven
+        framePhasePrbEven
+        framePhaseAcvEven
+        framePhasePsbEven
+
 var
+    curFramePhase: FramePhase
+    curFramePhaseStartTimestamp: int64
+    curFramePhaseStartX, curFramePhaseStartY: int64
+    nextFramePhaseEvent: EventToken
+    nextFramePhaseEventTimestmap: int64
+
     vtr: Vtr
     htr0: Htr0
     htr1: Htr1
-
     vto, vte: Vt
+    viclk: Viclk
 
     dcr: Dcr
 
@@ -79,20 +94,17 @@ var
 
     hsw: Hsw
 
-    viclk: Viclk
     visel: Visel
 
-    framestartTimestamp: int64
-
-    # this is where we read out the current framebuffer
-    frameReadOut = InvalidEventToken
-    nextFieldEvent = InvalidEventToken
+proc cyclesPerSample(): int64 =
+    geckoCyclesPerViCycle[viclk.s] * 2
 
 proc rasterYPos(timestamp: int64): int64 =
-    (timestamp - framestartTimestamp) div (int64(htr0.hlw) * 2 * geckoCyclesPerViCycle[viclk.s])
+    curFramePhaseStartY +
+        ((timestamp - curFramePhaseStartTimestamp) div (int64(htr0.hlw) * 2 * cyclesPerSample()))
 
 proc rasterXPos(timestamp: int64): int64 =
-    (timestamp - framestartTimestamp) div geckoCyclesPerViCycle[viclk.s] mod (int64(htr0.hlw) * 2)
+    (((timestamp - curFramePhaseStartTimestamp) div cyclesPerSample()) + curFramePhaseStartX) mod (int64(htr0.hlw) * 2)
 
 proc updateInt() =
     setExtInt extintVi, di[0].sts or di[1].sts or di[2].sts or di[3].sts
@@ -111,12 +123,13 @@ proc rescheduleInt(timestamp: int64, num: int) =
         rasterYPos(timestamp) <= int64(di[num].vct - 1) and
         rasterXPos(timestamp) <= int64(di[num].hct - 1):
 
-        let
-            cycle = geckoCyclesPerViCycle[viclk.s]
-            intTimestamp = framestartTimestamp + int64(di[num].hct - 1) * cycle + int64(di[num].vct - 1) * int64(htr0.hlw) * 2 * cycle
+        let intTimestamp = curFramePhaseStartTimestamp +
+            ((int64(di[num].hct - 1) - curFramePhaseStartX) +
+                (int64(di[num].vct - 1) - curFramePhaseStartY) * int64(htr0.hlw) * 2) * cyclesPerSample()
         #echo &"sucessfully {intTimestamp} {timestamp}"
         diEvents[num] = scheduleEvent(intTimestamp,
             1, proc(timestamp: int64) =
+                #echo &"di event {di[num].hct} {di[num].vct} {rasterXPos(timestamp)} {rasterYPos(timestamp)}"
                 diEvents[num] = InvalidEventToken
                 di[num].sts = true
                 updateInt())
@@ -167,19 +180,16 @@ proc calcFramebufferAddr(odd: bool): uint32 =
 
     result += tfbl.xof * 2
 
-proc onVblank(odd: bool, timestamp: int64) =
-    startSiPoll timestamp, int64(htr0.hlw) * 2 * geckoCyclesPerViCycle[viclk.s]
-
+proc readOutField(odd: bool) =
     let frameWidth = hsw.wpl * 16
     var
         frameHeight = vtr.acv
         frameStride = hsw.std * 32
         frameAdr = calcFramebufferAddr(odd)
 
-    if not dcr.prog:
-        assert frameStride == frameWidth*2*2 and
-            abs(int(calcFramebufferAddr(true)) - int(calcFramebufferAddr(false))) == int(frameStride div 2),
-            &"proper interlacing isn't supported {frameStride} {frameWidth} {calcFramebufferAddr(true):08X} {calcFramebufferAddr(false):08X}"
+    #assert abs(int(calcFramebufferAddr(true)) - int(calcFramebufferAddr(false))) == int(frameStride div 2),
+    #    &"proper interlacing isn't supported {frameStride} {frameWidth} {calcFramebufferAddr(true):08X} {calcFramebufferAddr(false):08X}"
+    if not dcr.prog and abs(int(calcFramebufferAddr(true)) - int(calcFramebufferAddr(false))) == int(frameStride div 2):
         frameHeight *= 2
         frameStride = frameStride div 2
 
@@ -190,7 +200,7 @@ proc onVblank(odd: bool, timestamp: int64) =
         if not odd and vto.prb == vte.prb - 1:
             frameAdr -= frameStride
 
-    echo &"field out read {frameAdr:08X} {frameWidth}*{frameHeight} stride {frameStride}"
+    echo &"field read out {frameAdr:08X} {frameWidth}*{frameHeight} stride {frameStride}"
 
     var
         frameDataRgba = newSeq[uint32](frameWidth * frameHeight)
@@ -202,44 +212,77 @@ proc onVblank(odd: bool, timestamp: int64) =
 
     presentFrame int frameWidth, int frameHeight, frameDataRgba
 
-proc startField(timestamp: int64, odd: bool) =
-    if not dcr.enb:
-        return
+proc currentPhaseHalfLines(): int64 =
+    int64(case curFramePhase
+        of framePhaseEquOdd, framePhaseEquEven: vtr.equ * 3
+        of framePhaseAcvOdd, framePhaseAcvEven: vtr.acv * 2
+        of framePhasePrbOdd: vto.prb
+        of framePhasePsbOdd: vto.psb
+        of framePhasePrbEven: vte.prb
+        of framePhasePsbEven: vte.psb)
 
-    if nextFieldEvent != InvalidEventToken:
-        cancelEvent nextFieldEvent
-    if frameReadOut != InvalidEventToken:
-        cancelEvent frameReadOut
+proc startTimingPhase(timestamp: int64) =
+    if curFramePhase != high(FramePhase):
+        curFramePhaseStartX = rasterXPos(timestamp)
+        curFramePhaseStartY = rasterYPos(timestamp)
 
-    if odd:
-        framestartTimestamp = timestamp
+        curFramePhase.inc()
+    else:
+        curFramePhaseStartX = 0
+        curFramePhaseStartY = 0
+
+        curFramePhase = low(FramePhase)
+
+    curFramePhaseStartTimestamp = timestamp
+
+    if curFramePhase == framePhaseEquOdd:
         for i in 0..<4:
+            if diEvents[i] != InvalidEventToken:
+                cancelEvent diEvents[i]
             rescheduleInt(timestamp, i)
 
+    if curFramePhase in {framePhasePsbOdd, framePhasePsbEven}:
+        startSiPoll timestamp, int64(htr0.hlw) * 2 * cyclesPerSample()
+
+        if vtr.acv == 0:
+            presentBlankFrame()
+        else:
+            readOutField(curFramePhase == framePhasePsbOdd)
     let
-        vblankingReg = if odd: vto else: vte
-        fieldHalfLines = vtr.acv * 2 + vtr.equ * 3 + vblankingReg.prb + vblankingReg.psb
-        fieldActiveEndHalfLines = vblankingReg.psb + vtr.acv * 2
+        halfLinesUntilNextPhase = currentPhaseHalfLines()
+        nextTimestamp = timestamp + int64(halfLinesUntilNextPhase) * int64(htr0.hlw) * cyclesPerSample()
 
-        nextFieldTimestamp = timestamp + int64(fieldHalfLines) * int64(htr0.hlw) * geckoCyclesPerViCycle[viclk.s]
-        nextReadOut = timestamp + ((int64(fieldActiveEndHalfLines) - 1) * int64(htr0.hlw) + int64(htr1.hbs)) * geckoCyclesPerViCycle[viclk.s]
+    echo &"transition frame phase {geckoState.pc:08X} {curFramePhase} {halfLinesUntilNextPhase} {nextTimestamp} {htr0.hlw} {curFramePhaseStartX} {curFramePhaseStartY} {curFramePhaseStartTimestamp}"
 
-    echo &"starting field {fieldHalfLines}, {odd} {vtr.acv} {timestamp}"
+    nextFramePhaseEvent = scheduleEvent(nextTimestamp, 0, startTimingPhase)
 
-    nextFieldEvent = scheduleEvent(nextFieldTimestamp,
-        0, proc(timestamp: int64) =
-            nextFieldEvent = InvalidEventToken
-            startField(timestamp, odd xor true))
-    if vtr.acv > 0:
-        frameReadOut = scheduleEvent(nextReadOut,
-            0, proc(timestamp: int64) =
-                frameReadOut = InvalidEventToken
-                onVblank(odd, timestamp))
+template rescheduleFramePhase(doChange): untyped =
+    if dcr.enb:
+        let
+            prevHalfLines = currentPhaseHalfLines()
+            advancement = geckoTimestamp - curFramePhaseStartTimestamp
+        curFramePhaseStartX = rasterXPos(geckoTimestamp)
+        curFramePhaseStartY = rasterYPos(geckoTimestamp)
+        curFramePhaseStartTimestamp = geckoTimestamp
+
+        doChange
+
+        for i in 0..<4:
+            if diEvents[i] != InvalidEventToken:
+                cancelEvent diEvents[i]
+            rescheduleInt(geckoTimestamp, i)
+
+        let
+            halfLines = currentPhaseHalfLines()
+            cycles = halfLines * int64(htr0.hlw) * cyclesPerSample()
+        if prevHalfLines != halfLines:
+            cancelEvent nextFramePhaseEvent
+            if advancement >= cycles:
+                startTimingPhase(geckoTimestamp)
+            else:
+                nextFramePhaseEvent = scheduleEvent(curFramePhaseStartTimestamp + (cycles - advancement), 0, startTimingPhase)
     else:
-        presentBlankFrame()
-
-proc rescheduleVi =
-    startField(geckoTimestamp, true)
+        doChange
 
 visel.digital = true
 
@@ -247,33 +290,39 @@ ioBlock vi, 0x100:
 of vtr, 0x00, 2:
     read: uint16 vtr
     write:
-        vtr.mutable = val
-        rescheduleVi()
+        rescheduleFramePhase:
+            vtr.mutable = val
 of dcr, 0x02, 2:
     read: uint16 dcr
     write:
         dcr.mutable = val
-        rescheduleVi()
+        let val = Dcr val
+        if not(dcr.enb) and val.enb:
+            dcr.enb = true
+            echo "enable video"
+            curFramePhaseStartTimestamp = geckoTimestamp
+            curFramePhase = framePhasePsbEven
+            nextFramePhaseEventTimestmap = geckoTimestamp
+            startTimingPhase(geckoTimestamp)
 of htr0, 0x04, 4:
     read: uint32 htr0
     write:
-        htr0.mutable = val
-        rescheduleVi()
+        rescheduleFramePhase:
+            htr0.mutable = val
 of htr1, 0x08, 4:
     read: uint32 htr1
     write:
-        htr1.mutable = val
-        rescheduleVi()
+        rescheduleFramePhase:
+            htr1.mutable = val
 of vto, 0x0C, 4:
     read: uint32 vto
     write:
         vto.mutable = val
-        rescheduleVi()
 of vte, 0x10, 4:
     read: uint32 vte
     write:
-        vte.mutable = val
-        rescheduleVi()
+        rescheduleFramePhase:
+            vte.mutable = val
 of tfbl, 0x1C, 4:
     read: uint32 tfbl
     write:
@@ -293,10 +342,10 @@ of bfbr, 0x28, 4:
     read: uint32 bfbr
     write: bfbr.mutableR = val
 of dpv, 0x2C, 2:
-    read: result = uint16(rasterYPos(geckoTimestamp) + 1); echo &"read current position {result} {geckoState.pc:08X}"
+    read: result = uint16(rasterYPos(geckoTimestamp) + 1)
     write: echo "raster beam position moved vertically (is that even possible welp!)"
 of dph, 0x2E, 2:
-    read: result = uint16(rasterXPos(geckoTimestamp) + 1); echo "read current hposition ", result
+    read: result = uint16(rasterXPos(geckoTimestamp) + 1)
     write: echo "raster beam position horizontally welp (is that even possible welp!)"
 of di, 0x30, 4, 4:
     read: uint32 di[idx]
@@ -312,7 +361,7 @@ of hsw, 0x48, 2:
 of viclk, 0x6C, 2:
     read: uint16 viclk
     write:
-        viclk = Viclk val
-        rescheduleVi()
+        rescheduleFramePhase:
+            viclk = Viclk val
 of visel, 0x6E, 2:
     read: uint16 visel

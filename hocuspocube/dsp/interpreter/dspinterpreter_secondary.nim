@@ -22,7 +22,10 @@ proc incAdrReg(state; reg, m: int) =
         state.writeReg dspRegAdr0.succ(reg), incAdr(adrReg(reg), wrapReg(reg), cast[int16](incReg(reg)))
 
 proc mv(state; d, s: uint16) =
-    raiseAssert "unimplemented dsp parallel instr"
+    state.writeReg dspRegX0.succ(int d),
+        case range[0..3](s)
+        of 0..1: state.readReg(dspRegA0.succ(int s))
+        of 2..3: state.storeAccum(int s - 2)
 
 proc st(state; s, m, r: uint16) =
     let
@@ -51,8 +54,8 @@ proc ls(state; d, m, n, k, s: uint16) =
     state.writeReg(dspRegX0.succ(int d), dataRead(adrReg(loadReg)))
     dataWrite(adrReg(storeReg), storeVal)
 
-    state.incAdrReg(int loadReg, int n)
-    state.incAdrReg(int storeReg, int m)
+    state.incAdrReg(0, int n)
+    state.incAdrReg(3, int m)
 
 proc ldd(state; d, m, n, r: uint16) =
     let
@@ -64,7 +67,7 @@ proc ldd(state; d, m, n, r: uint16) =
                 else:
                     (dspRegY1, dspRegY0, int(d shr 1))
             else:
-                (dspRegX0.succ(int(d shr 1)), dspRegY0.succ(int(d and 1)), int(r))
+                (dspRegX0.succ(int(d shr 1) * 2), dspRegY0.succ(int(d and 1) * 2), int(r))
 
     state.writeReg(d1, dataRead(adrReg(adr)))
     state.writeReg(d2, dataRead(adrReg(3)))

@@ -93,6 +93,10 @@ makeBitStruct uint32, *LightCtrl:
 
     lights[n, if n >= 4: (n-4+11) else: (n+2)]: bool
 
+makeBitStruct uint32, *DualTex:
+    normalise[8]: bool
+    dualMtx[0..5]: uint32
+
 var
     # it's weird that those registers need to be specified twice
     # this needs some investigation, would be interesting to know what happens if only one of them is set
@@ -106,6 +110,9 @@ var
     numTexcoordGen*: uint32
     texcoordGen*: array[8, TexcoordGen]
 
+    enableDualTex*: bool
+    dualTex*: array[8, DualTex]
+
     numColors*: uint32
     matColorsRegs*: array[2, MatColor]
     ambColorsRegs*: array[2, MatColor]
@@ -118,6 +125,8 @@ proc getViewport*(): (float32, float32, float32, float32) =
     result[1] = viewport[4] - 342f + viewport[1]
 
 proc translateProj*(proj: var array[16, float32]) =
+    for i in 0..<16:
+        proj[i] = 0f
     proj[0+0*4] = projMat[0]
     proj[1+1*4] = projMat[2]
     proj[2+2*4] = projMat[4]
@@ -146,6 +155,11 @@ proc xfWrite*(adr, val: uint32) =
         xfLog &"load nrm mat {offset} {cast[float32](val)}"
         xfMemoryUniform.nrmMats[(offset div 3) * 4 + (offset mod 3)] = cast[float32](val)
         xfMemoryDirty = true
+    of 0x500..0x5FF:
+        let offset = adr - 0x500
+        xfLog &"load post tex mat {offset} {cast[float32](val)}"
+        xfMemoryUniform.postTexMats[offset] = cast[float32](val)
+        xfMemoryDirty = true
     of 0x600..0x67F:
         let lightNum = (adr and 0xFF) div 16
         case cast[0x0..0xF](adr and 0xF)
@@ -157,6 +171,11 @@ proc xfWrite*(adr, val: uint32) =
         of 0xA..0xC: xfMemoryUniform.lightPositionA1[lightNum*4+((adr and 0xF) - 0xA)] = cast[float32](val)
         of 0xD..0xF: xfMemoryUniform.lightDirectionA0[lightNum*4+((adr and 0xF) - 0xD)] = cast[float32](val)
         xfMemoryDirty = true
+    of 0x1008:
+        # INVTXSPEC
+        # should produce some undefined behaviour if this mismatches with cp
+        # currently not handled
+        discard
     of 0x1009:
         numColors = val
     of 0x100A..0x100B:
@@ -167,6 +186,8 @@ proc xfWrite*(adr, val: uint32) =
         registerUniformDirty = true
     of 0x100E..0x1011:
         lightCtrls[LightCtrlKind(adr - 0x100E)] = LightCtrl val
+    of 0x1012:
+        enableDualTex = (val and 1) != 0
     of 0x1018:
         matIdxLo = MatIndexLo val
         registerUniformDirty = true
@@ -186,6 +207,10 @@ proc xfWrite*(adr, val: uint32) =
         registerUniformDirty = true
     of 0x103F:
         numTexcoordGen = val
-    of 0x1040:
+    of 0x1040..0x1047:
         texcoordGen[adr - 0x1040] = TexcoordGen val
+    of 0x1050..0x1057:
+        dualTex[adr - 0x1050] = DualTex val
+        xfMemoryDirty = true
+        registerUniformDirty = true
     else: echo &"unknown xf write {adr:04X} {val:08X}"

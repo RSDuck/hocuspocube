@@ -60,7 +60,6 @@ type
         dspRegA1
         dspRegB1
 
-type
     Stack*[Size: static[int]] = object
         sp*: int32
         values: array[Size, uint16]
@@ -72,9 +71,12 @@ type
         status*: Status
 
         callStack*: Stack[8]
-        dataStack*: Stack[4]
+        statusStack*: Stack[4]
         loopAddrStack*: Stack[4]
         loopCountStack*: Stack[4]
+
+proc `[]`*[Size: static[int]](stack: Stack[Size], idx: int): uint16 =
+    stack.values[idx]
 
 proc peek*[Size: static[int]](stack: Stack[Size]): uint16 =
     stack.values[stack.sp - 1]

@@ -29,6 +29,9 @@ proc call*(state; cc: uint16) =
         #echo &"calling {dst:04X} {state.pc:04X}"
         state.callStack.push(state.pc + 1)
         state.pc = dst - 1
+    else:
+        discard
+        #echo &"call skipped {state.pc:04X}"
 
 proc callr*(state; r, cc: uint16) =
     let dst = adrReg(int r)
@@ -46,7 +49,9 @@ proc rets*(state; cc: uint16) =
         discard
 
 proc reti*(state; cc: uint16) =
-    raiseAssert &"unimplemented dsp instr {state.pc:04X}"
+    if state.conditionHolds(cc):
+        state.pc = state.callStack.pop() - 1
+        state.status = Status state.statusStack.pop()
 
 proc exec*(state; cc: uint16) =
     if not state.conditionHolds(cc):

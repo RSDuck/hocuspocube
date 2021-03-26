@@ -3,7 +3,7 @@ import
     stew/endians2,
     rasterinterfacecommon, opengl/rasterogl,
     bp,
-    ../gecko/gecko
+    ../gekko/gekko
 
 proc calculateTexSize(fmt: TxTextureFmt, width, height, levels: uint32): (uint32, uint32, uint32) =        
     let (tileW, tileH, lineBytes) = case fmt
@@ -111,8 +111,6 @@ type
 var
     textures: Table[TextureKey, TextureCacheEntry]
 
-    samplers: array[8, NativeSampler]
-
 proc hash(key: TextureKey): Hash =
     result = result !& hash(key.width)
     result = result !& hash(key.height)
@@ -124,6 +122,8 @@ proc getTargetFmt(fmt: TxTextureFmt): TextureFormat =
     of txTexfmtRGB5A3, txTexfmtRGBA8: texfmtRGBA8
     of txTexfmtRGB565: texfmtRGB565
     of txTexfmtI4, txTexfmtI8: texfmtI8
+    of txTexfmtIA4, txTexfmtIA8: texfmtIA8
+    of txTexfmtC4, txTexfmtC8: texfmtL8
     else: raiseAssert(&"texfmt {fmt} not supported yet!")
 
 proc setupSampler*(n: int) =
@@ -171,15 +171,15 @@ proc setupTexture*(n: int) =
             decodeTextureRGB5A3,
             decodeTextureRGBA8,
             nil,
-            nil,
-            nil,
+            decodeTextureI4,
+            decodeTextureI8,
             nil,
             nil,
             nil,
             nil,
             nil,
             nil]
-        const targetFmtPixelSize: array[TextureFormat, byte] = [1'u8, 2, 4, 2, 2, 3]
+        const targetFmtPixelSize: array[TextureFormat, byte] = [1'u8, 1, 2, 4, 2, 2, 3]
 
         let (_, roundedWidth, roundedHeight) = calculateTexSize(key.fmt, key.width, key.height, 1)
 

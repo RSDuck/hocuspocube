@@ -346,7 +346,7 @@ const PpcPatterns =
         psMergeOp   "ps_merge01",   560
         psMergeOp   "ps_merge10",   592
         psMergeOp   "ps_merge11",   624
-        patterns.add(("dcbz_l",     "00010000000aaaaabbbbb10000000000"))
+        patterns.add(("dcbz_l",     "00010000000aaaaabbbbb11111101100"))
 
         patterns)
 

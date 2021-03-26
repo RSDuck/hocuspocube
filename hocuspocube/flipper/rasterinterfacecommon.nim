@@ -98,6 +98,7 @@ type
 
     TextureFormat* = enum
         texfmtI8
+        texfmtL8
         texfmtIA8
         texfmtRGBA8
         texfmtRGB5
@@ -144,11 +145,13 @@ type
         projection*: array[16, float32]
         matIndices0*: uint32
         matInidces1*: uint32
-        pad0, pad1: uint32
+        dualTexMatIndices0*, dualTexMatIndices1*: uint32
         texcoordScale*: array[8*2, float32]
         textureSizes*: array[8*2*2, float32]
         konstants*: array[8, uint32]
         matColors*: array[4, uint32]
+        alphaRefs*: uint32
+        pad0, pad1, pad2: uint32
 
 using vtxbuffer: var VertexBuffer
 

@@ -1,11 +1,12 @@
 import
+    std/setutils,
     ../rasterinterfacecommon,
 
     opengl
 
 const
     VertexBufferSegments = 3
-    VertexBufferSegmentSize = 1024*512
+    VertexBufferSegmentSize = 1024*1024
     VertexBufferSize = VertexBufferSegmentSize*VertexBufferSegments
 
     fullscreenQuadVtxShaderSource = """
@@ -153,6 +154,7 @@ proc createTexture*(width, height, miplevels: int, fmt: TextureFormat): NativeTe
 
     const translateFmt: array[TextureFormat, GLenum] = [
         GL_R8,
+        GL_R8,
         GL_RG8,
         GL_RGBA8,
         GL_RGB5,
@@ -160,16 +162,18 @@ proc createTexture*(width, height, miplevels: int, fmt: TextureFormat): NativeTe
         GL_DEPTH_COMPONENT24]
     glTexStorage2D(GL_TEXTURE_2D, GLsizei miplevels, translateFmt[fmt], GLsizei width, GLsizei height)
 
-    if fmt in {texfmtI8, texfmtIA8, texfmtRGB565}:
+    if fmt in {texfmtI8, texfmtL8, texfmtIA8, texfmtRGB565}:
         let
             swizzleI8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_RED)]
             swizzleIA8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_GREEN)]
             swizzleRGB565 = [GLint(GL_BLUE), GLint(GL_GREEN), GLint(GL_RED), GLint(GL_ONE)]
+            swizzleL8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_ONE)]
         glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA,
             case fmt
             of texfmtI8: unsafeAddr(swizzleI8[0])
             of texfmtIA8: unsafeAddr(swizzleIA8[0])
             of texfmtRGB565: unsafeAddr(swizzleRGB565[0])
+            of texfmtL8: unsafeAddr(swizzleL8[0])
             else: raiseAssert("blah"))
 
     # we still need a better way to define those properties
@@ -185,12 +189,14 @@ proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data
     const
         format: array[TextureFormat, GLenum] = [
             GL_RED,
+            GL_RED,
             GL_RG,
             GL_RGBA,
             GL_RGB,
             GL_RGB,
             GL_DEPTH_COMPONENT]
         typ: array[TextureFormat, GLenum] = [
+            GL_UNSIGNED_BYTE,
             GL_UNSIGNED_BYTE,
             GL_UNSIGNED_BYTE,
             GL_UNSIGNED_BYTE,
@@ -500,6 +506,7 @@ proc init*() =
         vertexShader: fullscreenQuadVtxShader,
         fragmentShader: fullscreenQuadFragShader,
         viewport: (0'i32, 0'i32, 640'i32, 480'i32)) # bah
+    metaRenderstate.textures[0] = rawXfbTexture
 
     flipperRenderstate = RenderState(
         viewport: (0'i32, 0'i32, 640'i32, 528'i32),
@@ -537,19 +544,15 @@ proc setViewport*(x, y, w, h: int32) =
     flipperRenderstate.viewport = (x, 528 - (y + h), w, h)
 proc setScissor*(enable: bool, x, y, w, h: int32) =
     flipperRenderstate.scissorBox = (x, 528 - (y + h), w, h)
-    flipperRenderstate.enable.excl enableScissor
-    if enable: flipperRenderstate.enable.incl enableScissor
+    flipperRenderstate.enable[enableScissor] = enable
 proc setZMode*(enable: bool, fun: CompareFunction, update: bool) =
     flipperRenderstate.depthFunc = fun
-    flipperRenderstate.enable.excl enableDepthTest
-    if enable: flipperRenderstate.enable.incl enableDepthTest
-    flipperRenderstate.enable.excl enableDepthWrite
-    if update: flipperRenderstate.enable.incl enableDepthWrite
+    flipperRenderstate.enable[enableDepthTest] = enable
+    flipperRenderstate.enable[enableDepthWrite] = update
 proc bindTexture*(unit: int, texture: NativeTexture) =
     flipperRenderstate.textures[unit] = texture
 proc setBlendState*(enable: bool, op: BlendOp, srcFactor, dstFactor: BlendFactor) =
-    flipperRenderstate.enable.excl enableBlending
-    if enable: flipperRenderstate.enable.incl enableBlending
+    flipperRenderstate.enable[enableBlending] = enable
     flipperRenderstate.blendOp = op
     flipperRenderstate.blendSrcFactor = srcFactor
     flipperRenderstate.blendDstFactor = dstFactor
@@ -669,7 +672,6 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
 proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
     uploadTexture(rawXfbTexture, 0, 0, 0, width, height, width, unsafeAddr pixelData[0])
 
-    metaRenderstate.textures[0] = rawXfbTexture
     applyRenderstate metaRenderstate, textureUnits = 1
 
     glClear(GL_COLOR_BUFFER_BIT)
@@ -682,4 +684,5 @@ proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
 proc presentBlankFrame*() =
     applyRenderstate metaRenderstate, framebufferOnly = true
 
+    glClearColor(0f, 0f, 0f, 1f)
     glClear(GL_COLOR_BUFFER_BIT)

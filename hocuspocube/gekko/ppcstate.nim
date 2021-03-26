@@ -1,5 +1,6 @@
 import
-    bitops, ../util/bitstruct
+    bitops, ../util/bitstruct,
+    ../cycletiming
 
 # it's so exhausting to translate these bit structures
 # from the manual, because for some reason they think the first bit is the most significant?
@@ -208,19 +209,38 @@ makeBitStruct uint32, *Wpar:
 type
     PpcException* = enum
         # ordered by priority
+        # not entirely accurate (some things need to be further split up to be handled correctly)
+
+        # priority 0
         exceptionSystemReset
-        exceptionMachineCheck
-        exceptionDsi
-        exceptionIsi
-        exceptionExternal
-        exceptionAlignment
-        exceptionProgram
-        exceptionNoFloatPoint
-        exceptionDecrementer
-        exceptionSystemCall
-        exceptionTrace
-        exceptionPerformance
         exceptionInstrAddrBreak
+        exceptionIsi
+
+        # priority 1
+        exceptionMachineCheck
+        exceptionProgram
+
+        # priority 2
+        exceptionSystemCall
+
+        # priority 3
+        exceptionNoFloatPoint
+        exceptionExternal
+
+        # priority 4
+        exceptionPerformance
+
+        # priority 5
+        exceptionDecrementer
+        
+        # priority 6
+        exceptionAlignment
+
+        # priority 7-10
+        exceptionDsi
+
+        # priority 11
+        exceptionTrace
 
     PairedSingle* = array[2, float64]
 
@@ -263,7 +283,9 @@ type
         tbInit*: uint64
         tbInitTimestamp*: int64
 
-        dec*: uint32
+        decInit*: uint32
+        decInitTimestamp*: int64
+        decDoneEvent*: EventToken
 
         l2cr*: L2cr
 

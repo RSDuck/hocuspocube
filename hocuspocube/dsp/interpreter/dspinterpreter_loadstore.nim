@@ -30,7 +30,6 @@ proc stsa*(state; s, a: uint16) =
         of 2..3: 0'u16
         of 4..5: state.readReg(dspRegA0.succ(int s - 4))
         of 6..7: state.storeAccum(int s - 6)
-    #echo &"storing {val:04X} ({s} {state.status.xl}) to {state.dppAdr(a):04X}"
     dataWrite(state.dppAdr(a), val)
 
 proc ldla*(state; d: uint16) =

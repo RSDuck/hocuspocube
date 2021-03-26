@@ -1,3 +1,6 @@
+import
+    stew/bitops2
+
 template toSigned(x: uint8): int8 = cast[int8](x)
 template toSigned(x: uint16): int16 = cast[int16](x)
 template toSigned(x: uint32): int32 = cast[int32](x)
@@ -13,11 +16,9 @@ proc carrySub*[T: SomeUnsignedInt](a, b: T): bool {.inline.} =
 
 proc overflowAdd*[T: SomeUnsignedInt](a, b: T): bool {.inline.} =
     let res = a + b
-    const signBit = T(1) shl (sizeof(T)*8-1)
-    not(((a xor b) and signBit) != 0) and
-        ((a xor res) and signBit) != 0
+    const signBit = sizeof(T)*8-1
+    a.getBit(signBit) == b.getBit(signBit) and res.getBit(signBit) != a.getBit(signBit)
 proc overflowSub*[T: SomeUnsignedInt](a, b: T): bool {.inline.} =
     let res = a - b
-    const signBit = T(1) shl (sizeof(T)*8-1)
-    ((a xor b) and signBit) != 0 and
-        ((a xor res) and signBit) != 0
+    const signBit = sizeof(T)*8-1
+    a.getBit(signbit) != b.getBit(signBit) and res.getBit(signBit) != a.getBit(signBit)

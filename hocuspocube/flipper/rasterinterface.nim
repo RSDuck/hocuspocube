@@ -1,5 +1,5 @@
 import
-    tables, hashes, strformat,
+    tables, hashes,
     opengl/rasterogl,
     rasterinterfacecommon
 
@@ -65,9 +65,22 @@ proc setupUniforms() =
         registerUniform.matColors[1] = uint32 ambColorsRegs[1]
         registerUniform.matColors[2] = uint32 matColorsRegs[0]
         registerUniform.matColors[3] = uint32 matColorsRegs[1]
+
+        registerUniform.dualTexMatIndices0 = 0
+        registerUniform.dualTexMatIndices1 = 0
+        for i in 0..<4:
+            registerUniform.dualTexMatIndices0 = registerUniform.dualTexMatIndices0 or
+                (dualTex[i].dualMtx shl (i*8))
+            registerUniform.dualTexMatIndices1 = registerUniform.dualTexMatIndices1 or
+                (dualTex[i+4].dualMtx shl (i*8))
         rasterogl.uploadRegisters(registerUniform)
+
+        registerUniform.alphaRefs = alphaCompare.ref0 or (alphaCompare.ref1 shl 8)          
+        registerUniformDirty = false
     if xfMemoryDirty:
         rasterogl.uploadXfMemory(xfMemoryUniform)
+
+        xfMemoryDirty = false
 
 proc usedTextures(): set[0..7] =
     for i in 0..<genMode.ntev+1:
@@ -94,6 +107,10 @@ proc getVtxShaderKey(fmt: DynamicVertexFmt): VertexShaderKey =
     result.numColors = numColors
     result.lightCtrls = lightCtrls
     result.normalsNBT = vtxAttrNormalNBT in fmt.attrSizes
+    result.enableDualTex = enableDualTex
+    for i in 0..<8:
+        if dualTex[i].normalise:
+            result.normaliseDualTex.incl i
 
 proc getFragShaderKey(): FragmentShaderKey =
     result.numTevStages = genMode.ntev+1
@@ -101,6 +118,9 @@ proc getFragShaderKey(): FragmentShaderKey =
     result.alphaEnv = alphaEnv
     result.ras1Tref = ras1Tref
     result.ksel = tevKSel
+    result.alphaCompLogic = alphaCompare.logic
+    result.alphaComp0 = alphaCompare.comp0
+    result.alphaComp1 = alphaCompare.comp1
 
 proc init*() =
     rasterogl.init()
@@ -124,9 +144,10 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt) =
         rasterogl.setScissor(true, scissorX - offsetX, scissorY - offsetY, scissorW, scissorH)
         rasterogl.setBlendState(peCMode0.blendEnable, peCMode0.blendOp, peCMode0.srcFactor, peCMode0.dstFactor)
         rasterogl.setCullFace(genMode.cullmode)
-        rasterogl.setZMode(zmode.enable, zmode.fun, zmode.update)
+        rasterogl.setZMode(zmode.enable, zmode.fun, zmode.update and zmode.enable)
         rasterStateDirty = false
 
+    #echo "drawing ", kind, " ", count
     setupTextures()
     setupUniforms()
     rasterogl.bindShader(getVertexShader(getVtxShaderKey(fmt)), getFragmentShader(getFragShaderKey()))

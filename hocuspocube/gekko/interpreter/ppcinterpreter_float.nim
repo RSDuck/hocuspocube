@@ -83,7 +83,7 @@ proc fmulsx*(state; d, a, c, rc: uint32) =
     handleRc
 
 proc fresx*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented fresx"
 
 proc frsqrtex*(state; d, b, rc: uint32) =
     fr(d).double = 1.0 / sqrt(fr(b).double)
@@ -102,7 +102,7 @@ proc fsubsx*(state; d, a, b, rc: uint32) =
     handleRc
 
 proc fselx*(state; d, a, b, c, rc: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented fselx"
 
 proc fmaddx*(state; d, a, b, c, rc: uint32) =
     fr(d).double = madd(fr(a).double, fr(b).double, fr(c).double)
@@ -149,7 +149,7 @@ proc fnmsubsx*(state; d, a, b, c, rc: uint32) =
     handleRc
 
 proc fctiwx*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented fctiwx"
 
 proc fctiwzx*(state; d, b, rc: uint32) =
     if fr(b).double > float64(high(int32)):
@@ -224,14 +224,15 @@ proc fmrx*(state; d, b, rc: uint32) =
     handleRc
 
 proc fnabsx*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented"
+    fr(d).double = -abs(fr(b).double)
+    handleRc
 
 proc fnegx*(state; d, b, rc: uint32) =
     fr(d).double = -fr(b).double
     handleRc
 
 proc ps_div*(state; d, a, b, rc: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented ps_div"
 
 proc ps_sub*(state; d, a, b, rc: uint32) =
     fr(d).ps0 = fr(a).ps0 - fr(b).ps0
@@ -246,7 +247,7 @@ proc ps_add*(state; d, a, b, rc: uint32) =
     handleRc
 
 proc ps_sel*(state; d, a, b, c, rc: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented ps_sel"
 
 proc ps_res*(state; d, b, rc: uint32) =
     fr(d).ps0 = 1f / fr(b).ps0
@@ -301,10 +302,10 @@ proc ps_mr*(state; d, b, rc: uint32) =
     handleRc
 
 proc ps_nabs*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented ps_nabs"
 
 proc ps_abs*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented ps_abs"
 
 # for horizontal vector operations we need to be careful
 # for the case when a destination register is also a source register

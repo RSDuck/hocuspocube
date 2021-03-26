@@ -3,7 +3,7 @@ import
 
     ../util/bitstruct,
 
-    ../gecko/gecko,
+    ../gekko/gekko,
 
     rasterinterfacecommon,
 
@@ -13,7 +13,7 @@ type
     CopyMode = enum
         copyTexture
         copyXfb
-    
+
     TxTextureFmt* = enum
         txTexfmtI4
         txTexfmtI8
@@ -98,6 +98,10 @@ type
         tevKColorSel3of8
         tevKColorSel1of4
         tevKColorSel1of8
+        tevKColorSelReserved1
+        tevKColorSelReserved2
+        tevKColorSelReserved3
+        tevKColorSelReserved4
         tevKColorSelK0
         tevKColorSelK1
         tevKColorSelK2
@@ -152,6 +156,12 @@ type
         tevkAlphaSelK1A
         tevkAlphaSelK2A
         tevkAlphaSelK3A
+    
+    AlphaCompLogic* = enum
+        alphaCompLogicAnd
+        alphaCompLogicOr
+        alphaCompLogicXor
+        alphaCompLogicXnor
 
 makeBitStruct uint32, *GenMode:
     ntex[0..3]: uint32
@@ -278,6 +288,13 @@ makeBitStruct uint32, *TxSetLut:
     tmemOffset[0..9]: uint32
     fmt[10..11]: TxLutFmt
 
+makeBitStruct uint32, *AlphaCompare:
+    ref0[0..7]: uint32
+    ref1[8..15]: uint32
+    comp0[16..18]: CompareFunction
+    comp1[19..21]: CompareFunction
+    logic[22..23]: AlphaCompLogic
+
 proc convertRgbToYuv(r0, g0, b0, r1, g1, b1: uint8): (uint8, uint8, uint8, uint8) =
     result[0] = uint8 clamp(((int32(r0) * 77) div 256) + ((int32(g0) * 150) div 256) + ((int32(b0) * 29) div 256), 0, 255)
     result[1] = uint8 clamp(((int32(r1) * 77) div 256) + ((int32(g1) * 150) div 256) + ((int32(b1) * 29) div 256), 0, 255)
@@ -351,6 +368,8 @@ var
     tevKSel*: array[8, TevKSel]
 
     genMode*: GenMode
+
+    alphaCompare*: AlphaCompare
 
 proc getRas1Tref*(regs: array[8, Ras1Tref], i: uint32):
     tuple[texmap: uint32, texcoord: uint32, texmapEnable: bool, color: Ras1TrefColor] =
@@ -514,6 +533,9 @@ proc bpWrite*(adr, val: uint32) =
             tevRegisterL[(adr - 0xE0) div 2] = TevRegister val
         else:
             tevRegisterH[(adr - 0xE0) div 2] = TevRegister val
+        registerUniformDirty = true
+    of 0xF3:
+        alphaCompare = AlphaCompare val
         registerUniformDirty = true
     of 0xF6..0xFD:
         tevKSel[adr - 0xF6] = TevKSel val

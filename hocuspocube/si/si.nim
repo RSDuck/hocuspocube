@@ -3,7 +3,7 @@ import
     strformat,
     ../cycletiming,
     ../util/ioregs, ../util/bitstruct,
-    ../gecko/gecko
+    ../gekko/gekko
 
 template siLog(msg: string): untyped =
     discard
@@ -108,7 +108,7 @@ proc updateInt() =
     setExtInt extintSi, (siComCsr.rdstint and siComCsr.rdstintmask) or
         (siComCsr.tcint and siComCsr.tcintmsk)
 
-proc poll(pollIdx: int, pollMask: uint32, timestamp: int64, scanlineLength: int64) =
+proc poll(pollIdx, pollMask: uint32, timestamp, scanlineLength: int64) =
     for i in 0..<4:
         if pollMask.getBit(3 - i):
             let outData = [byte(outBuffersBack[i] shr 16), byte(outBuffersBack[i] shr 8), byte(outBuffersBack[i])]
@@ -121,15 +121,17 @@ proc poll(pollIdx: int, pollMask: uint32, timestamp: int64, scanlineLength: int6
                 inBuffersH[i].inputData = pack4BytesBE(recvData)
                 inBuffersL[i] = pack4BytesBE(toOpenArray(recvData, 4, 7))
 
-            siLog &"polled {inBuffersH[i].errstat} {recvData[0]:02X} {uint32(inBuffersH[i]):08X} {inBuffersL[i]:08X} {uint32(siSr):08X}"
+            siLog &"polled {pollIdx} {siPoll.x} {siPoll.y} {inBuffersH[i].errstat} {recvData[0]:02X} {uint32(inBuffersH[i]):08X} {inBuffersL[i]:08X} {uint32(siSr):08X}"
 
             siSr.rdst(i, true)
 
             siComCsr.rdstint = true
             updateInt()
 
-    nextPoll = scheduleEvent(timestamp + scanlineLength * int64(siPoll.x), 0,
-        proc(timestamp: int64) = poll(pollIdx + 1, pollMask, timestamp, scanlineLength))
+    if pollIdx < siPoll.y and siPoll.x > 0:
+        #assert(scanlineLength * int64(siPoll.x) > 0, &"poll infinite loop? {scanlineLength} {siPoll.x} {siPoll.y}")
+        nextPoll = scheduleEvent(timestamp + scanlineLength * int64(siPoll.x), 0,
+            proc(timestamp: int64) = poll(pollIdx + 1, pollMask, timestamp, scanlineLength))
 
 proc startSiPoll*(timestamp: int64, scanlineLength: int64) =
     if nextPoll != InvalidEventToken:
@@ -146,6 +148,10 @@ of sicoutbuf, 0x0, 4, 4, 12:
 of sicinbufh, 0x4, 4, 4, 12:
     read:
         siSr.rdst(int idx, false)
+        if not(siSr.rdst(0) or siSr.rdst(1) or siSr.rdst(2) or siSr.rdst(3)):
+            siComCsr.rdstint = false
+            updateInt()
+        siLog &"reading si hi {siSr.rdst(0)} {siSr.rdst(1)} {siSr.rdst(2)} {siSr.rdst(3)} {siComCsr.rdstint}"
         uint32 inBuffersH[idx]
 of sicinbufl, 0x8, 4, 4, 12:
     read: inBuffersL[idx]
@@ -160,8 +166,6 @@ of siComCsr, 0x34, 4:
         let val = SiComCsr val
         if val.tcint:
             siComCsr.tcint = false
-        if val.rdstint:
-            siComCsr.rdstint = false
         updateInt()
 
         if val.tstart:
@@ -192,11 +196,11 @@ of siSr, 0x38, 4:
             if val.unrun(i):
                 siSr.unrun(i, false)
             if val.ovrun(i):
-                siSr.unrun(i, false)
+                siSr.ovrun(i, false)
             if val.coll(i):
-                siSr.unrun(i, false)
+                siSr.coll(i, false)
             if val.norep(i):
-                siSr.unrun(i, false)
+                siSr.norep(i, false)
         if val.wr:
             for i in 0..<4:
                 outBuffersBack[i] = outBuffers[i]

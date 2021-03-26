@@ -1,6 +1,6 @@
 import
     streams, strformat,
-    gecko/[interpreter/ppcinterpreter, gecko, ppcstate],
+    gekko/[interpreter/ppcinterpreter, gekko, ppcstate],
     dsp/interpreter/dspinterpreter,
     flipper/[rasterinterface, cp],
     util/dolfile,

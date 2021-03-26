@@ -1,7 +1,8 @@
 import
-    stew/bitops2,
     ../../util/aluhelper,
-    ../dspstate
+    ../dspstate,
+    stew/bitops2,
+    strformat
 
 using state: var DspState
 
@@ -12,18 +13,26 @@ template fetchFollowingImm*: uint16 {.dirty.} =
 func writeReg*(state; n: DspReg, val: uint16) =
     case n
     of dspRegCallStack: state.callStack.push(val)
-    of dspRegStatusStack: state.dataStack.push(val)
-    of dspRegLoopAdrStack: state.loopAddrStack.push(val)
-    of dspRegLoopCountStack: state.loopCountstack.push(val)
+    of dspRegStatusStack: state.statusStack.push(val)
+    of dspRegLoopAdrStack:
+        state.loopCountStack.sp += 1
+        state.loopAddrStack.push(val)
+    of dspRegLoopCountStack:
+        state.loopAddrStack.sp += 1
+        state.loopCountStack.push(val)
     of dspRegA2, dspRegB2, dspRegPs2: state.r[n] = signExtend[uint16](val, 8)
     else: state.r[n] = val
 
 func readReg*(state; n: DspReg): uint16 =
     case n
     of dspRegCallStack: state.callStack.pop()
-    of dspRegStatusStack: state.dataStack.pop()
-    of dspRegLoopAdrStack: state.loopAddrStack.pop()
-    of dspRegLoopCountStack: state.loopCountstack.pop()
+    of dspRegStatusStack: state.statusStack.pop()
+    of dspRegLoopAdrStack:
+        state.loopCountStack.sp -= 1
+        state.loopAddrStack.pop()
+    of dspRegLoopCountStack:
+        state.loopAddrStack.sp -= 1
+        state.loopCountStack.pop()
     else: state.r[n]
 
 template adrReg*(n: int): uint16 {.dirty.} =
@@ -63,10 +72,8 @@ func storeAccum*(state; n: int): uint16 =
         state.r[dspRegA1.succ(n)]
 
 func readAuxAccum*(state; n: int): int64 =
-    cast[int64](signExtend(
-        uint64(state.readReg(dspRegX0.succ(n))) or
-        (uint64(state.readReg(dspRegX1.succ(n))) shl 16), 
-        32))
+    int64(cast[int32]((uint32(state.readReg(dspRegX0.succ(n))) or
+        (uint32(state.readReg(dspRegX1.succ(n))) shl 16))))
 
 func writeAuxAccum*(state; n: int, val: int64) =
     state.writeReg(dspRegX0.succ(n), cast[uint16](val))
@@ -92,6 +99,7 @@ func incAdr*(adr, wrap: uint16): uint16 =
     var nextAdr = adr + 1
     if (nextAdr xor adr) > ((wrap or 1) shl 1):
         nextAdr -= wrap + 1
+
     uint16 nextAdr
 
 func decAdr*(adr, wrap: uint16): uint16 =
@@ -101,6 +109,7 @@ func decAdr*(adr, wrap: uint16): uint16 =
     var nextAdr = adr + wrap
     if ((nextAdr xor adr) and ((wrap or 1) shl 1)) > wrap:
         nextAdr -= wrap + 1
+    
     uint16 nextAdr
 
 func incAdr*(adr, wrap: uint16, inc: int16): uint16 =
@@ -118,6 +127,9 @@ func incAdr*(adr, wrap: uint16, inc: int16): uint16 =
     else:
         if (((nextAdr + wrap + 1) xor nextAdr) and dadr) <= wrap:
             nextAdr += wrap + 1
+
+    #debugEcho &"inc adr {adr:02X} {wrap:02X} {inc:02X} {nextAdr:02X}"
+
     uint16 nextAdr
 
 func decAdr*(adr, wrap: uint16, inc: int16): uint16 =
@@ -135,6 +147,9 @@ func decAdr*(adr, wrap: uint16, inc: int16): uint16 =
     else:
         if (((nextAdr + wrap + 1) xor nextAdr) and dadr) <= wrap:
             nextAdr += wrap + 1
+
+    #debugEcho &"dec adr {adr:02X} {wrap:02X} {inc:02X} {nextAdr:02X}"
+
     uint16 nextAdr
 
 func loadStoreAdrInc*(state; m: range[0..3], rn: int) =
@@ -146,9 +161,12 @@ func loadStoreAdrInc*(state; m: range[0..3], rn: int) =
 
 func setC1*(state; ds, s: uint64) =
     state.status.ca = (0xFF_FFFF_FFFF'u64 - (ds and 0xFF_FFFF_FFFF'u64)) < (s and 0xFF_FFFF_FFFF'u64)
-    #state.status.ca = (dd.getBit(39) and s.getBit(39)) or (not(dd.getBit(39)) and (ds.getBit(39) or s.getBit(39)))
+    let dd = ds + s
+    assert state.status.ca == ((ds.getBit(39) and s.getBit(39)) or (not(dd.getBit(39)) and (ds.getBit(39) or s.getBit(39)))), &"wrong carry? {dd:08X}"
 func setC2*(state; ds, s: uint64) =
     state.status.ca = (ds and 0xFF_FFFF_FFFF'u64) >= (s and 0xFF_FFFF_FFFF'u64)
+    let dd = ds - s
+    assert state.status.ca == ((ds.getBit(39) and not(s.getBit(39))) or (not(dd.getBit(39)) and (ds.getBit(39) or not(s.getBit(39))))), &"wrong carry? {state.status.ca} {dd:X} {ds:X} {s:X}"
     #state.status.ca = (dd.getBit(39) and not(s.getBit(39))) or (not(dd.getBit(39)) and (ds.getBit(39) or not(s.getBit(39))))
 func setC7*(state; p, d: uint64) =
     state.status.ca = p.getBit(39) and not(d.getBit(39))
@@ -173,43 +191,33 @@ func setN2*(state; dd: uint16) =
 func setE1*(state; full: uint64) =
     state.status.ext = (full and 0xFF_8000_0000'u64) != 0'u64 or
         (full and 0xFF_8000_0000'u64) != 0xFF_8000_0000'u64
-func setE1*(state; hi: uint16) =
+func setE1*(state; hi, mid: uint16) =
     # for instructions which may only operate on the middle part
     # the flag will be based on the high part which has to be passed in!
-    state.status.ext = hi != 0 or hi != 0xFFFF'u16
+    state.status.ext = if mid.getBit(15): hi != 0xFFFF'u16 else: hi != 0'u16
 
 func setU1*(state; full: uint64) =
     state.status.unnorm = full.getBit(31) == full.getBit(30)
 func setU1*(state; mid: uint16) =
     state.status.unnorm = mid.getBit(15) == mid.getBit(14)
 
-template setAcFlags*(val: int64) {.dirty.} =
-    state.status.zr = val == 0
-    state.status.mi = val < 0
-
-    state.status.ext = int64(cast[int32](val)) != val
-    state.status.unnorm = ((val and 0xC0000000'i64) == 0) or ((val and 0xC0000000'i64) == 0xC0000000)
-
 func dppAdr*(state; a: uint16): uint16 =
     (state.readReg(dspRegDpp) shl 8) or a
 
 proc conditionHolds*(state; cond: uint32): bool =
-    template less: bool = state.status.ov != state.status.mi
-    template condA: bool = (state.status.ext or state.status.unnorm) and not(state.status.zr)
-
     case range[0..15](cond)
-    of 0: less()
-    of 1: not less()
-    of 2: not(less()) and not state.status.zr
-    of 3: less() or state.status.zr
+    of 0: state.status.ov == state.status.mi # greater or equal
+    of 1: state.status.ov != state.status.mi # less
+    of 2: not state.status.zr or state.status.ov == state.status.mi # greater
+    of 3: state.status.zr or state.status.ov != state.status.mi # less or equal
     of 4: not state.status.zr
     of 5: state.status.zr
     of 6: not state.status.ca
     of 7: state.status.ca
     of 8: not state.status.ext
     of 9: state.status.ext
-    of 10: condA()
-    of 11: not condA()
+    of 10: not state.status.zr and (state.status.ext or state.status.unnorm)
+    of 11: state.status.zr or not(state.status.ext or state.status.unnorm)
     of 12: not state.status.tb
     of 13: state.status.tb
     of 14: state.status.ov

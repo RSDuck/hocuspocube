@@ -1,7 +1,7 @@
 import
     ../util/[bitstruct, ioregs],
 
-    ../gecko/gecko
+    ../gekko/gekko
 
 makeBitStruct uint16, IntSr:
     tokenInt[0]: bool

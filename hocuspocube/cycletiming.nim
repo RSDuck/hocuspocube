@@ -30,12 +30,18 @@ proc `==`*(a, b: EventToken): bool {.borrow.}
 
 var
     upcomingEvents: HeapQueue[ScheduledEvent]
-    nextToken = 0
+    nextToken = 1
 
     geckoTimestamp* = 0'i64
     dspTimestamp* = 0'i64
 
-const InvalidEventToken* = EventToken(-1)
+const InvalidEventToken* = EventToken 0
+
+proc isEventScheduled*(token: EventToken): bool =
+    for i in 0..<upcomingEvents.len:
+        if upcomingEvents[i].token == token:
+            return true
+    false
 
 proc scheduleEvent*(timestamp: int64, priority: int32, handler: proc(timestamp: int64)): EventToken =
     result = EventToken nextToken
@@ -49,7 +55,8 @@ proc cancelEvent*(token: var EventToken) =
             token = InvalidEventToken
             upcomingEvents.del(i)
             return
-    assert false, "tried to cancel event which isn't scheduled"
+    token = InvalidEventToken
+    #assert false, "tried to cancel event which isn't scheduled"
 
 proc nearestEvent*(): int64 =
     if upcomingEvents.len > 0: upcomingEvents[0].timestamp else: high(int64)

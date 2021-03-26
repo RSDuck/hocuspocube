@@ -1,9 +1,9 @@
 import
     ../util/bitstruct, ../util/ioregs,
     dspstate,
-    ../gecko/gecko, ../cycletiming,
+    ../gekko/gekko, ../cycletiming,
 
-    strformat, stew/endians2
+    strformat, stew/endians2, streams
 
 template dspLog(msg: string): untyped =
     discard
@@ -235,6 +235,8 @@ proc dataRead*(adr: uint16): uint16 =
         of 0xFFCE: dsma.hi
         of 0xFFCF: dsma.lo
 
+        of 0xFFD3: 0'u16
+
         of 0xFFFC: dmb.hi
         of 0xFFFD: dmb.lo
         of 0xFFFE: cmb.hi
@@ -253,7 +255,9 @@ proc dataWrite*(adr, val: uint16) =
         of 0xFFCB:
             dsbl.len = val
 
-            dspLog &"dsp Main RAM DMA len: {dsbl.len:04X} MM adr: {dsma.adr:08X} DSP adr {dspa.adr:04X} {dsCr.dspMem} {dsCr.direction}"
+            dspLog &"dsp Main RAM DMA len: {dsbl.len:04X} MM adr: {dsma.adr:08X} DSP adr {dspa.adr:04X} {dsCr.dspMem} {dsCr.direction} {mDspState.pc:08X}"
+            #for i in 0..<mDspState.callStack.sp:
+            #    dspLog &"dspstack: {mDspState.callstack[i]:02X}"
 
             var
                 src = cast[ptr UncheckedArray[uint16]](addr MainRAM[dsma.adr])
@@ -271,7 +275,7 @@ proc dataWrite*(adr, val: uint16) =
 
         of 0xFFFB:
             if (val and 1) != 0:
-                echo "cpu interrupt triggered by dsp"
+                dspLog "cpu interrupt triggered by dsp"
                 dspCsr.dspint = true
                 updateDspInt()
 
@@ -339,6 +343,8 @@ proc startAid(timestamp: int64) =
             startAid(timestamp)
             dspCsr.aidint = true
             updateDspInt())
+    else:
+        echo "skipping inital value > 0"
 
 proc rescheduleAi(timestamp: int64) =
     if aiItIntEvent != InvalidEventToken:

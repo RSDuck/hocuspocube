@@ -25,7 +25,7 @@ template addAccumOp(accumReg, addend: untyped, parallel: untyped): untyped =
 
     parallel
 
-    state.writeAccum(accumReg, cast[int64](sum))
+    state.writeAccum(accumReg, sum)
     state.setC1(cast[uint64](accum), cast[uint64](addendVal))
     state.setV1(cast[uint64](sum), cast[uint64](accum), cast[uint64](addendVal))
     state.setZ1(cast[uint64](sum))
@@ -34,7 +34,7 @@ template addAccumOp(accumReg, addend: untyped, parallel: untyped): untyped =
     state.setU1(cast[uint64](sum))
 
 proc adsi*(state; d, i: uint16) =
-    addAccumOp(int d, cast[int64](signExtend(uint64(i), 8))):
+    addAccumOp(int d, int64(cast[int8](i)) shl 16):
         discard
 
 proc adli*(state; d: uint16) =
@@ -43,7 +43,7 @@ proc adli*(state; d: uint16) =
 
 proc cmpsi*(state; s, i: uint16) =
     let
-        subtrahend = cast[int64](signExtend(uint64(i), 8))
+        subtrahend = int64(cast[int8](i)) shl 16
         accum = state.readAccum(int s)
         diff = accum - subtrahend
 
@@ -56,13 +56,13 @@ proc cmpsi*(state; s, i: uint16) =
 
 proc cmpli*(state; s: uint16) =
     let
-        imm = int64(fetchFollowingImm) shl 16
+        subtrahend = int64(cast[int16](fetchFollowingImm)) shl 16
 
         a = state.readAccum(int s)
-        diff = a - imm
+        diff = a - subtrahend
 
-    state.setC2(cast[uint64](a), cast[uint64](imm))
-    state.setV2(cast[uint64](diff), cast[uint64](a), cast[uint64](imm))
+    state.setC2(cast[uint64](a), cast[uint64](subtrahend))
+    state.setV2(cast[uint64](diff), cast[uint64](a), cast[uint64](subtrahend))
     state.setZ1(cast[uint64](diff))
     state.setN1(cast[uint64](diff))
     state.setE1(cast[uint64](diff))
@@ -70,15 +70,16 @@ proc cmpli*(state; s: uint16) =
 
 template shiftOp(logical, shift: untyped, parallel: untyped): untyped =
     let
+        accum = state.readAccum(int d)
         shiftAmount = shift
         val =
             if shiftAmount < 0:
                 if logical:
-                    state.readAccum(int d) shr -shiftAmount
+                    accum shr -shiftAmount
                 else:
-                    cast[int64](cast[uint64](state.readAccum(int d)) shr -shiftAmount)
+                    cast[int64](cast[uint64](accum) shr -shiftAmount)
             else:
-                (state.readAccum(int d) shl shiftAmount)
+                (accum shl shiftAmount)
 
     parallel
 
@@ -100,11 +101,13 @@ proc asfi*(state; d, i: uint16) =
     shiftOp(false, cast[int16](signExtend(i, 7))):
         discard
 
-template logicLongImmOp(doOp: untyped) =
+template logicOp(doOp, parallel: untyped) =
     let
-        imm {.inject.} = fetchFollowingImm
         reg {.inject.} = state.readReg(dspRegA1.succ(int d))
         val = doOp
+        top = state.readReg(dspRegA2.succ(int d))
+
+    parallel
 
     state.writeReg(dspRegA1.succ(int d), val)
 
@@ -112,17 +115,20 @@ template logicLongImmOp(doOp: untyped) =
     state.status.ov = false
     state.setZ2(val)
     state.setN2(val)
-    state.setE1(state.readReg(dspRegA2.succ(int d)))
+    state.setE1(top, val)
     state.setU1(val)
 
 proc xorli*(state; d: uint16) =
-    logicLongImmOp(reg xor imm)
+    logicOp(reg xor fetchFollowingImm):
+        discard
 
 proc anli*(state; d: uint16) =
-    logicLongImmOp(reg and imm)
+    logicOp(reg and fetchFollowingImm):
+        discard
 
 proc orli*(state; d: uint16) =
-    logicLongImmOp(reg or imm)
+    logicOp(reg or fetchFollowingImm):
+        discard
 
 proc norm*(state; d, r: uint16) =
     raiseAssert "unimplemented dsp instr"
@@ -147,7 +153,7 @@ proc lsfn*(state; d, s: uint16) =
         discard
 
 proc lsfn2*(state; d: uint16) =
-    shiftOp(true, -cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+    shiftOp(true, -cast[int16](state.readReg(dspRegB1.pred(int d)))):
         discard
 
 proc asfn*(state; d, s: uint16) =
@@ -155,17 +161,18 @@ proc asfn*(state; d, s: uint16) =
         discard
 
 proc asfn2*(state; d: uint16) =
-    shiftOp(false, -cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+    shiftOp(false, -cast[int16](state.readReg(dspRegB1.pred(int d)))):
         discard
 
 proc mv*(state; d, s: uint16) =
-    state.writeReg DspReg(d), state.r[DspReg(s)]
+    state.writeReg DspReg(d), state.readReg(DspReg(s))
 
 proc mvsi*(state; d, i: uint16) =
-    if d < 6:
-        state.writeReg(dspRegX0.succ(int d), i)
+    if d <= 5:
+        state.writeReg(dspRegX0.succ(int d), signExtend(i, 8))
     else:
-        state.loadAccum(int d - 6, i)
+        state.loadAccum(int d - 6, signExtend(i, 8))
+    #echo &"loading short {d} {signExtend(i, 8)} {state.pc:02X} {state.r[dspRegB1]:02X}"
 
 proc mvli*(state; d: uint16) =
     state.writeReg DspReg(d), fetchFollowingImm
@@ -186,7 +193,7 @@ proc btsth*(state; d: uint16) =
 
 proc add*(state; s, d, x: uint16) =
     addAccumOp(int d, case range[0..7](s)
-            of 0..3: int64(state.readReg(dspRegX0.succ(int s))) shl 16
+            of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
             of 4..5: state.readAuxAccum(int s - 4)
             of 6: state.readAccum((int s - 6) xor 1)
             of 7: state.readProduct()):
@@ -199,7 +206,7 @@ proc addl*(state; s, d, x: uint16) =
 proc sub*(state; s, d, x: uint16) =
     let
         subtrahend = case range[0..7](s)
-            of 0..3: int64(state.readReg(dspRegX0.succ(int s))) shl 16
+            of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
             of 4..5: state.readAuxAccum(int s - 4)
             of 6: state.readAccum((int s - 6) xor 1)
             of 7: state.readProduct()
@@ -219,7 +226,7 @@ proc sub*(state; s, d, x: uint16) =
 proc amv*(state; s, d, x: uint16) =
     let
         val = case range[0..7](s)
-            of 0..3: int64(state.readReg(dspRegX0.succ(int s)))
+            of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
             of 4..5: int64(state.readAuxAccum(int s - 4))
             of 6: state.readAccum(int d xor 1)
             of 7: state.readProduct()
@@ -262,16 +269,16 @@ proc cmpa*(state; x: uint16) =
     state.setN1(cast[uint64](diff))
     state.setE1(cast[uint64](diff))
     state.setU1(cast[uint64](diff))
-    echo &"comparing {a:04X} by {b:04X} {diff:04X} {state.status.ca} {state.status.ov} {state.status.zr} {state.status.mi} {state.status.ext} {state.status.unnorm}"
+    #echo &"comparing {a:04X} by {b:04X} {diff:04X} {state.status.ca} {state.status.ov} {state.status.zr} {state.status.mi} {state.status.ext} {state.status.unnorm}"
 
 proc inc*(state; d, x: uint16) =
-    addAccumOp(int(d.getBit(0)), if d.getBit(1): 0x10000 else: 1):
+    addAccumOp(int(d.getBit(0)), if d.getBit(1): 1 else: 0x10000):
         state.dispatchSecondary(x)
 
 proc dec*(state; d, x: uint16) =
     let
         accum = state.readAccum(int(d.getBit(0)))
-        subtrahend = if d.getBit(1): 0x10000 else: 1
+        subtrahend = if d.getBit(1): 1 else: 0x10000
         diff = accum - subtrahend
 
     state.dispatchSecondary(x)
@@ -290,7 +297,7 @@ proc abs*(state; d, x: uint16) =
 proc neg*(state; d, x: uint16) =
     let
         accum = state.readAccum(int d)
-        diff = 0 - accum
+        diff = -accum
 
     state.dispatchSecondary(x)
 
@@ -314,7 +321,7 @@ proc clra*(state; d, x: uint16) =
     state.status.zr = true
     state.status.mi = false
     state.status.ext = false
-    state.status.unnorm = false
+    state.status.unnorm = true
 
 proc clrp*(state; x: uint16) =
     state.dispatchSecondary(x)
@@ -358,33 +365,36 @@ proc tst*(state; s, x: uint16) =
     state.setU1(cast[uint64](accum))
 
 proc tst2*(state; s, x: uint16) =
-    let accum = state.readReg(dspRegX1.succ(int s))
+    let accum = int64(cast[int16](state.readReg(dspRegX1.succ(int s)))) shl 16
 
     state.dispatchSecondary(x)
 
     state.status.ca = false
     state.status.ov = false
-    state.setZ2(accum)
-    state.setN2(accum)
-    state.status.ext = false
-    state.setU1(accum)
+    state.setZ1(cast[uint64](accum))
+    state.setN1(cast[uint64](accum))
+    state.setE1(cast[uint64](accum))
+    state.setU1(cast[uint64](accum))
 
 proc tstp*(state; x: uint16) =
     raiseAssert "unimplemented dsp instr"
 
 proc lsl16*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(true, 16):
+        state.dispatchSecondary(x)
 
 proc lsr16*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(true, -16):
+        state.dispatchSecondary(x)
 
 proc asr16*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    shiftOp(false, -16):
+        state.dispatchSecondary(x)
 
 proc addp*(state; s, d, x: uint16) =
     let
         prod = cast[int64](signExtend(cast[uint64](state.readProduct()), 32))
-        addend = int64(cast[int32](state.readReg(dspRegX1.succ(int s)) shl 16))
+        addend = int64(cast[int32](state.readReg(dspRegX1.succ(int s)))) shl 16
         sum = prod + addend
 
     state.dispatchSecondary(x)
@@ -444,7 +454,7 @@ proc mpy*(state; s, x: uint16) =
         aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
         bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
 
-        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+        prod = aSigned * (if state.status.im: bSigned else: bSigned * 2)
 
     state.dispatchSecondary(x)
 
@@ -458,7 +468,7 @@ template macOp(a, b: untyped, negate: bool): untyped =
         aVal = int64(cast[int16](a))
         bVal = int64(cast[int16](b))
 
-        prod = aVal * (if state.status.im: bVal * 2 else: bVal)
+        prod = aVal * (if state.status.im: bVal else: bVal * 2)
         sum = state.readProduct() + (if negate: -prod else: prod)
 
     state.dispatchSecondary(x)
@@ -466,7 +476,7 @@ template macOp(a, b: untyped, negate: bool): untyped =
     state.writeProduct(sum)
 
 proc mac*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegX0.succ(int s.getBit(1))), state.readReg(dspRegY0.succ(int s.getBit(0))), false)
+    macOp(state.readReg(dspRegX0.succ(int(s.getBit(1))*2)), state.readReg(dspRegY0.succ(int(s.getBit(0))*2)), false)
 
 proc mac2*(state; s, x: uint16) =
     macOp(state.readReg(dspRegA1.succ(int s.getBit(1))), state.readReg(dspRegX1.succ(int s.getBit(0))), false)
@@ -475,7 +485,7 @@ proc mac3*(state; s, x: uint16) =
     macOp(state.readReg(dspRegX1.succ(int s)), state.readReg(dspRegX0.succ(int s)), false)
 
 proc macn*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegX0.succ(int s.getBit(1))), state.readReg(dspRegY0.succ(int s.getBit(0))), true)
+    macOp(state.readReg(dspRegX0.succ(int(s.getBit(1))*2)), state.readReg(dspRegY0.succ(int(s.getBit(0))*2)), true)
 
 proc macn2*(state; s, x: uint16) =
     macOp(state.readReg(dspRegA1.succ(int s.getBit(1))), state.readReg(dspRegX1.succ(int s.getBit(0))), true)
@@ -491,7 +501,7 @@ proc mvmpy*(state; s, d, x: uint16) =
         bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
 
         oldProd = state.readProduct()
-        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+        prod = aSigned * (if state.status.im: bSigned else: bSigned * 2)
 
     state.dispatchSecondary(x)
 
@@ -508,7 +518,7 @@ proc rnmpy*(state; s, d, x: uint16) =
         aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
         bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
 
-        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+        prod = aSigned * (if state.status.im: bSigned else: bSigned * 2)
 
     state.dispatchSecondary(x)
 
@@ -532,13 +542,13 @@ proc admpy*(state; s, d, x: uint16) =
         aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
         bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
 
-        prod = aSigned * (if state.status.im: bSigned * 2 else: bSigned)
+        prod = aSigned * (if state.status.im: bSigned else: bSigned * 2)
 
     state.dispatchSecondary(x)
 
     state.writeProduct(prod)
     state.setC1(cast[uint64](accum), cast[uint64](oldProd))
-    state.setV1(cast[uint64](accum), cast[uint64](oldProd), cast[uint64](sum))
+    state.setV1(cast[uint64](sum), cast[uint64](accum), cast[uint64](oldProd))
     state.setZ1(cast[uint64](sum))
     state.setN1(cast[uint64](sum))
     state.setE1(cast[uint64](sum))
@@ -546,40 +556,39 @@ proc admpy*(state; s, d, x: uint16) =
     state.writeAccum(int d, sum)
 
 proc nnot*(state; d, x: uint16) =
-    let inv = not(state.readReg(dspRegA1.succ(int d)))
-    state.dispatchSecondary(x)
-    state.writeReg(dspRegA1.succ(int d), inv)
-    state.status.ca = false
-    state.status.ov = false
-    state.setZ2(inv)
-    state.setN2(inv)
-    state.setE1(inv)
-    state.setU1(inv)
+    logicOp(not reg):
+        state.dispatchSecondary(x)
 
 proc xxor*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    logicOp(reg xor state.readReg(dspRegX1.succ(int s))):
+        state.dispatchSecondary(x)
 
 proc xxor2*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    logicOp(reg xor state.readReg(dspRegB1.pred(int d))):
+        state.dispatchSecondary(x)
 
 proc aand*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    logicOp(reg and state.readReg(dspRegX1.succ(int s))):
+        state.dispatchSecondary(x)
 
 proc aand2*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    logicOp(reg and state.readReg(dspRegB1.pred(int d))):
+        state.dispatchSecondary(x)
 
 proc oor*(state; s, d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    logicOp(reg or state.readReg(dspRegX1.succ(int s))):
+        state.dispatchSecondary(x)
 
 proc oor2*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    logicOp(reg or state.readReg(dspRegB1.pred(int d))):
+        state.dispatchSecondary(x)
 
 proc lsf*(state; s, d, x: uint16) =
     shiftOp(true, cast[int16](state.readReg(dspRegX1.succ(int s)))):
         state.dispatchSecondary(x)
 
 proc lsf2*(state; d, x: uint16) =
-    shiftOp(true, cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+    shiftOp(true, cast[int16](state.readReg(dspRegB1.pred(int d)))):
         state.dispatchSecondary(x)
 
 proc asf*(state; s, d, x: uint16) =
@@ -587,5 +596,5 @@ proc asf*(state; s, d, x: uint16) =
         state.dispatchSecondary(x)
 
 proc asf2*(state; d, x: uint16) =
-    shiftOp(false, cast[int16](state.readReg(dspRegA1.succ(int d xor 1)))):
+    shiftOp(false, cast[int16](state.readReg(dspRegB1.pred(int d)))):
         state.dispatchSecondary(x)

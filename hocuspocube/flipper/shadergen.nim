@@ -11,20 +11,26 @@ type
         numTexcoordGen*: uint32
         texcoordGen*: array[8, TexcoordGen]
 
+        enableDualTex*: bool
+        normaliseDualTex*: set[0..7]
+
         numColors*: uint32
         lightCtrls*: array[LightCtrlKind, LightCtrl]
-    
+
     FragmentShaderKey* = object
         numTevStages*: uint32
         colorEnv*: array[16, TevColorEnv]
         alphaEnv*: array[16, TevAlphaEnv]
         ras1Tref*: array[8, Ras1Tref]
         ksel*: array[8, TevKSel]
+        alphaCompLogic*: AlphaCompLogic
+        alphaComp0*, alphaComp1*: CompareFunction
 
 proc `==`*(a, b: VertexShaderKey): bool =
     result = a.enabledAttrs == b.enabledAttrs and
         a.numTexcoordGen == b.numTexcoordGen and
-        a.numColors == b.numColors
+        a.numColors == b.numColors and
+        a.enableDualTex == b.enableDualTex
 
     if result:
         for i in 0..<a.numTexcoordGen:
@@ -38,6 +44,8 @@ proc `==`*(a, b: VertexShaderKey): bool =
         if a.numColors == 2 and 
             a.lightCtrls[lightCtrlColor1] != b.lightCtrls[lightCtrlColor1] or
             a.lightCtrls[lightCtrlAlpha1] != b.lightCtrls[lightCtrlAlpha1]:
+            return false
+        if a.enableDualTex and a.normaliseDualTex != b.normaliseDualTex:
             return false
 
 proc hash*(key: VertexShaderKey): Hash =
@@ -54,10 +62,17 @@ proc hash*(key: VertexShaderKey): Hash =
         result = result !&
             hash(key.lightCtrls[lightCtrlColor1]) !&
             hash(key.lightCtrls[lightCtrlAlpha1])
+    result = result !& hash(key.enableDualTex)
+    if key.enableDualTex:
+        result = result !& hash(key.normaliseDualTex)
     result = !$result
 
 proc `==`*(a, b: FragmentShaderKey): bool =
-    result = a.numTevStages == b.numTevStages
+    result =
+        a.numTevStages == b.numTevStages and
+        a.alphaCompLogic == b.alphaCompLogic and
+        a.alphaComp0 == b.alphaComp0 and
+        b.alphaComp1 == b.alphaComp1
 
     if result:
         for i in 0..<a.numTevStages:
@@ -72,6 +87,9 @@ proc `==`*(a, b: FragmentShaderKey): bool =
 
 proc hash*(key: FragmentShaderKey): Hash =
     result = result !& hash(key.numTevStages)
+    result = result !& hash(key.alphaCompLogic)
+    result = result !& hash(key.alphaComp0)
+    result = result !& hash(key.alphaComp1)
     for i in 0..<key.numTevStages:
         result = result !& hash(key.colorEnv[i])
         result = result !& hash(key.alphaEnv[i])
@@ -87,10 +105,12 @@ const
     registerUniformSource = """layout (std140, binding = 0) uniform Registers {
 mat4 Projection;
 uint MatIndices0, MatIndices1;
+uint DualTexMatIdx0, DualTexMatIdx1;
 vec4 TexcoordScale[4];
 vec4 TextureSizes[8];
 ivec4 Konstants[2];
 uvec4 MatColor;
+uint AlphaRefs;
 };"""
 
 func mapPackedArray2(n: uint32): (uint32, string) =
@@ -131,7 +151,7 @@ proc genVertexShader*(key: VertexShaderKey): string =
     line "layout (std140, binding = 1) uniform xfMemory {"
     line "vec4 PosTexMats[64];"
     line "vec4 NrmMats[32];" # stupid padding
-    line "vec4 PostTexMats[64];"
+    line "vec4 DualTexMats[64];"
     line "uvec4 LightColor[2];"
     line "vec4 LightPositionA1[4];"
     line "vec4 LightDirectionA0[4];"
@@ -257,8 +277,8 @@ proc genVertexShader*(key: VertexShaderKey): string =
         line "{"
         let src =
             case key.texcoordGen[i].src
-            of texcoordGenSrcGeom: "transformedPos"
-            of texcoordGenSrcNrm: "vec4(transformedNormal, 1.0)"
+            of texcoordGenSrcGeom: "vec4(inPosition, 1.0)"
+            of texcoordGenSrcNrm: "vec4(inNormal, 1.0)"
             of texcoordGenSrcTex0..texcoordGenSrcTex7:
                 let n = ord(texcoordGen[i].src) - ord(texcoordGenSrcTex0)
                 if vtxAttrTexCoord0.succ(n) in key.enabledAttrs:
@@ -269,19 +289,32 @@ proc genVertexShader*(key: VertexShaderKey): string =
 
         line &"vec4 texcoordSrc = {src};"
         let
-            matVar = if i >= 4: 0 else: 1
-            matShift = 6*(i - (if i >= 4: 4 else: 0))
+            matVar = if i >= 4: 1 else: 0
+            matShift = if i >= 4: (i-4)*6 else: i*6+6
         line &"uint matIdx = bitfieldExtract(MatIndices{matVar}, {matShift}, 6);"
 
+        # not pretty, but it works
+        if key.texcoordGen[i].inputForm == texcoordInputFormAB11:
+            line "texcoordSrc.z = 1.0;"
+
         case key.texcoordGen[i].proj
-        of texcoordProjStq:
-            line """vec3 transformedTexcoord = vec3(dot(texcoordSrc, PosTexMats[matIdx]),
-                                                    dot(texcoordSrc, PosTexMats[matIdx+1U]),
-                                                    dot(texcoordSrc, PosTexMats[matIdx+2U]));"""
         of texcoordProjSt:
             line """vec3 transformedTexcoord = vec3(dot(texcoordSrc, PosTexMats[matIdx]),
                                         dot(texcoordSrc, PosTexMats[matIdx+1U]),
                                         1.0);"""
+        of texcoordProjStq:
+            line """vec3 transformedTexcoord = vec3(dot(texcoordSrc, PosTexMats[matIdx]),
+                                                    dot(texcoordSrc, PosTexMats[matIdx+1U]),
+                                                    dot(texcoordSrc, PosTexMats[matIdx+2U]));"""
+
+        if key.enableDualTex:
+            if i in key.normaliseDualTex:
+                line "transformedTexcoord = normalize(transformedTexcoord);"
+
+            line &"uint postMatIdx = bitfieldExtract(DualTexMatIdx{i div 4}, {(i mod 4)*8}, 8);"
+            line """transformedTexcoord = vec3(dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx]),
+                                    dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 1U]),
+                                    dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 2U]));"""
 
         let
             (scaleIdx, scaleSwizzle) = mapPackedArray2(i)
@@ -335,6 +368,7 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
             mapColorKonstant: array[TevKColorSel, string] =
                 ["ivec3(255)", "ivec3(255*7/8)", "ivec3(255*3/4)", "ivec3(255*5/8)", "ivec3(255*1/2)", "ivec3(255*3/8)",
                     "ivec3(255*1/4)", "ivec3(255*1/8)",
+                    "0", "0", "0", "0",
                     "konst0.rgb", "konst1.rgb", "konst2.rgb", "konst3.rgb",
                     "konst0.rrr", "konst1.rrr", "konst2.rrr", "konst3.rrr",
                     "konst0.ggg", "konst1.ggg", "konst2.ggg", "konst3.ggg",
@@ -410,6 +444,30 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
             line &"{alphaDst} = clamp(alphaVal >> 8, 0, 255);"
         else:
             line &"{alphaDst} = clamp(alphaVal >> 8, 0, 1023);"
+
+        line "}"
+
+    block:
+        line "{"
+
+        const
+            translateComp: array[CompareFunction, string] =
+                ["false", "reg0.a < ref", "reg0.a == ref", "reg0.a <= ref",
+                "reg0.a > ref", "reg0.a != ref", "reg0.a >= ref", "true"]
+            translateLogicOp: array[AlphaCompLogic, string] = ["&&", "||", "!=", "=="]
+
+        let
+            comp0 = translateComp[key.alphaComp0]
+            comp1 = translateComp[key.alphaComp1]
+            logic = translateLogicOp[key.alphaCompLogic]
+
+        line "uint ref = bitfieldExtract(AlphaRefs, 0, 8);"
+        line &"bool test1 = {comp0};"
+        line "ref = bitfieldExtract(AlphaRefs, 8, 8);"
+        line &"bool test2 = {comp1};"
+
+        line &"if (!(test1 {logic} test2))"
+        line "discard;"
 
         line "}"
 

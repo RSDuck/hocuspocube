@@ -225,16 +225,16 @@ proc stmw*(state; s, a, imm: uint32) =
             state.writeMemory[:uint32](adr.get, toBE r(r))
 
 proc lswi*(state; d, a, nb: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented lswi"
 
 proc lswx*(state; d, a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented lswx"
 
 proc stswi*(state; s, a, nb: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented stswi"
 
 proc stswx*(state; s, a, b: uint32) =
-    raiseAssert "instr not implemented"
+    raiseAssert "instr not implemented stswx"
 
 # Float
 
@@ -262,7 +262,7 @@ template storeSingle: untyped {.dirty.} =
 const scaleTable = (proc(): array[64, float32] =
         for i in 0'u32..<64:
             # the scale is inverted
-            let exponent = cast[int](signExtend(i, 6))
+            let exponent = cast[int32](signExtend(i, 6))
 
             if exponent < 0:
                 result[i] = 1f / float32(1 shl -exponent)
@@ -423,3 +423,14 @@ proc psq_st*(state; s, a, w, i, imm: uint32) =
 proc psq_stu*(state; s, a, w, i, imm: uint32) =
     calcAddrImmQuant true:
         storeQuant
+
+# not really a load/store operation
+proc dcbz*(state; a, b: uint32) =
+    discard
+    #[calcAddr false:
+        if ea >= 0x80000000'u32 and ea < 0x80008000'u32:
+            # stupid hack stolen from Dolphin
+            return
+        doMemOp:
+            for i in 0'u32..<8:
+                writeBus[uint32]((adr.get and not(0x1F'u32)) + i*4, 0'u32)]#

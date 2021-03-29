@@ -59,8 +59,8 @@ proc setupUniforms() =
             registerUniform.textureSizes[i*4+2] = 1f / float32(texMaps[i].width)
             registerUniform.textureSizes[i*4+3] = 1f / float32(texMaps[i].height)
 
-            registerUniform.konstants[i] =
-                if (i mod 2) == 0: uint32(tevRegisterL[i div 2]) else: uint32(tevRegisterH[i div 2])
+            registerUniform.regValues[i] = uint32 tevRegister[i]
+            registerUniform.konstants[i] = uint32 konstants[i]
         registerUniform.matColors[0] = uint32 ambColorsRegs[0]
         registerUniform.matColors[1] = uint32 ambColorsRegs[1]
         registerUniform.matColors[2] = uint32 matColorsRegs[0]
@@ -73,9 +73,10 @@ proc setupUniforms() =
                 (dualTex[i].dualMtx shl (i*8))
             registerUniform.dualTexMatIndices1 = registerUniform.dualTexMatIndices1 or
                 (dualTex[i+4].dualMtx shl (i*8))
-        rasterogl.uploadRegisters(registerUniform)
 
-        registerUniform.alphaRefs = alphaCompare.ref0 or (alphaCompare.ref1 shl 8)          
+        registerUniform.alphaRefs = alphaCompare.ref0 or (alphaCompare.ref1 shl 8)  
+
+        rasterogl.uploadRegisters(registerUniform)
         registerUniformDirty = false
     if xfMemoryDirty:
         rasterogl.uploadXfMemory(xfMemoryUniform)

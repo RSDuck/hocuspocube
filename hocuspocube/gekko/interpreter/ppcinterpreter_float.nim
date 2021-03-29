@@ -83,7 +83,10 @@ proc fmulsx*(state; d, a, c, rc: uint32) =
     handleRc
 
 proc fresx*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented fresx"
+    fr(d).ps0 = 1.0 / fr(b).ps0
+    fr(d).ps1 = fr(d).ps0
+    setFprf fr(d).ps0
+    handleRc
 
 proc frsqrtex*(state; d, b, rc: uint32) =
     fr(d).double = 1.0 / sqrt(fr(b).double)

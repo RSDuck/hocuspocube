@@ -6,6 +6,7 @@
 
 # Logs and test files
 miauz
+miauz2
 *.dol
 
 settings.ini

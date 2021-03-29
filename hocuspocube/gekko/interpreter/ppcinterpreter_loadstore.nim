@@ -1,5 +1,6 @@
 import
-    ../ppcstate, ../memory, ../../util/aluhelper,
+    ../ppcstate, ../memory, ../gekko,
+    ../../util/aluhelper,
     ppcinterpreter_aux,
     options, stew/endians2,
     strformat, math
@@ -426,11 +427,21 @@ proc psq_stu*(state; s, a, w, i, imm: uint32) =
 
 # not really a load/store operation
 proc dcbz*(state; a, b: uint32) =
-    discard
-    #[calcAddr false:
+    calcAddr false:
         if ea >= 0x80000000'u32 and ea < 0x80008000'u32:
             # stupid hack stolen from Dolphin
             return
+        if state.pc == 0x813007f4'u32:
+            # the entire IPL clears itself out of memory
+            # and relies on icache for the rest of the way
+            return
         doMemOp:
-            for i in 0'u32..<8:
-                writeBus[uint32]((adr.get and not(0x1F'u32)) + i*4, 0'u32)]#
+            for i in 0'u32..<4:
+                writeBus[uint64]((adr.get and not(0x1F'u32)) + i*8, 0'u64)
+
+proc dcbz_l*(state; a, b: uint32) =
+    calcAddr false:
+        doMemOp:
+            doAssert adr.get >= 0xE0000000'u32 and adr.get <= 0xE0003fff'u32, "dcbz_l in unusal region"
+
+            zeroMem(addr lockedCache[adr.get and 0x3FE0], 0x20)

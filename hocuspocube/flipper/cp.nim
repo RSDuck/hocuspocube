@@ -103,10 +103,10 @@ proc cpRun*() =
         if not cr.gpLink:
             if fifoWritePointer.adr < fifoReadPointer.adr:
                 # data wraps around
-                cmdlistParser.queueData(toOpenArray(MainRAM, fifoReadPointer.adr, fifoEnd.adr + 31'u32))
-                cmdlistParser.queueData(toOpenArray(MainRAM, fifoBase.adr, fifoWritePointer.adr - 1))
+                cmdlistParser.queueData(toOpenArray(mainRAM, fifoReadPointer.adr, fifoEnd.adr + 31'u32))
+                cmdlistParser.queueData(toOpenArray(mainRAM, fifoBase.adr, fifoWritePointer.adr - 1))
             else:
-                cmdlistParser.queueData(toOpenArray(MainRAM, fifoReadPointer.adr, fifoWritePointer.adr - 1))
+                cmdlistParser.queueData(toOpenArray(mainRAM, fifoReadPointer.adr, fifoWritePointer.adr - 1))
 
         cmdlistParser.run()
 

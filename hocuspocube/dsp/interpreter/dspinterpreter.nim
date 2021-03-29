@@ -66,7 +66,7 @@ proc dspRun*(timestamp: var int64, target: int64) =
                 mDspState.pc = mDspState.callStack.peek() - 1
 
         mDspState.pc += 1
-        timestamp += geckoCyclesPerDspCycle
+        timestamp += gekkoCyclesPerDspCycle
 
         #if mDspState.pc < 0x8000 and mDspState.pc > 0x0ba4:
         #    echo &"bad pc from {prevPc:04X}"

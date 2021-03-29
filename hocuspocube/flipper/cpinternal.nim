@@ -9,7 +9,6 @@ import
     rasterinterfacecommon
 
 template cpLog(msg: string): untyped =
-    #echo msg
     discard
 
 type
@@ -180,7 +179,7 @@ type
         stride: ArrayStride
 
 proc read[T](arr: VertexArray, idx: uint32, offset = 0'u32): T =
-    fromBE cast[ptr T](addr MainRAM[arr.base.adr + arr.stride.stride * idx + offset * uint32(sizeof(T))])[]
+    fromBE cast[ptr T](addr mainRAM[arr.base.adr + arr.stride.stride * idx + offset * uint32(sizeof(T))])[]
 
 proc calcVertexSize(fmt: VertexFmt): uint32 =
     result += uint32(fmt.vcdLo.pnmidx) +
@@ -503,11 +502,11 @@ proc run(data: openArray[byte],
                         var
                             verticesRemaining = 0
                             drawCallDesc: DrawCallDesc
-                        let left = run(toOpenArray(MainRAM, adr, adr + size - 1), drawCallDesc, verticesRemaining, true)
+                        let left = run(toOpenArray(mainRAM, adr, adr + size - 1), drawCallDesc, verticesRemaining, true)
                         assert left == int(size), "invalid display list"
                         assert verticesRemaining == 0, "display list ended with invalid drawcall"
                     of CmdInvVtxCache:
-                        echo "invalidate vertex cache"
+                        cpLog "invalidate vertex cache"
                     of CmdLoadBp:
                         ensureLength 4
                         let params = read32()

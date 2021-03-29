@@ -10,7 +10,7 @@ proc loadDol*(input: Stream) =
     let file = dolfile.loadDol(input)
 
     proc writeSection(section: Section) =
-        copyMem(addr MainRAM[section.start - 0x80000000'u32], unsafeAddr section.data[0], section.data.len)
+        copyMem(addr mainRAM[section.start - 0x80000000'u32], unsafeAddr section.data[0], section.data.len)
     for section in file.text:
         echo &".text at {section.start:X}"
         writeSection section
@@ -18,19 +18,19 @@ proc loadDol*(input: Stream) =
         echo &".data at {section.start:X}"
         writeSection section
 
-    geckoState.pc = file.entrypoint - 0x80000000'u32
+    gekkoState.pc = file.entrypoint - 0x80000000'u32
 
 proc boot*() =
-    geckoState.msr.ip = true
-    geckoState.pendingExceptions.incl exceptionSystemReset
+    gekkoState.msr.ip = true
+    gekkoState.pendingExceptions.incl exceptionSystemReset
 
 proc run*() =
     rasterinterface.init()
     while true:
-        let sliceEnd = min(geckoTimestamp + geckoMaxSlice, nearestEvent())
+        let sliceEnd = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
 
-        geckoRun geckoTimestamp, sliceEnd
-        dspRun dspTimestamp, geckoTimestamp
+        gekkoRun gekkoTimestamp, sliceEnd
+        dspRun dspTimestamp, gekkoTimestamp
 
         cpRun()
 

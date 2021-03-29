@@ -151,7 +151,7 @@ proc setupTexture*(n: int) =
             (dataSize, _, _) = calculateTexSize(key.fmt, key.width, key.height, 1)
 
         for i in 0..<dataSize div 32:
-            MainRAMTagging[(key.adr shr 32) + i] = memoryTagTexture
+            mainRAMTagging[(key.adr shr 32) + i] = memoryTagTexture
 
         texture.dataSize = dataSize
         texture.native = rasterogl.createTexture(int key.width, int key.height, 1, targetFmt)
@@ -185,7 +185,7 @@ proc setupTexture*(n: int) =
 
         var data = newSeq[byte](roundedWidth*roundedHeight*uint32(targetFmtPixelSize[getTargetFmt(key.fmt)]))
         decodingFuncs[key.fmt](cast[ptr UncheckedArray[byte]](addr data[0]),
-            cast[ptr UncheckedArray[byte]](addr MainRAM[texmap.adr]),
+            cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
             int(key.width), int(key.height))
 
         rasterogl.uploadTexture(texture.native, 0, 0, 0, int(key.width), int(key.height), int(roundedWidth), addr data[0])

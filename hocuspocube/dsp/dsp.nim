@@ -201,7 +201,7 @@ proc runPeripherals*() =
     if dspCsr.busyCopying:
         # copy 1kb payload
         dspLog "transfering inital dsp payload"
-        copySwapBytes16(toOpenArray(iram, 0, 511), toOpenArray(cast[ptr UncheckedArray[uint16]](addr MainRAM[0x1000000]), 0, 511))
+        copySwapBytes16(toOpenArray(iram, 0, 511), toOpenArray(cast[ptr UncheckedArray[uint16]](addr mainRAM[0x1000000]), 0, 511))
         dspCsr.busyCopying = false
 
 # DSP side memory
@@ -260,7 +260,7 @@ proc dataWrite*(adr, val: uint16) =
             #    dspLog &"dspstack: {mDspState.callstack[i]:02X}"
 
             var
-                src = cast[ptr UncheckedArray[uint16]](addr MainRAM[dsma.adr])
+                src = cast[ptr UncheckedArray[uint16]](addr mainRAM[dsma.adr])
                 dst = cast[ptr UncheckedArray[uint16]](case dsCr.dspMem
                     of dspMemIMem: addr iram[dspa.adr]
                     of dspMemDMem: addr dram[dspa.adr])
@@ -313,15 +313,15 @@ proc doDspDma(mmPtr: ptr UncheckedArray[byte], transferLines: uint32,
 
 proc curAiSCnt(): uint32 =
     if aiCr.pstat:
-        result = uint32((geckoTimestamp - aiSCntInitTimestamp) div geckoCyclesPerAiSample) + aiSCntInit
-        #dspLog "current samples ", result, " timestamp: ", geckoTimestamp, " ", aiSCntInitTimestamp
+        result = uint32((gekkoTimestamp - aiSCntInitTimestamp) div gekkoCyclesPerAiSample) + aiSCntInit
+        #dspLog "current samples ", result, " timestamp: ", gekkoTimestamp, " ", aiSCntInitTimestamp
     else:
         result = aiSCntInit
 
 proc curAidCnt(): uint16 =
-    let blocksPast = uint16((geckoTimestamp - aidCntInitTimestamp) div ((case aiCr.dfr
-                    of dmaFreq32Khz: geckoCyclesPerSecond div 32_000
-                    of dmaFreq48Khz: geckoCyclesPerSecond div 48_000) * SamplesPer32byte))
+    let blocksPast = uint16((gekkoTimestamp - aidCntInitTimestamp) div ((case aiCr.dfr
+                    of dmaFreq32Khz: gekkoCyclesPerSecond div 32_000
+                    of dmaFreq48Khz: gekkoCyclesPerSecond div 48_000) * SamplesPer32byte))
     if blocksPast > aidCntInit:
         0'u16
     else:
@@ -331,8 +331,8 @@ proc startAid(timestamp: int64) =
     if aidCntInit > 0:
         let cycles = int64(aidCntInit * 32 div (2*2)) *
             (case aiCr.dfr
-                of dmaFreq32Khz: geckoCyclesPerSecond div 32_000
-                of dmaFreq48Khz: geckoCyclesPerSecond div 48_000)
+                of dmaFreq32Khz: gekkoCyclesPerSecond div 32_000
+                of dmaFreq48Khz: gekkoCyclesPerSecond div 48_000)
         dspLog &"playing {aidLen.len * 32 div (2*2)} stereo samples"
         aidDoneEvent = scheduleEvent(timestamp + cycles, 0, proc(timestamp: int64) =
             aidCntInitTimestamp = timestamp
@@ -344,7 +344,7 @@ proc startAid(timestamp: int64) =
             dspCsr.aidint = true
             updateDspInt())
     else:
-        echo "skipping inital value > 0"
+        echo "skipping inital value == 0"
 
 proc rescheduleAi(timestamp: int64) =
     if aiItIntEvent != InvalidEventToken:
@@ -353,7 +353,7 @@ proc rescheduleAi(timestamp: int64) =
     let curSample = curAiSCnt()
     # TODO: what about overflow?
     if aiCr.pstat and not aiCr.aiintvld and curSample <= aiIt:
-        aiItIntEvent = scheduleEvent(timestamp + geckoCyclesPerAiSample * int64(curSample - aiIt), 0,
+        aiItIntEvent = scheduleEvent(timestamp + gekkoCyclesPerAiSample * int64(curSample - aiIt), 0,
             proc(timestamp: int64) =
                 aiItIntEvent = InvalidEventToken
                 aiCr.aiint = true
@@ -415,7 +415,7 @@ of arDmaCntLo, 0x2A, 2:
         let
             transferLines = min(arDmaCnt.length shr 5, 16)
             aramSize = min(2'u32 shl arInfo.baseSize, 32) # in MB
-            mmPtr = cast[ptr UncheckedArray[byte]](addr MainRAM[arDmaMmAdr.adr])
+            mmPtr = cast[ptr UncheckedArray[byte]](addr mainRAM[arDmaMmAdr.adr])
 
         template doDma(dir: DspDmaDirection): untyped =
             if aramSize < 16:
@@ -444,7 +444,7 @@ of aidLen, 0x36, 2:
         dspLog &"writing aidlen {aidLen.play} {aidLen.len}"
         if aidCntInit == 0 and aidLen.play:
             aidCntInit = uint16 aidLen.len
-            startAid(geckoTimestamp)
+            startAid(gekkoTimestamp)
 of aidCnt, 0x3A, 2:
     read: curAidCnt()
 
@@ -452,15 +452,15 @@ ioBlock ai, 0x20:
 of aiCr, 0x0, 4:
     read: uint32 aiCr
     write:
-        dspLog &"writing ai cr {val:08X} {uint32(aiCr):08X} {geckoState.pc:08X}"
+        dspLog &"writing ai cr {val:08X} {uint32(aiCr):08X} {gekkoState.pc:08X}"
 
         aiCr.mutable = val
         let val = AiCr val
 
         if val.pstat and not aiCr.pstat:
-            aiSCntInitTimestamp = geckoTimestamp
+            aiSCntInitTimestamp = gekkoTimestamp
             aiCr.pstat = true
-            dspLog &"started playing! at timestamp {geckoTimestamp}"
+            dspLog &"started playing! at timestamp {gekkoTimestamp}"
         if not val.pstat and aiCr.pstat:
             aiSCntInit = curAiSCnt()
             aiCr.pstat = false
@@ -468,14 +468,14 @@ of aiCr, 0x0, 4:
 
         if val.scrreset:
             aiSCntInit = 0
-            dspLog &"resetting to timestamp {geckoTimestamp}"
-            aiSCntInitTimestamp = geckoTimestamp
+            dspLog &"resetting to timestamp {gekkoTimestamp}"
+            aiSCntInitTimestamp = gekkoTimestamp
 
         if val.aiint:
             aiCr.aiint = false
 
         updateAiInt()
-        rescheduleAi(geckoTimestamp)
+        rescheduleAi(gekkoTimestamp)
 of aiVr, 0x4, 4:
     read: uint32 aiVr
 of aiSCnt, 0x8, 4:

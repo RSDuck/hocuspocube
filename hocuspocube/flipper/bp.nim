@@ -243,6 +243,7 @@ makeBitStruct uint32, *TevRegister:
     b[0..10]: uint32
     a[12..22]: uint32
     g[12..22]: uint32
+    setKonst[23]: bool
 
 makeBitStruct uint32, *TevKSel:
     swaprg[0..1] {.evenStage, oddStage.}: uint32
@@ -362,14 +363,16 @@ var
     alphaEnv*: array[16, TevAlphaEnv]
     ras1Tref*: array[8, Ras1Tref]
 
-    tevRegisterL*: array[4, TevRegister]
-    tevRegisterH*: array[4, TevRegister]
+    tevRegister*: array[8, TevRegister]
+    konstants*: array[8, TevRegister]
 
     tevKSel*: array[8, TevKSel]
 
     genMode*: GenMode
 
     alphaCompare*: AlphaCompare
+
+    efbCopyStepY: uint32
 
 proc getRas1Tref*(regs: array[8, Ras1Tref], i: uint32):
     tuple[texmap: uint32, texcoord: uint32, texmapEnable: bool, color: Ras1TrefColor] =
@@ -405,6 +408,9 @@ proc bpWrite*(adr, val: uint32) =
     of 0x00:
         genMode = GenMode val
         rasterStateDirty = true
+    of 0x01..0x04:
+        # copy filter stuff
+        discard
     of 0x20:
         scissorTL = ScissorCoords val
         rasterStateDirty = true
@@ -443,6 +449,8 @@ proc bpWrite*(adr, val: uint32) =
 
             pe.flagFinish()
             echo "pe finish!"
+    of 0x4E:
+        efbCopyStepY = val
     of 0x4F:
         clearR = uint8(val)
         clearA = uint8(val shr 8)
@@ -454,22 +462,34 @@ proc bpWrite*(adr, val: uint32) =
     of 0x52:
         let val = CopyExecute val
 
-        echo &"copy execute {efbCopySrcX}, {efbCopySrcY} {efbCopyW}x{efbCopyH} to {efbCopyDst:08X} stride: {efbCopyDstStride}"
+        echo &"copy execute {efbCopySrcX}, {efbCopySrcY} {efbCopyW}x{efbCopyH} to {efbCopyDst:08X} stride: {efbCopyDstStride} {efbCopyStepY}"
 
         doAssert val.mode == copyXfb
 
         var efbContent = newSeq[uint32](efbCopyW * efbCopyH)
         retrieveFrame(efbContent, efbCopySrcX, efbCopySrcY, efbCopyW, efbCopyH)
 
-        var adr = efbCopyDst
-        for i in 0..<efbCopyH:
-            convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr MainRAM[adr]),
-                toOpenArray(efbContent, int (efbCopyH-i-1)*efbCopyW, int (efbCopyH-i-1+1)*efbCopyW-1),
-                int efbCopyW)
+        var
+            adr = efbCopyDst
+            uniqueAdr = efbCopyDst
+            line = 0'u32 # in .8 fix point like efbCopyStepY
+            i = 0'u32
+        while ((line + efbCopyStepY - 1) shr 8) < efbCopyH:
+            if (line shr 8) != i:
+                uniqueAdr = adr
+                convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
+                    toOpenArray(efbContent, int (efbCopyH-i-1)*efbCopyW, int (efbCopyH-i-1+1)*efbCopyW-1),
+                    int efbCopyW)
+                i += 1
+            else:
+                copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], efbCopyW*2)
+            line += efbCopyStepY
             adr += efbCopyDstStride
 
         if val.clear:
             rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ)
+    of 0x53, 0x54:
+        discard # also copy filter
     of 0x59:
         scissorOffset = ScissorOffset val
         rasterStateDirty = true
@@ -529,10 +549,11 @@ proc bpWrite*(adr, val: uint32) =
         else:
             alphaEnv[(adr - 0xC1) div 2] = TevAlphaEnv val
     of 0xE0..0xE7:
-        if (adr mod 2) == 0:
-            tevRegisterL[(adr - 0xE0) div 2] = TevRegister val
+        let val = TevRegister val
+        if val.setKonst:
+            konstants[adr - 0xE0] = val
         else:
-            tevRegisterH[(adr - 0xE0) div 2] = TevRegister val
+            tevRegister[adr - 0xE0] = val
         registerUniformDirty = true
     of 0xF3:
         alphaCompare = AlphaCompare val

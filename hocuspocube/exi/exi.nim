@@ -156,17 +156,17 @@ of exiCr, 0x0C, 4, 3, 20:
                     startAdr = channels[idx].dmaStart.val
                     endAdr = startAdr + channels[idx].dmaLen.val - 1
 
-                exiLog &"exi {idx} dma {channels[idx].cr.transferKind} from {startAdr:08X} to {endAdr:08X} {geckoState.pc:08X}"
+                exiLog &"exi {idx} dma {channels[idx].cr.transferKind} from {startAdr:08X} to {endAdr:08X} {gekkoState.pc:08X}"
 
                 if channels[idx].cr.transferKind == exiTransferRead:
                     channels[idx].device.exchange(channels[idx].device,
-                        toOpenArray(MainRAM, startAdr, endAdr),
+                        toOpenArray(mainRAM, startAdr, endAdr),
                         [])
                 else:
                     var dummyOut: array[0, byte] = []
                     channels[idx].device.exchange(channels[idx].device,
                         dummyOut,
-                        toOpenArray(MainRAM, startAdr, endAdr))
+                        toOpenArray(mainRAM, startAdr, endAdr))
                 channels[idx].csr.tcint = true
                 updateInt(idx)
             else:
@@ -176,7 +176,7 @@ of exiCr, 0x0C, 4, 3, 20:
                     input = [0xFF'u8, 0xFF'u8, 0xFF'u8, 0xFF'u8]
                     response = [0xFF'u8, 0xFF'u8, 0xFF'u8, 0xFF'u8]
 
-                exiLog &"exi {idx} imm {channels[idx].cr.transferKind} len {channels[idx].cr.tlen+1} {channels[idx].data:08X} {geckoState.pc:08X}"
+                exiLog &"exi {idx} imm {channels[idx].cr.transferKind} len {channels[idx].cr.tlen+1} {channels[idx].data:08X} {gekkoState.pc:08X}"
 
                 if channels[idx].cr.transferKind in {exiTransferWrite, exiTransferReadWrite}:
                     var imm = channels[idx].data

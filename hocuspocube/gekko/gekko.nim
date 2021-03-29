@@ -3,7 +3,7 @@ import
     ../util/bitstruct, ../util/ioregs,
     ppcstate
 
-var geckoState*: PpcState
+var gekkoState*: PpcState
 
 template piLog(msg: string): untyped =
     discard
@@ -50,8 +50,10 @@ var
 
     fifoBase, fifoEnd, fifoCurrent: FifoPtr
 
-    MainRAM*: array[0x1800000, byte]
-    MainRAMTagging*: array[0x1800000 div 32, MemoryTag]
+    mainRAM*: array[0x1800000, byte]
+    mainRAMTagging*: array[0x1800000 div 32, MemoryTag]
+
+    lockedCache*: array[0x4000, byte]
 
 proc updateFifo*(): uint32 =
     result = fifoCurrent.adr
@@ -62,16 +64,16 @@ proc updateFifo*(): uint32 =
     else:
         fifoCurrent.adr = fifoCurrent.adr + 32
 
-proc updateGeckoException() =
+proc updategekkoException() =
     if (intsr.exceptions and intmr.exceptions) != 0:
-        geckoState.pendingExceptions.incl exceptionExternal
+        gekkoState.pendingExceptions.incl exceptionExternal
     else:
-        geckoState.pendingExceptions.excl exceptionExternal
+        gekkoState.pendingExceptions.excl exceptionExternal
 
 proc setExtInt*(exception: ExternalInt, enable: bool) =
     piLog &"extint {exception} {enable}"
     intsr.exception(int(exception), enable)
-    updateGeckoException()
+    updategekkoException()
 
 ioBlock pi, 0x100:
 of intsr, 0x00, 4:
@@ -80,7 +82,7 @@ of intmr, 0x04, 4:
     read: uint32(intmr)
     write:
         intmr.exceptions = val
-        updateGeckoException()
+        updategekkoException()
 of fifobase, 0xC, 4:
     read: uint32 fifoBase
     write: fifoBase.adr = val

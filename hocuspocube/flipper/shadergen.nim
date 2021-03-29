@@ -108,6 +108,7 @@ uint MatIndices0, MatIndices1;
 uint DualTexMatIdx0, DualTexMatIdx1;
 vec4 TexcoordScale[4];
 vec4 TextureSizes[8];
+ivec4 RegValues[2];
 ivec4 Konstants[2];
 uvec4 MatColor;
 uint AlphaRefs;
@@ -144,7 +145,8 @@ proc genVertexShader*(key: VertexShaderKey): string =
 
     line "layout (location = 0) out vec4 outColor0;"
     line "layout (location = 1) out vec4 outColor1;"
-    line "layout (location = 2) out vec3 outTexcoord0;"
+    for i in 0..<8:
+        line &"layout (location = {i+2}) out vec3 outTexcoord{i};"
 
     line registerUniformSource
 
@@ -241,26 +243,30 @@ proc genVertexShader*(key: VertexShaderKey): string =
             line &"atten *= {diff};"
 
         for j in 0..<8:
-            line "{"
             let
-                lightColorIdx = if j >= 4: 1 else: 0
-                lightColorSwizzle = case range[0..3](j mod 4)
-                    of 0: 'x'
-                    of 1: 'y'
-                    of 2: 'z'
-                    of 3: 'w'
-            line &"vec4 lightColor = unpackUnorm4x8(LightColor[{lightColorIdx}].{lightColorSwizzle}).abgr;"
-            if colorLightCtrl.enableLighting and colorLightCtrl.lights(j):
+                enableColor = colorLightCtrl.enableLighting and colorLightCtrl.lights(j)
+                enableAlpha = alphaLightCtrl.enableLighting and alphaLightCtrl.lights(j)
+            if enableColor or enableAlpha:
                 line "{"
-                calculateAtten(result, j, colorLightCtrl)
-                line "finalColor.rgb += atten * lightColor.rgb;"
+                let
+                    lightColorIdx = if j >= 4: 1 else: 0
+                    lightColorSwizzle = case range[0..3](j mod 4)
+                        of 0: 'x'
+                        of 1: 'y'
+                        of 2: 'z'
+                        of 3: 'w'
+                line &"vec4 lightColor = unpackUnorm4x8(LightColor[{lightColorIdx}].{lightColorSwizzle}).abgr;"
+                if enableColor:
+                    line "{"
+                    calculateAtten(result, j, colorLightCtrl)
+                    line "finalColor.rgb += atten * lightColor.rgb;"
+                    line "}"
+                if enableAlpha:
+                    line "{"
+                    calculateAtten(result, j, alphaLightCtrl)
+                    line "finalColor.a += atten * lightColor.a;"
+                    line "}"
                 line "}"
-            if alphaLightCtrl.enableLighting and alphaLightCtrl.lights(j):
-                line "{"
-                calculateAtten(result, j, alphaLightCtrl)
-                line "finalColor.a += atten * lightColor.a;"
-                line "}"
-            line "}"
 
         if colorLightCtrl.enableLighting:
             line &"finalColor.rgb = clamp(finalColor.rgb * {materialColor}, 0, 1);"
@@ -316,9 +322,8 @@ proc genVertexShader*(key: VertexShaderKey): string =
                                     dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 1U]),
                                     dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 2U]));"""
 
-        let
-            (scaleIdx, scaleSwizzle) = mapPackedArray2(i)
-        line &"outTexcoord0 = transformedTexcoord * vec3(TexcoordScale[{scaleIdx}].{scaleSwizzle} * 128.0, 1.0);"
+        let (scaleIdx, scaleSwizzle) = mapPackedArray2(i)
+        line &"outTexcoord{i} = transformedTexcoord * vec3(TexcoordScale[{scaleIdx}].{scaleSwizzle} * 128.0, 1.0);"
 
         line "}"
 
@@ -332,7 +337,8 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
     line "layout (location = 0) in vec4 inColor0;"
     line "layout (location = 1) in vec4 inColor1;"
-    line "layout (location = 2) in vec3 inTexcoord0;"
+    for i in 0..<8:
+        line &"layout (location = {2+i}) in vec3 inTexcoord{i};"
 
     line "layout (binding = 0) uniform sampler2D Textures[8];"
 
@@ -346,15 +352,20 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         let
             swizzle0 = if (i mod 2) == 0: "x" else: "z"
             swizzle1 = if (i mod 2) == 0: "y" else: "w"
-            r = signedExtract(&"Konstants[{i div 2}].{swizzle0}", 0, 11)
-            g = signedExtract(&"Konstants[{i div 2}].{swizzle1}", 12, 11)
-            b = signedExtract(&"Konstants[{i div 2}].{swizzle1}", 0, 11)
-            a = signedExtract(&"Konstants[{i div 2}].{swizzle0}", 12, 11)
-        line &"ivec4 konst{i} = ivec4({r}, {g}, {b}, {a});"
+            idx = i div 2
+            konstR = signedExtract(&"Konstants[{idx}].{swizzle0}", 0, 11)
+            konstG = signedExtract(&"Konstants[{idx}].{swizzle1}", 12, 11)
+            konstB = signedExtract(&"Konstants[{idx}].{swizzle1}", 0, 11)
+            konstA = signedExtract(&"Konstants[{idx}].{swizzle0}", 12, 11)
+            regR = signedExtract(&"RegValues[{idx}].{swizzle0}", 0, 11)
+            regG = signedExtract(&"RegValues[{idx}].{swizzle1}", 12, 11)
+            regB = signedExtract(&"RegValues[{idx}].{swizzle1}", 0, 11)
+            regA = signedExtract(&"RegValues[{idx}].{swizzle0}", 12, 11)
+        line &"ivec4 reg{i} = ivec4({regR}, {regG}, {regB}, {regA});"
+        line &"ivec4 konst{i} = ivec4({konstR}, {konstG}, {konstB}, {konstA});"
 
-    line "ivec4 reg0 = konst0, reg1 = konst1, reg2 = konst2, reg3 = konst3;"
-
-    line "ivec3 texcoord0 = ivec3(inTexcoord0);"
+    for i in 0..<8:
+        line &"ivec3 texcoord{i} = ivec3(inTexcoord{i});"
     for i in 0..<key.numTevStages:
         line "{"
         const
@@ -387,7 +398,7 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
             colorEnv = key.colorEnv[i]
             alphaEnv = key.alphaEnv[i]
 
-            (texmap, _, texmapEnable, color) = key.ras1tref.getRas1Tref(i)
+            (texmap, texcoordNum, texmapEnable, color) = key.ras1tref.getRas1Tref(i)
             (kselColor, kselAlpha) = key.ksel.getTevKSel(i)
 
             colorDst = &"reg{colorEnv.dst}.rgb"
@@ -419,7 +430,7 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         line &"ivec4 konstant = ivec4({colorKonstant}, {alphaKonstant});"
 
         if texmapEnable:
-            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord0.xy) * TextureSizes[{texmap}].zw / 128.0) * 255.0);"
+            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw / 128.0) * 255.0);"
         else:
             # welp what happens here?
             line &"ivec4 texcolor = ivec4(255, 255, 255, 255);"
@@ -435,6 +446,30 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         line &"""ivec3 colorVal = ({colorD} << 8) {colorOp} ivec3((255 - colorC8) * colorA8 + colorC8 * colorB8);"""
         line &"""int alphaVal = ({alphaD} << 8) {alphaOp} int((255 - alphaC8) * alphaA8 + alphaC8 * alphaB8);"""
 
+        case colorEnv.bias
+        of tevBiasZero: discard
+        of tevBiasHalf: line "colorVal += vec3(0x8000);"
+        of tevBiasMinusHalf: line "colorVal -= vec3(0x8000);"
+        of tevBiasCompareOp: raiseAssert("compare op!")
+
+        case alphaEnv.bias
+        of tevBiasZero: discard
+        of tevBiasHalf: line "alphaVal += 0x8000;"
+        of tevBiasMinusHalf: line "alphaVal -= 0x8000;"
+        of tevBiasCompareOp: raiseAssert("compare op!")
+
+        case colorEnv.scale
+        of tevScale1: discard
+        of tevScale2: line "colorVal <<= 1;"
+        of tevScale4: line "colorVal <<= 2;"
+        of tevScaleHalf: line "colorVal >>= 1;"
+
+        case alphaEnv.scale
+        of tevScale1: discard
+        of tevScale2: line "alphaVal <<= 1;"
+        of tevScale4: line "alphaVal <<= 2;"
+        of tevScaleHalf: line "alphaVal >>= 1;"
+
         if colorEnv.clamp:
             line &"{colorDst} = clamp(colorVal >> 8, 0, 255);"
         else:
@@ -447,7 +482,16 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
         line "}"
 
-    block:
+    # these are only the most common cases where the result is constant
+    # always discard is probably pretty rare, so we don't handle this
+    # we leave the remaining cases to the shader optimiser
+    # this is mostly to reduce bloat
+    let skipAlphaTest = (case key.alphaCompLogic
+        of alphaCompLogicAnd: key.alphaComp0 == compareAlways and key.alphaComp1 == compareAlways
+        of alphaCompLogicOr: key.alphaComp0 == compareAlways or key.alphaComp1 == compareAlways
+        else: false)
+
+    if not skipAlphaTest:
         line "{"
 
         const

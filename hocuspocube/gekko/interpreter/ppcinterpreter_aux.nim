@@ -1,8 +1,7 @@
 import
-    ../ppcstate,
-    ../memory,
+    ../ppcstate, ../gekko,
     options, strformat, strutils,
-    bitops, stew/bitops2, stew/endians2, math
+    bitops, stew/bitops2, math
 
 proc updateSo*(state: var PpcState) =
     state.xer.so = state.xer.so or state.xer.ov
@@ -39,40 +38,10 @@ proc translateInstrAddr*(state: PpcState, adr: uint32): Option[uint32] {.inline.
     else:
         some(adr)
 
-# put processor and cache stuff into these procs:
-proc readMemory*[T](state: var PpcState, adr: uint32): T {.inline.} =
-    result = readBus[T](adr)
-
 proc makeFieldMask*(mask: uint32): uint32 =
     for i in 0..<8:
         if mask.getBit(i):
             result.setMask(0xF'u32 shl (i * 4))
-
-proc flushGatherPipe(state: var PpcState) =
-    let initialOffset = state.gatherPipeOffset
-    var offset = 0'u32
-    while state.gatherPipeOffset >= 32'u32:
-        burstBusWrite(state.wpar.gbAddr, toOpenArray(cast[ptr UncheckedArray[uint32]](addr state.gatherpipe[offset]), 0, 7))
-        state.gatherPipeOffset -= 32'u32
-        offset += 32'u32
-
-    if state.gatherPipeOffset > 0:
-        # move the remaining state back to the beginning
-        copyMem(addr state.gatherpipe[0], addr state.gatherpipe[initialOffset - state.gatherPipeOffset], state.gatherPipeOffset)
-
-proc writeMemory*[T](state: var PpcState, adr: uint32, val: T) {.inline.} =
-    # according to the manual gather pipe writes where the offset within the cache line
-    # is not zeroe produce incorrect results
-    # though for easier implementation of pair load/store we do it this way for now
-    # it would probably be more correct to implement them via a 64-bit load/store
-    if unlikely((adr and not(0x1F'u32)) == state.wpar.gbAddr and state.hid2.wpe):
-        #echo "writing to gather pipe ", toHex(fromBE val), " ", toHex(state.pc), " ", toHex(state.lr)
-        copyMem(addr state.gatherpipe[state.gatherpipeOffset], unsafeAddr val, sizeof(T))
-        state.gatherpipeOffset += uint32 sizeof(T) 
-        if state.gatherpipeOffset >= 32'u32:
-            state.flushGatherPipe()
-    else:
-        writeBus[T](adr, val)
 
 template checkNan*(val: float32) =
     if isNan(val):

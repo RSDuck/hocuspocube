@@ -2,17 +2,17 @@ import
     heapqueue
 
 const
-    geckoCyclesPerSecond* = 486'i64*1000*1000
-    geckoCyclesPerFrame* = geckoCyclesPerSecond div 60
-    geckoMaxSlice* = 1000'i64
+    gekkoCyclesPerSecond* = 486'i64*1000*1000
+    gekkoCyclesPerFrame* = gekkoCyclesPerSecond div 60
+    gekkoMaxSlice* = 1000'i64
 
-    geckoCyclesPerTbCycle* = 12
+    gekkoCyclesPerTbCycle* = 12
 
-    geckoCyclesPerDspCycle* = 486'i64 div 81'i64
+    gekkoCyclesPerDspCycle* = 486'i64 div 81'i64
 
-    geckoCyclesPerViCycle* = [486'i64 div 27'i64, 486'i64 div 54'i64]
+    gekkoCyclesPerViCycle* = [486'i64 div 27'i64, 486'i64 div 54'i64]
 
-    geckoCyclesPerAiSample* = geckoCyclesPerSecond div 48_000
+    gekkoCyclesPerAiSample* = gekkoCyclesPerSecond div 48_000
 
 type
     ScheduledEvent = object
@@ -32,7 +32,7 @@ var
     upcomingEvents: HeapQueue[ScheduledEvent]
     nextToken = 1
 
-    geckoTimestamp* = 0'i64
+    gekkoTimestamp* = 0'i64
     dspTimestamp* = 0'i64
 
 const InvalidEventToken* = EventToken 0
@@ -62,6 +62,6 @@ proc nearestEvent*(): int64 =
     if upcomingEvents.len > 0: upcomingEvents[0].timestamp else: high(int64)
 
 proc processEvents*() =
-    while upcomingEvents.len > 0 and geckoTimestamp >= upcomingEvents[0].timestamp:
+    while upcomingEvents.len > 0 and gekkoTimestamp >= upcomingEvents[0].timestamp:
         let evt = upcomingEvents.pop()
         evt.handler(evt.timestamp)

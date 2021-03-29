@@ -68,7 +68,7 @@ proc decodeSplitSpr(spr: uint32): uint32 =
     ((spr and 0x1F) shl 5) or (spr shr 5)
 
 proc getDecrementer(state): uint32 =
-    let cyclesPassed = uint32((geckoTimestamp - state.decInitTimestamp) div geckoCyclesPerTbCycle)
+    let cyclesPassed = uint32((gekkoTimestamp - state.decInitTimestamp) div gekkoCyclesPerTbCycle)
     if cyclesPassed >= state.decInit:
         0'u32
     else:
@@ -121,7 +121,7 @@ proc mfspr*(state; d, spr: uint32) =
                 raiseAssert &"unknown spr register {n}"
 
 proc currentTb(state): uint64 =
-    uint64((geckoTimestamp - state.tbInitTimestamp) div geckoCyclesPerTbCycle) + state.tbInit
+    uint64((gekkoTimestamp - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
 
 proc mftb*(state; d, tpr: uint32) =
     let n = decodeSplitSpr(tpr)
@@ -166,12 +166,12 @@ proc mtspr*(state; d, spr: uint32) =
                 cancelEvent state.decDoneEvent
 
             state.decInit = r(d)
-            state.decInitTimestamp = geckoTimestamp
+            state.decInitTimestamp = gekkoTimestamp
 
             if state.decInit > 0:
-                state.decDoneEvent = scheduleEvent(state.decInitTimestamp + int64(state.decInit) * geckoCyclesPerTbCycle, 0,
+                state.decDoneEvent = scheduleEvent(state.decInitTimestamp + int64(state.decInit) * gekkoCyclesPerTbCycle, 0,
                     proc(timestamp: int64) =
-                        geckoState.pendingExceptions.incl exceptionDecrementer)
+                        gekkoState.pendingExceptions.incl exceptionDecrementer)
             if topBitChanged:
                 echo "weird top bit changed decrementer interrupt"
                 state.pendingExceptions.incl exceptionDecrementer
@@ -180,10 +180,10 @@ proc mtspr*(state; d, spr: uint32) =
         of 272..275: state.sprg[n - 272] = r(d)
         of 284:
             state.tbInit = (state.currentTb() and not(0xFFFFFFFF'u64)) or r(d)
-            state.tbInitTimestamp = geckoTimestamp
+            state.tbInitTimestamp = gekkoTimestamp
         of 285:
             state.tbInit = (state.currentTb() and 0xFFFFFFFF'u64) or (uint64(r(d)) shl 32)
-            state.tbInitTimestamp = geckoTimestamp
+            state.tbInitTimestamp = gekkoTimestamp
         of 528..535:
             let n = n - 528
             # TODO: validate ibats
@@ -254,6 +254,3 @@ proc eciwx*(state; d, a, b: uint32) =
 
 proc ecowx*(state; s, a, b: uint32) =
     raiseAssert "instr not implemented ecowx"
-
-proc dcbz_l*(state; a, b: uint32) =
-    raiseAssert "instr not implemented dcbz_l"

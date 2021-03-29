@@ -148,6 +148,7 @@ type
         dualTexMatIndices0*, dualTexMatIndices1*: uint32
         texcoordScale*: array[8*2, float32]
         textureSizes*: array[8*2*2, float32]
+        regValues*: array[8, uint32]
         konstants*: array[8, uint32]
         matColors*: array[4, uint32]
         alphaRefs*: uint32

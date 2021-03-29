@@ -3,8 +3,12 @@ import
     cycletiming,
     gekko/gekko, si/si,
     frontend/sdl,
+    gekko/ppcstate,
 
     strformat
+
+template viLog(msg: string): untyped =
+    discard
 
 # cycles here generally refer to VI cycles
 
@@ -97,11 +101,11 @@ var
     visel: Visel
 
 proc cyclesPerSample(): int64 =
-    geckoCyclesPerViCycle[viclk.s] * 2
+    gekkoCyclesPerViCycle[viclk.s] * 2
 
 proc rasterYPos(timestamp: int64): int64 =
     curFramePhaseStartY +
-        ((timestamp - curFramePhaseStartTimestamp) div (int64(htr0.hlw) * 2 * cyclesPerSample()))
+        ((((timestamp - curFramePhaseStartTimestamp) div cyclesPerSample()) + curFramePhaseStartX) div (int64(htr0.hlw) * 2))
 
 proc rasterXPos(timestamp: int64): int64 =
     (((timestamp - curFramePhaseStartTimestamp) div cyclesPerSample()) + curFramePhaseStartX) mod (int64(htr0.hlw) * 2)
@@ -113,23 +117,37 @@ proc rescheduleInt(timestamp: int64, num: int) =
     if diEvents[num] != InvalidEventToken:
         diEvents[num].cancelEvent()
 
-    #echo &"rescheduling vi {num} {di[num].enb} {di[num].vct} {di[num].hct}"
+    let
+        curHPosition = rasterXPos(timestamp)
+        curLine = rasterYPos(timestamp)
 
+    viLog &"rescheduling vi {num} {di[num].enb} {di[num].hct} {di[num].vct}"
     if dcr.enb and
         di[num].enb and
         not di[num].sts and
         di[num].vct > 0 and
         di[num].hct > 0 and
-        rasterYPos(timestamp) <= int64(di[num].vct - 1) and
-        rasterXPos(timestamp) <= int64(di[num].hct - 1):
+        curLine <= int64(di[num].vct) - 1 and
+        curHPosition <= int64(di[num].hct) - 1:
 
-        let intTimestamp = curFramePhaseStartTimestamp +
-            ((int64(di[num].hct - 1) - curFramePhaseStartX) +
-                (int64(di[num].vct - 1) - curFramePhaseStartY) * int64(htr0.hlw) * 2) * cyclesPerSample()
-        #echo &"sucessfully {intTimestamp} {timestamp}"
+        let
+            intTimestamp = timestamp +
+                (if curLine == int64(di[num].vct) - 1:
+                    int64(di[num].hct - 1) - curHPosition
+                else:
+                    int64(htr0.hlw) * 2 - curHPosition +
+                    int64(di[num].hct - 1) +
+                    (int64(di[num].vct) - 1 - curLine - 1) * int64(htr0.hlw) * 2) * cyclesPerSample()
+        viLog &"sucessfully {intTimestamp} {timestamp} {curHPosition} {curLine}"
+
+        assert rasterXPos(intTimestamp) == int64(di[num].hct) - 1
+        assert rasterYPos(intTimestamp) == int64(di[num].vct) - 1
+
         diEvents[num] = scheduleEvent(intTimestamp,
             1, proc(timestamp: int64) =
-                #echo &"di event {di[num].hct} {di[num].vct} {rasterXPos(timestamp)} {rasterYPos(timestamp)}"
+                viLog &"di event {di[num].hct} {di[num].vct} {rasterXPos(timestamp)} {rasterYPos(timestamp)} {timestamp}"
+                assert rasterXPos(timestamp) == int64(di[num].hct) - 1
+                assert rasterYPos(timestamp) == int64(di[num].vct) - 1
                 diEvents[num] = InvalidEventToken
                 di[num].sts = true
                 updateInt())
@@ -173,7 +191,9 @@ proc calcFramebufferAddr(odd: bool): uint32 =
     let fieldBase = if odd: tfbl else: bfbl
 
     result = fieldBase.fbb
-    if fieldBase.pageOffset:
+    # this is not a mistake
+    # xof and pageOffset exist only once
+    if tfbl.pageOffset:
         result = result shl 5
     else:
         result = result and not(0x1F'u32)
@@ -200,13 +220,13 @@ proc readOutField(odd: bool) =
         if not odd and vto.prb == vte.prb - 1:
             frameAdr -= frameStride
 
-    echo &"field read out {frameAdr:08X} {frameWidth}*{frameHeight} stride {frameStride}"
+    echo &"field read out {frameAdr:08X} {frameWidth}*{frameHeight} {uint32(tfbl):08X} {uint32(bfbl):08X} {calcFramebufferAddr(false):08X} {calcFramebufferAddr(true):08X} stride {frameStride}"
 
     var
         frameDataRgba = newSeq[uint32](frameWidth * frameHeight)
     for i in 0..<frameHeight:
         convertLineYuvToRgb(toOpenArray(frameDataRgba, int(i*frameWidth), int((i+1)*frameWidth-1)),
-            toOpenArray(cast[ptr UncheckedArray[uint32]](addr MainRAM[frameAdr]), 0, int(frameWidth) div 2 - 1),
+            toOpenArray(cast[ptr UncheckedArray[uint32]](addr mainRAM[frameAdr]), 0, int(frameWidth) div 2 - 1),
             int frameWidth)
         frameAdr += frameStride
 
@@ -221,10 +241,17 @@ proc currentPhaseHalfLines(): int64 =
         of framePhasePrbEven: vte.prb
         of framePhasePsbEven: vte.psb)
 
+proc currentTb(state: PpcState): uint64 =
+    uint64((gekkoTimestamp - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
+
 proc startTimingPhase(timestamp: int64) =
     if curFramePhase != high(FramePhase):
-        curFramePhaseStartX = rasterXPos(timestamp)
-        curFramePhaseStartY = rasterYPos(timestamp)
+        let
+            curX = rasterXPos(timestamp)
+            curY = rasterYPos(timestamp)
+
+        curFramePhaseStartX = curX
+        curFramePhaseStartY = curY
 
         curFramePhase.inc()
     else:
@@ -252,37 +279,42 @@ proc startTimingPhase(timestamp: int64) =
         halfLinesUntilNextPhase = currentPhaseHalfLines()
         nextTimestamp = timestamp + int64(halfLinesUntilNextPhase) * int64(htr0.hlw) * cyclesPerSample()
 
-    echo &"transition frame phase {geckoState.pc:08X} {curFramePhase} {halfLinesUntilNextPhase} {nextTimestamp} {htr0.hlw} {curFramePhaseStartX} {curFramePhaseStartY} {curFramePhaseStartTimestamp}"
+    echo &"transition frame phase {gekkoState.pc:08X} {curFramePhase} {halfLinesUntilNextPhase} {nextTimestamp} {htr0.hlw} {curFramePhaseStartX} {curFramePhaseStartY} {curFramePhaseStartTimestamp} {gekkoState.currentTb()}"
 
     nextFramePhaseEvent = scheduleEvent(nextTimestamp, 0, startTimingPhase)
 
 template rescheduleFramePhase(doChange): untyped =
-    if dcr.enb:
+    #[if dcr.enb:
+        let src = instantiationInfo()
+        viLog "resched frame phase " & $src
+
         let
             prevHalfLines = currentPhaseHalfLines()
-            advancement = geckoTimestamp - curFramePhaseStartTimestamp
-        curFramePhaseStartX = rasterXPos(geckoTimestamp)
-        curFramePhaseStartY = rasterYPos(geckoTimestamp)
-        curFramePhaseStartTimestamp = geckoTimestamp
+            advancement = gekkoTimestamp - curFramePhaseStartTimestamp
+        curFramePhaseStartX = rasterXPos(gekkoTimestamp)
+        curFramePhaseStartY = rasterYPos(gekkoTimestamp)
+        curFramePhaseStartTimestamp = gekkoTimestamp
 
         doChange
 
         for i in 0..<4:
             if diEvents[i] != InvalidEventToken:
                 cancelEvent diEvents[i]
-            rescheduleInt(geckoTimestamp, i)
+            rescheduleInt(gekkoTimestamp, i)
 
         let
             halfLines = currentPhaseHalfLines()
             cycles = halfLines * int64(htr0.hlw) * cyclesPerSample()
         if prevHalfLines != halfLines:
+            viLog "changed relevant register"
+
             cancelEvent nextFramePhaseEvent
             if advancement >= cycles:
-                startTimingPhase(geckoTimestamp)
+                startTimingPhase(gekkoTimestamp)
             else:
                 nextFramePhaseEvent = scheduleEvent(curFramePhaseStartTimestamp + (cycles - advancement), 0, startTimingPhase)
-    else:
-        doChange
+    else:]#
+    doChange
 
 visel.digital = true
 
@@ -290,20 +322,24 @@ ioBlock vi, 0x100:
 of vtr, 0x00, 2:
     read: uint16 vtr
     write:
+        viLog &"write vtr {val:02X}"
         rescheduleFramePhase:
             vtr.mutable = val
 of dcr, 0x02, 2:
     read: uint16 dcr
     write:
         dcr.mutable = val
+        viLog &"write dcr {val:02X} {gekkoState.pc:08X}"
         let val = Dcr val
         if not(dcr.enb) and val.enb:
             dcr.enb = true
-            echo "enable video"
-            curFramePhaseStartTimestamp = geckoTimestamp
+            viLog "enable video"
+            curFramePhaseStartTimestamp = gekkoTimestamp
             curFramePhase = framePhasePsbEven
-            nextFramePhaseEventTimestmap = geckoTimestamp
-            startTimingPhase(geckoTimestamp)
+            nextFramePhaseEventTimestmap = gekkoTimestamp
+            if nextFramePhaseEvent != InvalidEventToken:
+                cancelEvent nextFramePhaseEvent
+            startTimingPhase(gekkoTimestamp)
 of htr0, 0x04, 4:
     read: uint32 htr0
     write:
@@ -317,10 +353,12 @@ of htr1, 0x08, 4:
 of vto, 0x0C, 4:
     read: uint32 vto
     write:
+        viLog &"write vto {val:02X}"
         vto.mutable = val
 of vte, 0x10, 4:
     read: uint32 vte
     write:
+        viLog &"write vte {val:02X}"
         rescheduleFramePhase:
             vte.mutable = val
 of tfbl, 0x1C, 4:
@@ -342,10 +380,10 @@ of bfbr, 0x28, 4:
     read: uint32 bfbr
     write: bfbr.mutableR = val
 of dpv, 0x2C, 2:
-    read: result = uint16(rasterYPos(geckoTimestamp) + 1)
+    read: result = uint16(rasterYPos(gekkoTimestamp) + 1); echo &"read dpv position {result} {gekkoTimestamp} {gekkoState.pc:08X}"
     write: echo "raster beam position moved vertically (is that even possible welp!)"
 of dph, 0x2E, 2:
-    read: result = uint16(rasterXPos(geckoTimestamp) + 1)
+    read: result = uint16(rasterXPos(gekkoTimestamp) + 1)
     write: echo "raster beam position horizontally welp (is that even possible welp!)"
 of di, 0x30, 4, 4:
     read: uint32 di[idx]
@@ -354,7 +392,7 @@ of di, 0x30, 4, 4:
         if not Di(val).sts:
             di[idx].sts = false
             updateInt()
-        rescheduleInt(geckoTimestamp, int idx)
+        rescheduleInt(gekkoTimestamp, int idx)
 of hsw, 0x48, 2:
     read: uint16 hsw
     write: hsw = Hsw val

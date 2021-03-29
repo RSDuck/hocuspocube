@@ -109,8 +109,8 @@ proc processCmd() =
 
         discFile.setPosition(int(offset))
 
-        #if diMar.adr < uint32(MainRAM.len):
-        let bytesRead = discFile.readData(addr MainRAM[diMar.adr], int(len))
+        #if diMar.adr < uint32(mainRAM.len):
+        let bytesRead = discFile.readData(addr mainRAM[diMar.adr], int(len))
         assert uint32(bytesRead) == len
         #else:
         #    echo "skipped weird disc access"
@@ -123,7 +123,7 @@ proc processCmd() =
         assert diLen.adr == 0x20
 
         discFile.setPosition(0)
-        let bytesRead = discFile.readData(addr MainRAM[diMar.adr], 0x20)
+        let bytesRead = discFile.readData(addr mainRAM[diMar.adr], 0x20)
         assert bytesRead == 0x20
 
         diLog &"di: read disc id to {diMar.adr:08X}"
@@ -154,7 +154,7 @@ proc processCmd() =
         ident.deviceCode = 0x1234
         ident.revisionLevel = 0x1234
         ident.releaseDate = 0x12345678
-        copyMem(addr MainRAM[diMar.adr], addr ident, 0x20)
+        copyMem(addr mainRAM[diMar.adr], addr ident, 0x20)
 
         diLog &"di: read drive ident to {diMar.adr:08X}"
 
@@ -208,9 +208,9 @@ of diCr, 0x1C, 4:
         if val.tstart and not diCr.tstart:
             assert not val.write
 
-            echo &"started transfer from {geckoState.pc:08X} {geckoState.lr:08X}"
+            echo &"started transfer from {gekkoState.pc:08X} {gekkoState.lr:08X}"
 
-            #schedCommandDelay = scheduleEvent(geckoTimestamp + 5*1000, 0, proc(timestamp: int64) =
+            #schedCommandDelay = scheduleEvent(gekkoTimestamp + 5*1000, 0, proc(timestamp: int64) =
             #    diCr.tstart = false
             #    processCmd())
             processCmd()

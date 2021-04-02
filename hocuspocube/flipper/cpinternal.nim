@@ -239,10 +239,11 @@ var
     vertexArrays*: array[VertexArrayKind, VertexArray]
 
 proc cpWrite*(adr, val: uint32) =
-    template modifyFmt(lowerbound, body): untyped =
+    template modifyFmt(lowerbound, typ, store): untyped =
         let fmtIdx {.inject.} = adr - lowerbound
-        vertexFormatDirty.incl int(fmtIdx)
-        body
+        if store != typ(val):
+            vertexFormatDirty.incl int(fmtIdx)
+            store = typ(val)
 
     case adr
     # those are the default matrices
@@ -254,14 +255,11 @@ proc cpWrite*(adr, val: uint32) =
     of 0x60:
         vcdHi = VcdHi val
     of 0x70..0x77:
-        modifyFmt 0x70:
-            vertexFormats[fmtIdx].vatA = VatA val
+        modifyFmt 0x70, VatA, vertexFormats[fmtIdx].vatA
     of 0x80..0x87:
-        modifyFmt 0x80:
-            vertexFormats[fmtIdx].vatB = VatB val
+        modifyFmt 0x80, VatB, vertexFormats[fmtIdx].vatB
     of 0x90..0x97:
-        modifyFmt 0x90:
-            vertexFormats[fmtIdx].vatC = VatC val
+        modifyFmt 0x90, VatC, vertexFormats[fmtIdx].vatC
     of 0xA0..0xAF: vertexArrays[VertexArrayKind(adr - 0xA0)].base = ArrayBase val
     of 0xB0..0xBF: vertexArrays[VertexArrayKind(adr - 0xB0)].stride = ArrayStride val
     else: echo &"unknown cp write {adr:04X} {val:08X}"
@@ -281,6 +279,9 @@ makeBitStruct uint32, CmdLoadBpParam:
 
 proc queueData*(parser: var CmdListParser, data: openArray[byte]) =
     parser.pendingData.add(data)
+
+proc hasData*(parser: CmdListParser): bool =
+    parser.pendingData.len > 0
 
 template read8: uint8 =
     let val = data[result]
@@ -569,7 +570,7 @@ proc run*(parser: var CmdListParser) =
 
     if offset < parser.pendingData.len:
         let leftover = parser.pendingData.len - offset
-        copyMem(addr parser.pendingData[0], addr parser.pendingData[offset], leftover)
+        moveMem(addr parser.pendingData[0], addr parser.pendingData[offset], leftover)
         parser.pendingData.setLen(leftover)
     else:
         parser.pendingData.setLen(0)

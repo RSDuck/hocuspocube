@@ -163,6 +163,18 @@ type
         alphaCompLogicXor
         alphaCompLogicXnor
 
+    ZEnvOp* = enum
+        zenvOpDisable
+        zenvOpAdd
+        zenvOpReplace
+        zenvOpReserved
+
+    ZEnvOpType* = enum
+        zenvOpTypeU8
+        zenvOpTypeU16
+        zenvOpTypeU24
+        zenvOpTypeReserved
+
 makeBitStruct uint32, *GenMode:
     ntex[0..3]: uint32
     ncol[4..8]: uint32
@@ -296,6 +308,10 @@ makeBitStruct uint32, *AlphaCompare:
     comp1[19..21]: CompareFunction
     logic[22..23]: AlphaCompLogic
 
+makeBitStruct uint32, *TevZEnv1:
+    typ[0..1]: ZEnvOpType
+    op[2..3]: ZEnvOp
+
 proc convertRgbToYuv(r0, g0, b0, r1, g1, b1: uint8): (uint8, uint8, uint8, uint8) =
     result[0] = uint8 clamp(((int32(r0) * 77) div 256) + ((int32(g0) * 150) div 256) + ((int32(b0) * 29) div 256), 0, 255)
     result[1] = uint8 clamp(((int32(r1) * 77) div 256) + ((int32(g1) * 150) div 256) + ((int32(b1) * 29) div 256), 0, 255)
@@ -362,6 +378,9 @@ var
     colorEnv*: array[16, TevColorEnv]
     alphaEnv*: array[16, TevAlphaEnv]
     ras1Tref*: array[8, Ras1Tref]
+
+    zenv0*: uint32
+    zenv1*: TevZEnv1
 
     tevRegister*: array[8, TevRegister]
     konstants*: array[8, TevRegister]
@@ -495,54 +514,66 @@ proc bpWrite*(adr, val: uint32) =
         rasterStateDirty = true
     of 0x80..0x83:
         let idx = adr - 0x80
-        texMaps[idx].setMode0 = TxSetMode0 val
-        samplerStateDirty.incl idx
+        if texMaps[idx].setMode0 != TxSetMode0 val:
+            texMaps[idx].setMode0 = TxSetMode0 val
+            samplerStateDirty.incl idx
     of 0x84..0x87:
         let idx = adr - 0x84
-        texMaps[idx].setMode1 = TxSetMode1 val
-        samplerStateDirty.incl idx
+        if texMaps[idx].setMode1 != TxSetMode1 val:
+            texMaps[idx].setMode1 = TxSetMode1 val
+            samplerStateDirty.incl idx
     of 0x88..0x8B:
         let idx = adr - 0x88
-        texMaps[idx].setImage0 = TxSetImage0 val
-        imageStateDirty.incl idx
-        registerUniformDirty = true
+        if texMaps[idx].setImage0 != TxSetImage0 val:
+            texMaps[idx].setImage0 = TxSetImage0 val
+            imageStateDirty.incl idx
+            registerUniformDirty = true
     of 0x8C..0x8F:
         let idx = adr - 0x8C
-        texMaps[idx].setImage1 = TxSetImage12 val
-        imageStateDirty.incl idx
+        if texMaps[idx].setImage1 != TxSetImage12 val:
+            texMaps[idx].setImage1 = TxSetImage12 val
+            imageStateDirty.incl idx
     of 0x90..0x93:
         let idx = adr - 0x90
-        texMaps[idx].setImage2 = TxSetImage12 val
-        imageStateDirty.incl idx
+        if texMaps[idx].setImage2 != TxSetImage12 val:
+            texMaps[idx].setImage2 = TxSetImage12 val
+            imageStateDirty.incl idx
     of 0x94..0x97:
         let idx = adr - 0x94
-        texMaps[idx].setImage3 = val
-        imageStateDirty.incl idx
+        if texMaps[idx].setImage3 != val:
+            texMaps[idx].setImage3 = val
+            imageStateDirty.incl idx
     of 0xA0..0xA3:
         let idx = adr - 0xA0 + 4
-        texMaps[idx].setMode0 = TxSetMode0 val
-        samplerStateDirty.incl idx
+        if texMaps[idx].setMode0 != TxSetMode0 val:
+            texMaps[idx].setMode0 = TxSetMode0 val
+            samplerStateDirty.incl idx
     of 0xA4..0xA7:
         let idx = adr - 0xA4 + 4
-        texMaps[idx].setMode1 = TxSetMode1 val
-        samplerStateDirty.incl idx
+        if texMaps[idx].setMode1 != TxSetMode1 val:
+            texMaps[idx].setMode1 = TxSetMode1 val
+            samplerStateDirty.incl idx
     of 0xA8..0xAB:
         let idx = adr - 0xA8 + 4
-        texMaps[idx].setImage0 = TxSetImage0 val
-        imageStateDirty.incl idx
-        registerUniformDirty = true
+        if texMaps[idx].setImage0 != TxSetImage0 val:
+            texMaps[idx].setImage0 = TxSetImage0 val
+            imageStateDirty.incl idx
+            registerUniformDirty = true
     of 0xAC..0xAF:
         let idx = adr - 0xAC + 4
-        texMaps[idx].setImage1 = TxSetImage12 val
-        imageStateDirty.incl idx
+        if texMaps[idx].setImage1 != TxSetImage12 val:
+            texMaps[idx].setImage1 = TxSetImage12 val
+            imageStateDirty.incl idx
     of 0xB0..0xB3:
         let idx = adr - 0xB0 + 4
-        texMaps[idx].setImage2 = TxSetImage12 val
-        imageStateDirty.incl idx
+        if texMaps[idx].setImage2 != TxSetImage12 val:
+            texMaps[idx].setImage2 = TxSetImage12 val
+            imageStateDirty.incl idx
     of 0xB4..0xB7:
         let idx = adr - 0xb4 + 4
-        texMaps[idx].setImage3 = val
-        imageStateDirty.incl idx
+        if texMaps[idx].setImage3 != val:
+            texMaps[idx].setImage3 = val
+            imageStateDirty.incl idx
     of 0xC0..0xDF:
         if (adr mod 2) == 0:
             colorEnv[(adr - 0xC0) div 2] = TevColorEnv val
@@ -550,14 +581,25 @@ proc bpWrite*(adr, val: uint32) =
             alphaEnv[(adr - 0xC1) div 2] = TevAlphaEnv val
     of 0xE0..0xE7:
         let val = TevRegister val
+        var dirty = false
         if val.setKonst:
+            dirty = konstants[adr - 0xE0] != val
             konstants[adr - 0xE0] = val
         else:
+            dirty = tevRegister[adr - 0xE0] != val
             tevRegister[adr - 0xE0] = val
-        registerUniformDirty = true
+        registerUniformDirty = registerUniformDirty or dirty
     of 0xF3:
-        alphaCompare = AlphaCompare val
-        registerUniformDirty = true
+        let val = AlphaCompare val
+        if alphaCompare.ref0 != val.ref0 or alphaCompare.ref1 != val.ref1:
+            registerUniformDirty = true
+        alphaCompare = val
+    of 0xF4:
+        if zenv0 != val:
+            zenv0 = val
+            registerUniformDirty = true
+    of 0xF5:
+        zenv1 = TevZEnv1 val
     of 0xF6..0xFD:
         tevKSel[adr - 0xF6] = TevKSel val
 

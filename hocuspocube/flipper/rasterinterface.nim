@@ -75,6 +75,7 @@ proc setupUniforms() =
                 (dualTex[i+4].dualMtx shl (i*8))
 
         registerUniform.alphaRefs = alphaCompare.ref0 or (alphaCompare.ref1 shl 8)  
+        registerUniform.zenvBias = zenv0
 
         rasterogl.uploadRegisters(registerUniform)
         registerUniformDirty = false
@@ -122,6 +123,7 @@ proc getFragShaderKey(): FragmentShaderKey =
     result.alphaCompLogic = alphaCompare.logic
     result.alphaComp0 = alphaCompare.comp0
     result.alphaComp1 = alphaCompare.comp1
+    result.zenv1 = zenv1
 
 proc init*() =
     rasterogl.init()

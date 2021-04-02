@@ -25,6 +25,7 @@ type
         ksel*: array[8, TevKSel]
         alphaCompLogic*: AlphaCompLogic
         alphaComp0*, alphaComp1*: CompareFunction
+        zenv1*: TevZEnv1
 
 proc `==`*(a, b: VertexShaderKey): bool =
     result = a.enabledAttrs == b.enabledAttrs and
@@ -75,6 +76,10 @@ proc `==`*(a, b: FragmentShaderKey): bool =
         b.alphaComp1 == b.alphaComp1
 
     if result:
+        if a.zenv1.op != b.zenv1.op or
+            (a.zenv1.op != zenvOpDisable and a.zenv1.typ != b.zenv1.typ):
+            return false
+
         for i in 0..<a.numTevStages:
             if a.colorEnv[i] != b.colorEnv[i]:
                 return false
@@ -90,6 +95,9 @@ proc hash*(key: FragmentShaderKey): Hash =
     result = result !& hash(key.alphaCompLogic)
     result = result !& hash(key.alphaComp0)
     result = result !& hash(key.alphaComp1)
+    result = result !& hash(key.zenv1.op)
+    if key.zenv1.op != zenvOpDisable:
+        result = result !& hash(key.zenv1.typ)
     for i in 0..<key.numTevStages:
         result = result !& hash(key.colorEnv[i])
         result = result !& hash(key.alphaEnv[i])
@@ -112,6 +120,7 @@ ivec4 RegValues[2];
 ivec4 Konstants[2];
 uvec4 MatColor;
 uint AlphaRefs;
+uint ZEnvBias;
 };"""
 
 func mapPackedArray2(n: uint32): (uint32, string) =
@@ -366,6 +375,10 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
     for i in 0..<8:
         line &"ivec3 texcoord{i} = ivec3(inTexcoord{i});"
+
+    if key.zenv1.op != zenvOpDisable:
+        line "ivec4 lastTexColor;"
+
     for i in 0..<key.numTevStages:
         line "{"
         const
@@ -434,6 +447,9 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         else:
             # welp what happens here?
             line &"ivec4 texcolor = ivec4(255, 255, 255, 255);"
+
+        if key.zenv1.op != zenvOpDisable:
+            line "lastTexColor = texcolor;"
 
         line &"uvec3 colorA8 = uvec3({colorA}) & uvec3(0xFF);"
         line &"uvec3 colorB8 = uvec3({colorB}) & uvec3(0xFF);"
@@ -512,6 +528,23 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
         line &"if (!(test1 {logic} test2))"
         line "discard;"
+
+        line "}"
+
+    if key.zenv1.op != zenvOpDisable:
+        line "{"
+
+        const translateVal: array[ZEnvOpType, string] =
+            ["lastTexColor.a", "(lastTexColor.a << 8) | lastTexColor.r",
+                "(lastTexColor.r << 16) | (lastTexColor.g << 8) | lastTexColor.r", "0"]
+
+        let val = translateVal[key.zenv1.typ]
+        line &"float depth = float({val} + ZEnvBias) / 16777216.0;"
+
+        if key.zenv1.op == zenvOpAdd:
+            line "gl_FragDepth = gl_FragCoord.z + depth;"
+        else:
+            line "gl_FragDepth = depth;"
 
         line "}"
 

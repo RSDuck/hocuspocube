@@ -152,7 +152,8 @@ type
         konstants*: array[8, uint32]
         matColors*: array[4, uint32]
         alphaRefs*: uint32
-        pad0, pad1, pad2: uint32
+        zenvBias*: uint32
+        pad0, pad1: uint32
 
 using vtxbuffer: var VertexBuffer
 

@@ -325,105 +325,130 @@ template storeQuant: untyped {.dirty.} =
         else: raiseAssert("undefined gqr type store")
 
 proc lfd*(state; d, a, imm: uint32) =
-    calcAddrImm false:
-        loadDouble
+    handleFloatException:
+        calcAddrImm false:
+            loadDouble
 
 proc lfdu*(state; d, a, imm: uint32) =
-    calcAddrImm true:
-        loadDouble
+    handleFloatException:
+        calcAddrImm true:
+            loadDouble
 
 proc lfdux*(state; d, a, b: uint32) =
-    calcAddr true:
-        loadDouble
+    handleFloatException:
+        calcAddr true:
+            loadDouble
 
 proc lfdx*(state; d, a, b: uint32) =
-    calcAddr false:
-        loadDouble
+    handleFloatException:
+        calcAddr false:
+            loadDouble
 
 proc lfs*(state; d, a, imm: uint32) =
-    calcAddrImm false:
-        loadSingle
+    handleFloatException:
+        calcAddrImm false:
+            loadSingle
 
 proc lfsu*(state; d, a, imm: uint32) =
-    calcAddrImm true:
-        loadSingle
+    handleFloatException:
+        calcAddrImm true:
+            loadSingle
 
 proc lfsux*(state; d, a, b: uint32) =
-    calcAddr true:
-        loadSingle
+    handleFloatException:
+        calcAddr true:
+            loadSingle
 
 proc lfsx*(state; d, a, b: uint32) =
-    calcAddr false:
-        loadSingle
+    handleFloatException:
+        calcAddr false:
+            loadSingle
 
 proc stfd*(state; s, a, imm: uint32) =
-    calcAddrImm false:
-        storeDouble
+    handleFloatException:
+        calcAddrImm false:
+            storeDouble
 
 proc stfdu*(state; s, a, imm: uint32) =
-    calcAddrImm true:
-        storeDouble
+    handleFloatException:
+        calcAddrImm true:
+            storeDouble
 
 proc stfdux*(state; s, a, b: uint32) =
-    calcAddr true:
-        storeDouble
+    handleFloatException:
+        calcAddr true:
+            storeDouble
 
 proc stfdx*(state; s, a, b: uint32) =
-    calcAddr false:
-        storeDouble
+    handleFloatException:
+        calcAddr false:
+            storeDouble
 
 proc stfiwx*(state; s, a, b: uint32) =
-    calcAddr false:
-        doMemOp:
-            state.writeMemory[:uint32](adr.get, toBE uint32 cast[uint64](fr(s).double))
+    handleFloatException:
+        calcAddr false:
+            doMemOp:
+                state.writeMemory[:uint32](adr.get, toBE uint32 cast[uint64](fr(s).double))
 
 proc stfs*(state; s, a, imm: uint32) =
-    calcAddrImm false:
-        storeSingle
+    handleFloatException:
+        calcAddrImm false:
+            storeSingle
 
 proc stfsu*(state; s, a, imm: uint32) =
-    calcAddrImm true:
-        storeSingle
+    handleFloatException:
+        calcAddrImm true:
+            storeSingle
 
 proc stfsux*(state; s, a, b: uint32) =
-    calcAddr true:
-        storeSingle
+    handleFloatException:
+        calcAddr true:
+            storeSingle
 
 proc stfsx*(state; s, a, b: uint32) =
-    calcAddr false:
-        storeSingle
+    handleFloatException:
+        calcAddr false:
+            storeSingle
 
 proc psq_lx*(state; d, a, b, w, i: uint32) =
-    calcAddr false:
-        loadQuant
+    handleFloatException:
+        calcAddr false:
+            loadQuant
 
 proc psq_stx*(state; s, a, b, w, i: uint32) =
-    calcAddr false:
-        storeQuant
+    handleFloatException:
+        calcAddr false:
+            storeQuant
 
 proc psq_lux*(state; d, a, b, w, i: uint32) =
-    calcAddr true:
-        loadQuant
+    handleFloatException:
+        calcAddr true:
+            loadQuant
 
 proc psq_stux*(state; s, a, b, w, i: uint32) =
-    calcAddr true:
-        storeQuant
+    handleFloatException:
+        calcAddr true:
+            storeQuant
 
 proc psq_l*(state; d, a, w, i, imm: uint32) =
-    calcAddrImmQuant false:
-        loadQuant
+    handleFloatException:
+        calcAddrImmQuant false:
+            loadQuant
 
 proc psq_lu*(state; d, a, w, i, imm: uint32) =
-    calcAddrImmQuant true:
-        loadQuant
+    handleFloatException:
+        calcAddrImmQuant true:
+            loadQuant
 
 proc psq_st*(state; s, a, w, i, imm: uint32) =
-    calcAddrImmQuant false:
-        storeQuant
+    handleFloatException:
+        calcAddrImmQuant false:
+            storeQuant
 
 proc psq_stu*(state; s, a, w, i, imm: uint32) =
-    calcAddrImmQuant true:
-        storeQuant
+    handleFloatException:
+        calcAddrImmQuant true:
+            storeQuant
 
 # not really a load/store operation
 proc dcbz*(state; a, b: uint32) =
@@ -435,9 +460,9 @@ proc dcbz*(state; a, b: uint32) =
             # the entire IPL clears itself out of memory
             # and relies on icache for the rest of the way
             return
-        doMemOp:
+        #[doMemOp:
             for i in 0'u32..<4:
-                writeBus[uint64]((adr.get and not(0x1F'u32)) + i*8, 0'u64)
+                writeBus[uint64]((adr.get and not(0x1F'u32)) + i*8, 0'u64)]#
 
 proc dcbz_l*(state; a, b: uint32) =
     calcAddr false:

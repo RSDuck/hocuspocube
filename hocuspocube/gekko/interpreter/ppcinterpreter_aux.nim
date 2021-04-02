@@ -52,3 +52,10 @@ template checkNan*(val: float32, body: untyped) =
         let pos = instantiationInfo()
         echo "nan already here", toHex(state.pc), " ", pos
         body
+
+template handleFloatException*(instr) =
+    if unlikely(not state.msr.fp):
+        state.pc -= 4
+        state.pendingExceptions.incl exceptionNoFloatPoint
+    else:
+        instr

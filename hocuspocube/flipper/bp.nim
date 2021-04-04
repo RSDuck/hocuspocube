@@ -494,7 +494,7 @@ proc bpWrite*(adr, val: uint32) =
             line = 0'u32 # in .8 fix point like efbCopyStepY
             i = 0'u32
         while ((line + efbCopyStepY - 1) shr 8) < efbCopyH:
-            if (line shr 8) != i:
+            if (line shr 8) != i or i == 0:
                 uniqueAdr = adr
                 convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
                     toOpenArray(efbContent, int (efbCopyH-i-1)*efbCopyW, int (efbCopyH-i-1+1)*efbCopyW-1),

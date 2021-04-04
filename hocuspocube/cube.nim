@@ -27,9 +27,8 @@ proc boot*() =
 proc run*() =
     rasterinterface.init()
     while true:
-        let sliceEnd = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
-
-        gekkoRun gekkoTimestamp, sliceEnd
+        gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
+        ppcinterpreter.gekkoRun gekkoTimestamp, gekkoTarget
         dspRun dspTimestamp, gekkoTimestamp
 
         cpRun()

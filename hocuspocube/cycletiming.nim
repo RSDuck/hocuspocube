@@ -3,7 +3,6 @@ import
 
 const
     gekkoCyclesPerSecond* = 486'i64*1000*1000
-    gekkoCyclesPerFrame* = gekkoCyclesPerSecond div 60
     gekkoMaxSlice* = 1000'i64
 
     gekkoCyclesPerTbCycle* = 12
@@ -20,7 +19,7 @@ type
         timestamp: int64
         handler: proc(timestamp: int64)
         token: EventToken
-    
+
     EventToken* = distinct int
 
 proc `<`(a, b: ScheduledEvent): bool =
@@ -33,9 +32,13 @@ var
     nextToken = 1
 
     gekkoTimestamp* = 0'i64
+    gekkoTarget* = 0'i64
     dspTimestamp* = 0'i64
 
 const InvalidEventToken* = EventToken 0
+
+proc nearestEvent*(): int64 =
+    if upcomingEvents.len > 0: upcomingEvents[0].timestamp else: high(int64)
 
 proc isEventScheduled*(token: EventToken): bool =
     for i in 0..<upcomingEvents.len:
@@ -47,6 +50,8 @@ proc scheduleEvent*(timestamp: int64, priority: int32, handler: proc(timestamp: 
     result = EventToken nextToken
     inc nextToken
     upcomingEvents.push ScheduledEvent(timestamp: timestamp, priority: priority, handler: handler, token: result)
+    if nearestEvent() < gekkoTarget:
+        gekkoTarget = nearestEvent()
 
 proc cancelEvent*(token: var EventToken) =
     assert(token != InvalidEventToken)
@@ -54,12 +59,12 @@ proc cancelEvent*(token: var EventToken) =
         if upcomingEvents[i].token == token:
             token = InvalidEventToken
             upcomingEvents.del(i)
+            if nearestEvent() < gekkoTarget:
+                gekkoTarget = nearestEvent()
             return
     token = InvalidEventToken
     #assert false, "tried to cancel event which isn't scheduled"
 
-proc nearestEvent*(): int64 =
-    if upcomingEvents.len > 0: upcomingEvents[0].timestamp else: high(int64)
 
 proc processEvents*() =
     while upcomingEvents.len > 0 and gekkoTimestamp >= upcomingEvents[0].timestamp:

@@ -55,7 +55,7 @@ proc stateStr(): string =
 
 var nextPrintTimestamp = 0
 
-proc gekkoRun*(timestamp: var int64, target: int64) =
+proc gekkoRun*(timestamp: var int64, target: var int64) =
     while true:
         {.computedGoto.}
 

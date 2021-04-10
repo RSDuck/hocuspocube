@@ -491,19 +491,24 @@ proc bpWrite*(adr, val: uint32) =
         var
             adr = efbCopyDst
             uniqueAdr = efbCopyDst
-            line = 0'u32 # in .8 fix point like efbCopyStepY
-            i = 0'u32
-        while ((line + efbCopyStepY - 1) shr 8) < efbCopyH:
-            if (line shr 8) != i or i == 0:
-                uniqueAdr = adr
-                convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
-                    toOpenArray(efbContent, int (efbCopyH-i-1)*efbCopyW, int (efbCopyH-i-1+1)*efbCopyW-1),
-                    int efbCopyW)
-                i += 1
-            else:
-                copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], efbCopyW*2)
-            line += efbCopyStepY
+            line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
+            copied = 0
+        for i in 0..<efbCopyH:
+            uniqueAdr = adr
+            convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
+                toOpenArray(efbContent, int (efbCopyH-i-1)*efbCopyW, int (efbCopyH-i-1+1)*efbCopyW-1),
+                int efbCopyW)
             adr += efbCopyDstStride
+            line += efbCopyStepY
+            copied += 1
+
+            while (line shr 8) == i:
+                copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], efbCopyW*2)
+                line += efbCopyStepY
+                adr += efbCopyDstStride
+                copied += 1
+
+        #echo &"actually copied {copied} lines"
 
         if val.clear:
             rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ)

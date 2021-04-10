@@ -44,8 +44,8 @@ const PpcPatterns =
         intArith2Op "negx",         104
         intArith    "subfx",        40
         intArith    "subfcx",       8
-        intArithImm "subfic",       8
         intArith    "subfex",       136
+        intArithImm "subfic",       8
         intArith2Op "subfmex",      232
         intArith2Op "subfzex",      200
 
@@ -130,7 +130,7 @@ const PpcPatterns =
         # Floating Point Status and Control
         patterns.add(("mcrfs",      "111111ccc00sss000000000010000000"))
         patterns.add(("mffsx",      "111111ccc0000000000001001000111r"))
-        patterns.add(("mtfsb0x",    "111111ccc0000000000000000100011r"))
+        patterns.add(("mtfsb0x",    "111111ccc0000000000000001000110r"))
         patterns.add(("mtfsb1x",    "111111ccc0000000000000000100110r"))
         patterns.add(("mtfsfx",     "1111110ffffffff0bbbbb1011000111r"))
         patterns.add(("mtfsfix",    "111111ccc0000000iiii00010000110r"))

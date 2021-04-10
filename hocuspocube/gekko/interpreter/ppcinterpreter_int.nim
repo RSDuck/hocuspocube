@@ -116,7 +116,7 @@ proc divwux*(state; d, a, b, oe, rc: uint32) =
         handleRc d
 
 proc mulhwx*(state; d, a, b, rc: uint32) =
-    r(d) = uint32((int64(cast[int32](r(a))) * int64(cast[int32](r(b)))) shr 32'u64)
+    r(d) = uint32((int64(cast[int32](r(a))) * int64(cast[int32](r(b)))) shr 32)
     handleRc d
 
 proc mulhwux*(state; d, a, b, rc: uint32) =
@@ -181,7 +181,7 @@ proc subfmex*(state; d, a, oe, rc: uint32) =
         intermedRes = not(r(a)) + carry
     state.xer.ca = carryAdd(carry, not r(a)) or carrySub(intermedRes, 1)
     if oe != 0:
-        state.xer.ov = overflowAdd(carry, not r(a)) or carrySub(intermedRes, 1)
+        state.xer.ov = overflowAdd(carry, not r(a)) or overflowSub(intermedRes, 1)
         state.updateSo()
     r(d) = intermedRes - 1
     handleRc d

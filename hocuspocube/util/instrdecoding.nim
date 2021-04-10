@@ -55,7 +55,7 @@ proc generateFields*(instr, letBlock: NimNode, patterns: OrderedTable[string, Sl
 
         letBlock.add(nnkIdentDefs.newTree(result[^1], newEmptyNode(), (quote do: (`instr` shr `idx`) and `mask`)))
 
-func extractBits[T](x: T, slice: Slice[int]): T =
+func extractBits[T](x: T, slice: Slice[int]): T {.inline.} =
     (x and slice.toMask[:T]) shr slice.a
 
 func insertBits[T](x: var T, slice: Slice[int], val: T) =
@@ -111,8 +111,6 @@ proc generateShortDecoder*[bits: static[Slice[int]]](patterns: openArray[(string
         caseStmt.add undefinedInstrBranch
 
     caseStmt[0] = quote do: range[0..`casesCount`-1](extractBits(`instr`, `bits`))
-
-    echo caseStmt.repr
 
     caseStmt
 

@@ -85,9 +85,9 @@ macro makeBitStruct*(baseTyp: typedesc, name, body: untyped): untyped =
 
                 result.add(quote do:
                     proc `getterName`(struct: `name`): `typ` {.inline, used.} =
-                        `typ`((`baseTyp`(struct) and `mask`) shr `shift`)
+                        `typ`((`baseTyp`(struct) and cast[`baseTyp`](`mask`)) shr `shift`)
                     proc `setterName`(struct: var `name`, newVal: `typ`) {.inline, used.} =
-                        struct = `name`((`baseTyp`(struct) and `invMask`) or ((`baseTyp`(newVal) shl `shift`) and `mask`)))
+                        struct = `name`((`baseTyp`(struct) and cast[`baseTyp`](`invMask`)) or ((`baseTyp`(newVal) shl `shift`) and cast[`baseTyp`](`mask`))))
 
     for tagName, mask in tagMasks:
         let
@@ -98,6 +98,6 @@ macro makeBitStruct*(baseTyp: typedesc, name, body: untyped): untyped =
 
         result.add(quote do:
             proc `getterName`(struct: `name`): `baseTyp` {.inline, used.} =
-                `baseTyp`(struct) and `mask`
+                `baseTyp`(struct) and cast[`baseTyp`](`mask`)
             proc `setterName`(struct: var `name`, newVal: `baseTyp`) {.inline, used.} =
-                struct = `name`((`baseTyp`(struct) and `invMask`) or (newVal and `mask`)))
+                struct = `name`((`baseTyp`(struct) and cast[`baseTyp`](`invMask`)) or (newVal and cast[`baseTyp`](`mask`))))

@@ -58,7 +58,7 @@ proc faddx*(state; d, a, b, rc: uint32) =
 proc faddsx*(state; d, a, b, rc: uint32) =
     handleFloatException:
         fr(d).ps0 = fr(a).ps0 + fr(b).ps0
-        fr(d).ps1 = fr(d).ps1
+        fr(d).ps1 = fr(d).ps0
         setFprf fr(d).ps0
         handleRc
 
@@ -175,11 +175,15 @@ proc fctiwx*(state; d, b, rc: uint32) =
 proc fctiwzx*(state; d, b, rc: uint32) =
     handleFloatException:
         if fr(b).double > float64(high(int32)):
-            fr(d).double = cast[float64](cast[uint64](high(int32)))
+            fr(d).double = cast[float64](0x7FFF_FFFF'u64 or 0xFFF8000000000000'u64)
         elif fr(b).double < float64(low(int32)):
-            fr(d).double = cast[float64](cast[uint64](low(int32)))
+            fr(d).double = cast[float64](0x80000000'u64 or 0xFFF8000000000000'u64 or 0x100000000'u64)
         else:
-            fr(d).double = cast[float64](cast[uint64](int32(fr(b).double)))
+            let sign = if signbit(fr(b).double): 0x100000000'u64 else: 0'u64
+            if isNan(fr(b).double):
+                fr(d).double = cast[float64](0x80000000'u64 or 0xFFF8000000000000'u64 or sign)
+            else:
+                fr(d).double = cast[float64](uint64(cast[uint32](int32(fr(b).double))) or 0xFFF8000000000000'u64 or sign)
         handleRc
 
 proc frspx*(state; d, b, rc: uint32) =
@@ -237,7 +241,7 @@ proc mtfsfx*(state; fm, b, rc: uint32) =
     handleFloatException:
         let mask = makeFieldMask(fm)
         # TODO: fex and vx shouldn't be setable by themselves
-        state.fpscr = Fpscr(uint32(state.fpscr) and not(mask) or (uint32(cast[uint64](fr(b).double)) and mask))
+        state.fpscr = Fpscr((uint32(state.fpscr) and not(mask)) or (uint32(cast[uint64](fr(b).double)) and mask))
 
 proc mtfsfix*(state; crfD, imm, rc: uint32) =
     handleFloatException:
@@ -266,7 +270,11 @@ proc fnegx*(state; d, b, rc: uint32) =
         handleRc
 
 proc ps_div*(state; d, a, b, rc: uint32) =
-    raiseAssert "instr not implemented ps_div"
+    handleFloatException:
+        fr(d).ps0 = fr(a).ps0 / fr(b).ps0
+        fr(d).ps1 = fr(a).ps1 / fr(b).ps1
+        setFprf fr(d).ps0
+        handleRc
 
 proc ps_sub*(state; d, a, b, rc: uint32) =
     handleFloatException:
@@ -287,8 +295,8 @@ proc ps_sel*(state; d, a, b, c, rc: uint32) =
 
 proc ps_res*(state; d, b, rc: uint32) =
     handleFloatException:
-        fr(d).ps0 = 1f / fr(b).ps0
-        fr(d).ps1 = 1f / fr(b).ps1
+        fr(d).ps0 = 1.0 / fr(b).ps0
+        fr(d).ps1 = 1.0 / fr(b).ps1
         setFprf fr(d).ps0
         handleRc
 
@@ -301,8 +309,8 @@ proc ps_mul*(state; d, a, c, rc: uint32) =
 
 proc ps_rsqrte*(state; d, b, rc: uint32) =
     handleFloatException:
-        fr(d).ps0 = 1f / sqrt(fr(b).ps0)
-        fr(d).ps1 = 1f / sqrt(fr(b).ps1)
+        fr(d).ps0 = 1.0 / sqrt(fr(b).ps0)
+        fr(d).ps1 = 1.0 / sqrt(fr(b).ps1)
         setFprf fr(d).ps0
         handleRc
 
@@ -347,10 +355,16 @@ proc ps_mr*(state; d, b, rc: uint32) =
         handleRc
 
 proc ps_nabs*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented ps_nabs"
+    handleFloatException:
+        fr(d).ps0 = -abs(fr(b).ps0)
+        fr(d).ps1 = -abs(fr(b).ps1)
+        handleRc
 
 proc ps_abs*(state; d, b, rc: uint32) =
-    raiseAssert "instr not implemented ps_abs"
+    handleFloatException:
+        fr(d).ps0 = abs(fr(b).ps0)
+        fr(d).ps1 = abs(fr(b).ps1)
+        handleRc
 
 # for horizontal vector operations we need to be careful
 # for the case when a destination register is also a source register

@@ -1,5 +1,5 @@
 import
-    strformat,
+    strformat, strutils,
     stew/endians2,
 
     gekko, ppcstate,
@@ -16,6 +16,7 @@ proc writeBus*[T](adr: uint32, val: T) =
         if unlikely(mainRAMTagging[adr div 32] != memoryTagNone):
             case mainRAMTagging[adr div 32]
             of memoryTagNone: discard
+            of memoryTagCode: discard
             of memoryTagTexture: invalidateTexture(adr)
     elif (adr and 0xFFFF0000'u32) == 0xC000000:
         case adr and 0xFF00
@@ -86,9 +87,9 @@ proc writeMemory*[T](state: var PpcState, adr: uint32, val: T) {.inline.} =
     # though for easier implementation of pair load/store we do it this way for now
     # it would probably be more correct to implement them via a 64-bit load/store
     if unlikely((adr and not(0x1F'u32)) == state.wpar.gbAddr and state.hid2.wpe):
-        #echo "writing to gather pipe ", toHex(fromBE val), " ", toHex(state.pc), " ", toHex(state.lr)
+        #echo &"writing to gather pipe {toHex(fromBE val)} {sizeof(T)} {state.pc:08X} {state.lr:08X}"
         copyMem(addr state.gatherpipe[state.gatherpipeOffset], unsafeAddr val, sizeof(T))
-        state.gatherpipeOffset += uint32 sizeof(T) 
+        state.gatherpipeOffset += uint32 sizeof(T)
         if state.gatherpipeOffset >= 32'u32:
             state.flushGatherPipe()
     elif (adr and 0xFFFFC000'u32) == 0xE0000000'u32:
@@ -102,3 +103,24 @@ proc readMemory*[T](state: var PpcState, adr: uint32): T {.inline.} =
         cast[ptr T](addr lockedCache[adr and 0x3FFF'u32])[]
     else:
         readBus[T](adr)
+
+proc readCode*(adr: uint32): uint32 =
+    if adr < uint32 mainRAM.len:
+        if unlikely(mainRAMTagging[adr div 32] != memoryTagCode):
+            #assert mainRAMTagging[adr div 32] == memoryTagNone
+            mainRAMTagging[adr div 32] = memoryTagCode
+            copyMem(addr mainRAMFakeICache[adr and not(0x1F'u32)], addr mainRAM[adr and not(0x1F'u32)], 32)
+
+        cast[ptr uint32](addr mainRAMFakeICache[adr])[]
+    else:
+        readBus[uint32](adr)
+
+proc invalidateCode*(adr: uint32) =
+    if adr < uint32 mainRAM.len:
+        if mainRAMTagging[adr div 32] == memoryTagCode:
+            mainRAMTagging[adr div 32] = memoryTagNone
+
+proc flashInvalidateICache*() =
+    for tag in mitems(mainRAMTagging):
+        if tag == memoryTagCode:
+            tag = memoryTagNone

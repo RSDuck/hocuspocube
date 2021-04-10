@@ -63,19 +63,12 @@ proc gekkoRun*(timestamp: var int64, target: var int64) =
             handleExceptions()
 
         # TODO: handle translation or fetch failure
-        let instr = fromBE readBus[uint32](gekkoState.translateInstrAddr(gekkoState.pc).get)
+        let instr = fromBE readCode(gekkoState.translateInstrAddr(gekkoState.pc).get)
 
         dispatchPpc instr, gekkoState, undefinedInstr
 
         gekkoState.pc += 4
         timestamp += 1
-
-        #[if gekkoState.pc == 0x800B2A5C'u32:
-            let file = newFileStream("mainram5.bin", fmWrite)
-            file.writeData(addr mainRAM[0], mainRAM.len)
-            file.close()
-            raiseAssert("blah")
-            #discard]#
 
         if timestamp >= target:
             if timestamp >= nextPrintTimestamp:

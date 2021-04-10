@@ -1,12 +1,11 @@
 import
-    stew/bitops2,
-    strformat,
+    stew/bitops2, strformat, options,
 
     ../../util/aluhelper,
     ppcinterpreter_aux,
     ../ppcstate,
 
-    ../../cycletiming,
+    ../../cycletiming, ../memory,
     ../gekko # kind of stupid breaks loose coupling a bit
 
 using state: var PpcState
@@ -69,10 +68,8 @@ proc decodeSplitSpr(spr: uint32): uint32 =
 
 proc getDecrementer(state): uint32 =
     let cyclesPassed = uint32((gekkoTimestamp - state.decInitTimestamp) div gekkoCyclesPerTbCycle)
-    if cyclesPassed >= state.decInit:
-        0'u32
-    else:
-        state.decInit - cyclesPassed
+    # the decrementer go negative
+    state.decInit - cyclesPassed
 
 proc mfspr*(state; d, spr: uint32) =
     let n = decodeSplitSpr spr
@@ -108,6 +105,8 @@ proc mfspr*(state; d, spr: uint32) =
             of 912..919: uint32(state.gqr[n - 912])
             of 920: uint32(state.hid2)
             of 921: uint32(state.wpar)
+            of 922: uint32(state.dmaU)
+            of 923: uint32(state.dmaL)
             of 1017: uint32(state.l2cr)
             of 952: uint32(state.mmcr0)
             of 936: uint32(state.mmcr0) # UMMCR0
@@ -142,14 +141,14 @@ proc mtmsr*(state; s: uint32) =
 
 proc mcrfs*(state; crfD, crfS: uint32) =
     state.cr.crf(int crfD, state.fpscr.crf(int crfS))
-    state.fpscr.exceptionBit = state.fpscr.exceptionBit and not(0xF'u32 shl crfS*4)
+    state.fpscr.exceptionBit = state.fpscr.exceptionBit and not(0xF'u32 shl (7-crfS)*4)
 
 proc mtspr*(state; d, spr: uint32) =
     # TODO: a ton of validation/masking misses here!
     let n = decodeSplitSpr spr
 
     case n
-    of 1: state.xer = Xer(r(d))
+    of 1: state.xer.mutable = r(d)
     of 8: state.lr = r(d) and not(0x3'u32)
     of 9: state.ctr = r(d)
     else:
@@ -159,8 +158,7 @@ proc mtspr*(state; d, spr: uint32) =
         of 18: state.dsisr = r(d)
         of 19: state.dar = r(d)
         of 22:
-            # weird thingy
-            let topBitChanged = r(d).getBit(31) != state.getDecrementer().getBit(31)
+            let topBitChanged = r(d).getBit(31) and not(state.getDecrementer().getBit(31))
 
             if state.decDoneEvent != InvalidEventToken:
                 cancelEvent state.decDoneEvent
@@ -168,12 +166,20 @@ proc mtspr*(state; d, spr: uint32) =
             state.decInit = r(d)
             state.decInitTimestamp = gekkoTimestamp
 
-            if state.decInit > 0:
-                state.decDoneEvent = scheduleEvent(state.decInitTimestamp + int64(state.decInit) * gekkoCyclesPerTbCycle, 0,
-                    proc(timestamp: int64) =
-                        gekkoState.pendingExceptions.incl exceptionDecrementer)
+            let
+                cyclesUntilZeroToOne = gekkoCyclesPerTbCycle *
+                    (if state.decInit.getBit(31):
+                        int64(state.decInit) + 0xFFFFFFFF'i64 # I doubt this will ever happen
+                    else:
+                        int64(state.decInit))
+
+            echo &"setup up decrementer {state.decInit} {state.decInitTimestamp} | {cyclesUntilZeroToOne} | {state.pc:08X}"
+            state.decDoneEvent = scheduleEvent(state.decInitTimestamp + cyclesUntilZeroToOne, 0,
+                proc(timestamp: int64) =
+                    echo &"decrementer done {gekkoState.decInit} {gekkoState.decInitTimestamp} {gekkoState.getDecrementer()}"
+                    gekkoState.pendingExceptions.incl exceptionDecrementer)
             if topBitChanged:
-                echo "weird top bit changed decrementer interrupt"
+                echo "decrementer interrupt by manually changing top bit"
                 state.pendingExceptions.incl exceptionDecrementer
         of 26: state.srr0 = r(d) and not(0x3'u32)
         of 27: state.srr1 = Srr1 r(d)
@@ -198,13 +204,49 @@ proc mtspr*(state; d, spr: uint32) =
                 state.dbatHi[n shr 1] = BatHi r(d)
             else:
                 state.dbatLo[n shr 1] = BatLo r(d)
-        of 1008: state.hid0 = Hid0 r(d)
+        of 1008:
+            state.hid0 = Hid0 r(d)
+            if state.hid0.icfi:
+                state.hid0.icfi = false
+                echo "flash icache"
+                flashInvalidateICache()
+            if state.hid0.dcfi:
+                state.hid0.dcfi = false
+
         of 1009: state.hid1 = Hid1 r(d)
         of 912..919: state.gqr[n - 912] = Gqr r(d)
         of 920: state.hid2 = Hid2 r(d)
         of 921:
             state.gatherpipeOffset = 0
             state.wpar.gbAddr = r(d)
+        of 922:
+            state.dmaU = DmaU r(d)
+        of 923:
+            state.dmaL = DmaL r(d)
+
+            if state.hid2.lce:
+                if state.dmaL.flush:
+                    # nothing too flush, because we're soo fast
+                    state.dmaL.flush = false
+                if state.dmaL.trigger:
+                    # do DMA immediately!
+                    state.dmaL.trigger = false
+
+                    let cacheLines =
+                        if state.dmaL.lenLo == 0 and state.dmaU.lenHi == 0:
+                            128'u32
+                        else:
+                            state.dmaL.lenLo or (state.dmaU.lenHi shl 2)
+                    echo &"dma {state.dmaL.load} lc: {state.dmaL.lcAdr:08X} mem: {state.dmaU.memAdr:08X} {cacheLines} lines"
+
+                    # we currently don't check if lcAdr is really in locked cache
+                    # bad!
+                    if state.dmaL.load:
+                        for i in 0..<cacheLines*4:
+                            state.writeMemory[:uint64](state.dmaL.lcAdr + i * 8, state.readMemory[:uint64](state.dmaU.memAdr + i * 8))
+                    else:
+                        for i in 0..<cacheLines*4:
+                            state.writeMemory[:uint64](state.dmaU.memAdr + i * 8, state.readMemory[:uint64](state.dmaL.lcAdr + i * 8))
         of 1017: state.l2cr = L2Cr r(d)
         of 952: state.mmcr0 = Mmcr0 r(d)
         of 956: state.mmcr1 = Mmcr1 r(d)
@@ -227,9 +269,6 @@ proc dcbt*(state; a, b: uint32) =
 
 proc dcbtst*(state; a, b: uint32) =
     stubbedMemLog "dcbst stubbed"
-
-proc icbi*(state; a, b: uint32) =
-    stubbedMemLog "icbi stubbed"
 
 proc mfsr*(state; d, sr: uint32) =
     raiseAssert "instr not implemented mfsr"

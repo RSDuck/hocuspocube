@@ -43,6 +43,7 @@ type
     MemoryTag* = enum
         memoryTagNone
         memoryTagTexture
+        memoryTagCode
 
 var
     intsr: Intsr
@@ -50,7 +51,7 @@ var
 
     fifoBase, fifoEnd, fifoCurrent: FifoPtr
 
-    mainRAM*: array[0x1800000, byte]
+    mainRAM*, mainRAMFakeICache*: array[0x1800000, byte]
     mainRAMTagging*: array[0x1800000 div 32, MemoryTag]
 
     lockedCache*: array[0x4000, byte]

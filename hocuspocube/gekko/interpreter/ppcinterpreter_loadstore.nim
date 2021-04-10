@@ -242,20 +242,22 @@ proc stswx*(state; s, a, b: uint32) =
 template loadDouble: untyped {.dirty.} =
     doMemOp:
         fr(d).double = cast[float64](fromBE state.readMemory[:uint64](adr.get))
+        #checkNan(fr(d).double)
 
 template loadSingle: untyped {.dirty.} =
     doMemOp:
         fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
-        checkNan(fr(d).ps0)
         fr(d).ps1 = fr(d).ps0
+        #checkNan(fr(d).ps0)
 
 template storeDouble: untyped {.dirty.} =
     doMemOp:
+        #checkNan(fr(s).double)
         state.writeMemory[:uint64](adr.get, toBE cast[uint64](fr(s).double))
 
 template storeSingle: untyped {.dirty.} =
     doMemOp:
-        checkNan(fr(s).ps0)
+        #checkNan(fr(s).ps0)
         state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
 
 # quantisation is a bad approximation for now
@@ -286,23 +288,30 @@ proc quantise[T](x: float32, scale: uint32): T =
 
 template loadQuant(T: typedesc; U: typedesc): untyped =
     fr(d).ps0 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get)), state.gqr[i].ldScale)
+    #checkNan(fr(d).ps0)
     if w == 0:
-        fr(d).ps1 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get + 4)), state.gqr[i].ldScale)
+        fr(d).ps1 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get + uint32(sizeof(T)))), state.gqr[i].ldScale)
+        #checkNan(fr(d).ps1)
     else:
         fr(d).ps1 = 1.0
 
 template storeQuant(T: typedesc, U: typedesc): untyped =
+    #checkNan(fr(s).ps0)
     state.writeMemory[:U](adr.get, toBE cast[U](quantise[T](float32(fr(s).ps0), state.gqr[i].stScale)))
     if w == 0:
-        state.writeMemory[:U](adr.get + 4, toBE cast[U](quantise[T](float32(fr(s).ps1), state.gqr[i].stScale)))
+        #checkNan(fr(s).ps1)
+        state.writeMemory[:U](adr.get + uint32(sizeof(T)), toBE cast[U](quantise[T](float32(fr(s).ps1), state.gqr[i].stScale)))
 
 template loadQuant: untyped {.dirty.} =
     doMemOp:
         case state.gqr[i].ldType
         of gqrFloat:
             fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
+            #checkNan(fr(d).ps0)
+
             if w == 0:
                 fr(d).ps1 = cast[float32](fromBE state.readMemory[:uint32](adr.get + 4))
+                #checkNan(fr(d).ps1)
             else:
                 fr(d).ps1 = 1.0
         of gqrU8: loadQuant(uint8, uint8)
@@ -315,8 +324,10 @@ template storeQuant: untyped {.dirty.} =
     doMemOp:
         case state.gqr[i].stType
         of gqrFloat:
+            #checkNan(fr(s).ps0)
             state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
             if w == 0:
+                #checkNan(fr(s).ps1)
                 state.writeMemory[:uint32](adr.get + 4, toBE cast[uint32](float32(fr(s).ps1)))
         of gqrU8: storeQuant(uint8, uint8)
         of gqrU16: storeQuant(uint16, uint16)
@@ -453,16 +464,9 @@ proc psq_stu*(state; s, a, w, i, imm: uint32) =
 # not really a load/store operation
 proc dcbz*(state; a, b: uint32) =
     calcAddr false:
-        if ea >= 0x80000000'u32 and ea < 0x80008000'u32:
-            # stupid hack stolen from Dolphin
-            return
-        if state.pc == 0x813007f4'u32:
-            # the entire IPL clears itself out of memory
-            # and relies on icache for the rest of the way
-            return
-        #[doMemOp:
+        doMemOp:
             for i in 0'u32..<4:
-                writeBus[uint64]((adr.get and not(0x1F'u32)) + i*8, 0'u64)]#
+                writeBus[uint64]((adr.get and not(0x1F'u32)) + i*8, 0'u64)
 
 proc dcbz_l*(state; a, b: uint32) =
     calcAddr false:
@@ -470,3 +474,8 @@ proc dcbz_l*(state; a, b: uint32) =
             doAssert adr.get >= 0xE0000000'u32 and adr.get <= 0xE0003fff'u32, "dcbz_l in unusal region"
 
             zeroMem(addr lockedCache[adr.get and 0x3FE0], 0x20)
+
+proc icbi*(state; a, b: uint32) =
+    calcAddr false:
+        doMemOp:
+            invalidateCode(adr.get)

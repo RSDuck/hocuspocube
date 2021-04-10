@@ -43,11 +43,11 @@ proc makeFieldMask*(mask: uint32): uint32 =
         if mask.getBit(i):
             result.setMask(0xF'u32 shl (i * 4))
 
-template checkNan*(val: float32) =
+template checkNan*(val: float64) =
     if isNan(val):
         let pos = instantiationInfo()
         echo "nan already here", toHex(state.pc), " ", pos
-template checkNan*(val: float32, body: untyped) =
+template checkNan*(val: float64, body: untyped) =
     if isNan(val):
         let pos = instantiationInfo()
         echo "nan already here", toHex(state.pc), " ", pos

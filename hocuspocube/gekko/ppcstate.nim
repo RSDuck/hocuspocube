@@ -7,10 +7,10 @@ import
 # That's just stupid! 
 
 makeBitStruct uint32, *Xer:
-    so[31]: bool # summary overflow
-    ov[30]: bool # overflow
-    ca[29]: bool # carry
-    byteCount[0..7]: uint32 # byte count for string instructions
+    so[31] {.mutable.}: bool # summary overflow
+    ov[30] {.mutable.}: bool # overflow
+    ca[29] {.mutable.}: bool # carry
+    byteCount[0..7] {.mutable.}: uint32 # byte count for string instructions
 
 makeBitStruct uint32, *Cr:
     crf[n, (7 - n)*4..((7 - n)*4)+3]: uint32
@@ -206,6 +206,17 @@ makeBitStruct uint32, *Wpar:
     bne[0]: bool
     _[5..31] {.gbAddr.}: uint32
 
+makeBitStruct uint32, *DmaU:
+    lenHi[0..4]: uint32
+    _[5..31] {.memAdr.}: uint32
+
+makeBitStruct uint32, *DmaL:
+    flush[0]: bool
+    trigger[1]: bool
+    lenLo[2..3]: uint32
+    load[4]: bool
+    _[5..31] {.lcAdr.}: uint32
+
 type
     PpcException* = enum
         # ordered by priority
@@ -295,6 +306,9 @@ type
         pmc*: array[4, Pmc]
 
         dsisr*: uint32
+
+        dmaU*: DmaU
+        dmaL*: DmaL
 
 # ppc is really weird when it comes to floats…
 func ps0*(ps: PairedSingle): float64 {.inline.} = ps[0]

@@ -38,9 +38,6 @@ proc dspRun*(timestamp: var int64, target: int64) =
                 mDspState.statusStack.push(uint16 mDspState.status)
                 mDspState.pc = 0x000E'u16
 
-                echo "piint!"
-                #logstuff = true
-
                 dspCsr.piint = false
 
         let prevPc = mDspState.pc

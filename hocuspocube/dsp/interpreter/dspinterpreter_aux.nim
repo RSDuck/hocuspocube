@@ -10,7 +10,7 @@ template fetchFollowingImm*: uint16 {.dirty.} =
     state.pc += 1
     instrRead(state.pc)
 
-func writeReg*(state; n: DspReg, val: uint16) =
+func writeReg*(state; n: DspReg, val: uint16) {.inline.} =
     case n
     of dspRegCallStack: state.callStack.push(val)
     of dspRegStatusStack: state.statusStack.push(val)
@@ -23,7 +23,7 @@ func writeReg*(state; n: DspReg, val: uint16) =
     of dspRegA2, dspRegB2, dspRegPs2: state.r[n] = signExtend[uint16](val, 8)
     else: state.r[n] = val
 
-func readReg*(state; n: DspReg): uint16 =
+func readReg*(state; n: DspReg): uint16 {.inline.} =
     case n
     of dspRegCallStack: state.callStack.pop()
     of dspRegStatusStack: state.statusStack.pop()
@@ -44,23 +44,23 @@ template incReg*(n: int): uint16 {.dirty.} =
 template wrapReg*(n: int): uint16 {.dirty.} =
     state.r[dspRegWrap0.succ(n)]
 
-func readAccum*(state; n: int): int64 =
+func readAccum*(state; n: int): int64 {.inline.} =
     int64(state.readReg(dspRegA0.succ(n))) or
         (int64(state.readReg(dspRegA1.succ(n))) shl 16) or
         (int64(state.readReg(dspRegA2.succ(n))) shl 32)
 
-func writeAccum*(state; n: int, val: int64) =
+func writeAccum*(state; n: int, val: int64) {.inline.} =
     state.writeReg dspRegA0.succ(n), uint16(val)
     state.writeReg dspRegA1.succ(n), uint16(val shr 16)
     state.writeReg dspRegA2.succ(n), uint16(val shr 32)
 
-func loadAccum*(state; n: int, val: uint16) =
+func loadAccum*(state; n: int, val: uint16) {.inline.} =
     state.writeReg dspRegA1.succ(n), val
     if state.status.xl:
         state.writeReg dspRegA0.succ(n), 0
         state.writeReg dspRegA2.succ(n), if getBit(val, 15): 0xFFFF else: 0    
 
-func storeAccum*(state; n: int): uint16 =
+func storeAccum*(state; n: int): uint16 {.inline.} =
     if state.status.xl and (state.status.ov or state.status.ext):
         if cast[int16](state.r[dspRegA2.succ(n)]) > 0:
             0x8000'u16
@@ -71,22 +71,22 @@ func storeAccum*(state; n: int): uint16 =
     else:
         state.r[dspRegA1.succ(n)]
 
-func readAuxAccum*(state; n: int): int64 =
+func readAuxAccum*(state; n: int): int64 {.inline.} =
     int64(cast[int32]((uint32(state.readReg(dspRegX0.succ(n))) or
         (uint32(state.readReg(dspRegX1.succ(n))) shl 16))))
 
-func writeAuxAccum*(state; n: int, val: int64) =
+func writeAuxAccum*(state; n: int, val: int64) {.inline.} =
     state.writeReg(dspRegX0.succ(n), cast[uint16](val))
     state.writeReg(dspRegX1.succ(n), cast[uint16](val shr 16))
 
 # very inaccutare
-func readProduct*(state): int64 =
+func readProduct*(state): int64 {.inline.} =
     result = int64(state.readReg(dspRegPs0))
     result += int64(state.readReg(dspRegPs1)) shl 16
     result += int64(state.readReg(dspRegPc1)) shl 16
     result += int64(state.readReg(dspRegPs2)) shl 32
 
-func writeProduct*(state; val: int64) =
+func writeProduct*(state; val: int64) {.inline.} =
     state.writeReg dspRegPs0, cast[uint16](val)
     state.writeReg dspRegPs1, cast[uint16](val shr 16)
     state.writeReg dspRegPs2, cast[uint16](val shr 32)

@@ -420,7 +420,21 @@ proc processVertices(data: openArray[byte], offset: int, draw: DrawCallDesc, ver
                 #echo "decoded color: ", color
                 curVertexBuffer.define[:uint32](attrKind, [color])
 
+        template processIdx(attrKind, status) =
+            if status:
+                curVertexBuffer.define[:uint8](attrKind, [read8()])
+        processIdx(vtxAttrPosNrmMat, fmt.vcdLo.pnmidx)
+        processIdx(vtxAttrTexMat0, fmt.vcdLo.t0midx)
+        processIdx(vtxAttrTexMat1, fmt.vcdLo.t1midx)
+        processIdx(vtxAttrTexMat2, fmt.vcdLo.t2midx)
+        processIdx(vtxAttrTexMat3, fmt.vcdLo.t3midx)
+        processIdx(vtxAttrTexMat4, fmt.vcdLo.t4midx)
+        processIdx(vtxAttrTexMat5, fmt.vcdLo.t5midx)
+        processIdx(vtxAttrTexMat6, fmt.vcdLo.t6midx)
+        processIdx(vtxAttrTexMat7, fmt.vcdLo.t7midx)
+
         processCoord(vtxAttrPosition, fmt.vcdLo.pos, fmt.vatA.posfmt, numElementsPosition(fmt.vatA.poscnt), fmt.vatA.posshift, vtxArrayGeometry, 3)
+
         if fmt.vcdLo.nrm != vtxAttrElided:
             case fmt.vatA.nrmcnt
             of vtxNrmSingleNormal:
@@ -432,8 +446,10 @@ proc processVertices(data: openArray[byte], offset: int, draw: DrawCallDesc, ver
                     processCoord(vtxAttrNormal, fmt.vcdLo.nrm, fmt.vatA.nrmfmt, 3, 0, vtxArrayNormals, 3, 6, isNormal = true)
                 else:
                     processCoord(vtxAttrNormal, fmt.vcdLo.nrm, fmt.vatA.nrmfmt, 9, 6, vtxArrayNormals, 9, isNormal = true)
+
         processColor(vtxAttrColor0, fmt.vcdLo.col0, fmt.vatA.col0fmt, fmt.vatA.col0cnt, vtxArrayColors0)
         processColor(vtxAttrColor1, fmt.vcdLo.col1, fmt.vatA.col1fmt, fmt.vatA.col1cnt, vtxArrayColors1)
+
         processCoord(vtxAttrTexcoord0, fmt.vcdHi.tex0, fmt.vatA.tex0fmt, numElementsTexCoord(fmt.vatA.tex0cnt), fmt.vatA.tex0shift, vtxArrayTexcoord0, 3)
         processCoord(vtxAttrTexcoord1, fmt.vcdHi.tex1, fmt.vatB.tex1fmt, numElementsTexCoord(fmt.vatB.tex1cnt), fmt.vatB.tex1shift, vtxArrayTexcoord1, 3)
         processCoord(vtxAttrTexcoord2, fmt.vcdHi.tex2, fmt.vatB.tex2fmt, numElementsTexCoord(fmt.vatB.tex2cnt), fmt.vatB.tex2shift, vtxArrayTexcoord2, 3)
@@ -536,6 +552,17 @@ proc run(data: openArray[byte],
                             var
                                 enabledSet: set[VertexAttrKind]
                                 sizesSet: set[VertexAttrSize]
+                            template doMat(vcd, attr): untyped =
+                                if vcd: enabledSet.incl attr
+                            doMat(fmt.vcdLo.pnmidx, vtxAttrPosNrmMat)
+                            doMat(fmt.vcdLo.t0midx, vtxAttrTexMat0)
+                            doMat(fmt.vcdLo.t1midx, vtxAttrTexMat1)
+                            doMat(fmt.vcdLo.t2midx, vtxAttrTexMat2)
+                            doMat(fmt.vcdLo.t3midx, vtxAttrTexMat3)
+                            doMat(fmt.vcdLo.t4midx, vtxAttrTexMat4)
+                            doMat(fmt.vcdLo.t5midx, vtxAttrTexMat5)
+                            doMat(fmt.vcdLo.t6midx, vtxAttrTexMat6)
+                            doMat(fmt.vcdLo.t7midx, vtxAttrTexMat7)
                             template doCoord(vcd, cnt, attr, hasAdditional, additionalAttr): untyped =
                                 if vcd != vtxAttrElided:
                                     enabledSet.incl attr

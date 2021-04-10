@@ -101,7 +101,7 @@ type
         texfmtL8
         texfmtIA8
         texfmtRGBA8
-        texfmtRGB5
+        texfmtRGB5A1
         texfmtRGB565
         texfmtDepth24
 
@@ -137,9 +137,9 @@ type
         nrmMats*: array[32*4, float32]
         postTexMats*: array[64*4, float32]
         lightColor*: array[4*2, uint32]
-        lightPositionA1*: array[4*4, float32]
-        lightDirectionA0*: array[4*4, float32]
-        lightA2K0K1K2*: array[4*4, float32]
+        lightPositionA1*: array[4*8, float32]
+        lightDirectionA0*: array[4*8, float32]
+        lightA2K0K1K2*: array[4*8, float32]
 
     RegistersUniform* = object
         projection*: array[16, float32]
@@ -173,6 +173,9 @@ proc genDynamicVtxFmt*(attrs: set[VertexAttrKind], attrSizes: set[VertexAttrSize
             result.vertexSize += size
         else:
             result.attrOffsets[attr] = 0xFF'u8
+    doAttr(vtxAttrPosNrmMat, 1)
+    for i in 0..<8:
+        doAttr(vtxAttrTexMat0.succ(i), 1)
     doAttr vtxAttrNormal, if vtxAttrNormalNBT in attrSizes: 9*4 else: 3*4
     doAttr vtxAttrColor0, 4
     doAttr vtxAttrColor1, 4

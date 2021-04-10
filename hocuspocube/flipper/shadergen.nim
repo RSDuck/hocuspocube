@@ -135,6 +135,13 @@ proc genVertexShader*(key: VertexShaderKey): string =
     block:
         line "layout (location = 0) in vec3 inPosition;"
         var location = 1
+        if vtxAttrPosNrmMat in key.enabledAttrs:
+            line &"layout (location = {location}) in uint inPnmatIdx;"
+            location += 1
+        for i in 0..<8:
+            if vtxAttrTexMat0.succ(i) in key.enabledAttrs:
+                line &"layout (location = {location}) in uint inTexMatIdx{i};"
+                location += 1
         if vtxAttrNormal in key.enabledAttrs:
             line &"layout (location = {location}) in vec3 inNormal;"
             location += 1
@@ -164,14 +171,18 @@ proc genVertexShader*(key: VertexShaderKey): string =
     line "vec4 NrmMats[32];" # stupid padding
     line "vec4 DualTexMats[64];"
     line "uvec4 LightColor[2];"
-    line "vec4 LightPositionA1[4];"
-    line "vec4 LightDirectionA0[4];"
-    line "vec4 LightRemainingFactors[4];"
+    line "vec4 LightPositionA1[8];"
+    line "vec4 LightDirectionA0[8];"
+    line "vec4 LightRemainingFactors[8];"
     line "};"
 
     line "void main() {"
 
-    line "uint pnmatIdx = bitfieldExtract(MatIndices0, 0, 6);"
+    if vtxAttrPosNrmMat in key.enabledAttrs:
+        line "uint pnmatIdx = inPnmatIdx;"
+    else:
+        line "uint pnmatIdx = bitfieldExtract(MatIndices0, 0, 6);"
+
     line "vec4 position4 = vec4(inPosition, 1.0);"
     line """vec3 transformedPos = vec3(dot(position4, PosTexMats[pnmatIdx]),
                                         dot(position4, PosTexMats[pnmatIdx + 1U]),
@@ -280,7 +291,7 @@ proc genVertexShader*(key: VertexShaderKey): string =
         if colorLightCtrl.enableLighting:
             line &"finalColor.rgb = clamp(finalColor.rgb * {materialColor}, 0, 1);"
         if alphaLightCtrl.enableLighting:
-            line &"finalColor.a = clamp(finalColor * {materialAlpha}, 0, 1);"
+            line &"finalColor.a = clamp(finalColor.a * {materialAlpha}, 0, 1);"
 
         line &"outColor{i} = finalColor;"
 
@@ -303,10 +314,13 @@ proc genVertexShader*(key: VertexShaderKey): string =
             else: raiseAssert(&"texcoord source {key.texcoordGen[i].src} not implemented yet")
 
         line &"vec4 texcoordSrc = {src};"
-        let
-            matVar = if i >= 4: 1 else: 0
-            matShift = if i >= 4: (i-4)*6 else: i*6+6
-        line &"uint matIdx = bitfieldExtract(MatIndices{matVar}, {matShift}, 6);"
+        if vtxAttrTexMat0.succ(int i) in key.enabledAttrs:
+            line &"uint matIdx = inTexMatIdx{i};"
+        else:
+            let
+                matVar = if i >= 4: 1 else: 0
+                matShift = if i >= 4: (i-4)*6 else: i*6+6
+            line &"uint matIdx = bitfieldExtract(MatIndices{matVar}, {matShift}, 6);"
 
         # not pretty, but it works
         if key.texcoordGen[i].inputForm == texcoordInputFormAB11:

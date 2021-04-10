@@ -157,23 +157,23 @@ proc createTexture*(width, height, miplevels: int, fmt: TextureFormat): NativeTe
         GL_R8,
         GL_RG8,
         GL_RGBA8,
-        GL_RGB5,
+        GL_RGB5_A1,
         GL_RGB565,
         GL_DEPTH_COMPONENT24]
     glTexStorage2D(GL_TEXTURE_2D, GLsizei miplevels, translateFmt[fmt], GLsizei width, GLsizei height)
 
-    if fmt in {texfmtI8, texfmtL8, texfmtIA8, texfmtRGB565}:
+    if fmt in {texfmtI8, texfmtL8, texfmtIA8}:
         let
             swizzleI8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_RED)]
             swizzleIA8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_GREEN)]
-            swizzleRGB565 = [GLint(GL_BLUE), GLint(GL_GREEN), GLint(GL_RED), GLint(GL_ONE)]
             swizzleL8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_ONE)]
+            swizzleRGB5A1 = [GLint(GL_BLUE), GLint(GL_GREEN), GLint(GL_RED), GLint(GL_ALPHA)]
         glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA,
             case fmt
             of texfmtI8: unsafeAddr(swizzleI8[0])
             of texfmtIA8: unsafeAddr(swizzleIA8[0])
-            of texfmtRGB565: unsafeAddr(swizzleRGB565[0])
             of texfmtL8: unsafeAddr(swizzleL8[0])
+            of texfmtRGB5A1: unsafeAddr(swizzleRGB5A1[0])
             else: raiseAssert("blah"))
 
     # we still need a better way to define those properties
@@ -192,7 +192,7 @@ proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data
             GL_RED,
             GL_RG,
             GL_RGBA,
-            GL_RGB,
+            GL_RGBA,
             GL_RGB,
             GL_DEPTH_COMPONENT]
         typ: array[TextureFormat, GLenum] = [
@@ -201,7 +201,7 @@ proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data
             GL_UNSIGNED_BYTE,
             GL_UNSIGNED_BYTE,
             GL_UNSIGNED_SHORT_1_5_5_5_REV,
-            GL_UNSIGNED_SHORT_5_6_5_REV,
+            GL_UNSIGNED_SHORT_5_6_5,
             GL_UNSIGNED_SHORT]
     glPixelStorei(GL_UNPACK_ROW_LENGTH, GLint stride)
     glTexSubImage2D(GL_TEXTURE_2D, GLint(level), GLint(x), GLint(y),
@@ -584,6 +584,11 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
         glBindVertexBuffer(0, vtxBuffer, curVtxBufferOffset + curVtxBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
 
         var attribIdx = GLuint 0
+        template doIdx(attr): untyped =
+            if attr in fmt.enabledAttrs:
+                glVertexAttribIFormat(attribIdx, 1, GL_UNSIGNED_BYTE, GLuint(fmt.attrOffsets[attr]))
+                glVertexAttribBinding(attribIdx, 0)
+                attribIdx += 1
         template doCoord(attr, tripple): untyped =
             glVertexAttribFormat(attribIdx, GLint(if tripple in fmt.attrSizes: 3 else: 2), cGL_FLOAT, GL_FALSE, GLuint(fmt.attrOffsets[attr]))
             glVertexAttribBinding(attribIdx, 0)
@@ -599,6 +604,10 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
                 glVertexAttribBinding(attribIdx, 0)
                 attribIdx += 1
         doCoord(vtxAttrPosition, vtxAttrPosition3)
+        doIdx(vtxAttrPosNrmMat)
+        for i in 0..<8:
+            doIdx(vtxAttrTexMat0.succ(i))
+
         if vtxAttrNormal in fmt.enabledAttrs:
             glVertexAttribFormat(attribIdx, 3, cGL_FLOAT, GL_FALSE, GLuint(fmt.attrOffsets[vtxAttrNormal]))
             glVertexAttribBinding(attribIdx, 0)

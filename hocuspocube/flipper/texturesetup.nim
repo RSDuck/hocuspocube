@@ -1,6 +1,7 @@
 import
     hashes, tables, strformat,
     stew/endians2,
+    ../util/bitstruct,
     rasterinterfacecommon, opengl/rasterogl,
     bp,
     ../gekko/gekko
@@ -98,6 +99,58 @@ proc decodeTextureRGBA8(dst, src: ptr UncheckedArray[byte], width, height: int) 
 
         dst[dstIdx] = (ra shr 8) or (bg shl 8) or ((ra and 0xFF00'u32) shl 16)
 
+makeBitStruct uint64, CmprBlock:
+    indices[n, (n*2)..(n*2)+1]: uint32
+    color0[48..63]: uint32
+    color1[32..47]: uint32
+    b0[48..52]: uint32
+    g0[53..58]: uint32
+    r0[59..63]: uint32
+    b1[32..36]: uint32
+    g1[37..42]: uint32
+    r1[43..47]: uint32
+
+proc blend3of8(first, second: uint32): uint32 =
+    (first * 3 + second * 5) div 8
+
+proc blendAvg(first, second: uint32): uint32 =
+    (first + second) div 2
+
+proc packRGB565A1ToRGBA8(r, g, b, a: uint32): uint32 =
+    (r shl (0+3)) or (g shl (8+2)) or (b shl (16+3)) or ((if a == 0: 0'u32 else: 255'u32) shl 24)
+
+proc decodeTextureCmpr(dst, src: ptr UncheckedArray[byte], width, height: int) =
+    let
+        dst = cast[ptr UncheckedArray[uint32]](dst)
+        src = cast[ptr UncheckedArray[uint64]](src)
+    for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 8, 4, 4):
+        let
+            cmprBlock = CmprBlock fromBE(src[srcIdx])
+
+            (r2, g2, b2, a2, r3, g3, b3, a3) =
+                if cmprBlock.color0 > cmprBlock.color1:
+                    (blend3of8(cmprBlock.r0, cmprBlock.r1), blend3of8(cmprBlock.g0, cmprBlock.g1), blend3of8(cmprBlock.b0, cmprBlock.b1), 1'u32,
+                        blend3of8(cmprBlock.r1, cmprBlock.r0), blend3of8(cmprBlock.g1, cmprBlock.g0), blend3of8(cmprBlock.b1, cmprBlock.b0), 1'u32)
+                else:
+                    let
+                        r = blendAvg(cmprBlock.r0, cmprBlock.r1)
+                        g = blendAvg(cmprBlock.g0, cmprBlock.g1)
+                        b = blendAvg(cmprBlock.b0, cmprBlock.b1)
+                    (r, g, b, 1'u32, r, g, b, 0'u32)
+
+            colors = [packRGB565A1ToRGBA8(cmprBlock.r0, cmprBlock.g0, cmprBlock.b0, 1),
+                packRGB565A1ToRGBA8(cmprBlock.r1, cmprBlock.g1, cmprBlock.b1, 1),
+                packRGB565A1ToRGBA8(r2, g2, b2, a2),
+                packRGB565A1ToRGBA8(r3, g3, b3, a3)]
+
+        for j in 0..<4:
+            for i in 0..<4:
+                let idx = cmprBlock.indices((3 - i) + (3 - j) * 4)
+
+                # for compressed textures the width has to be a multiple of the block size
+                # so it's ok that we use width instead of the rounded width here
+                dst[dstIdx + j * width + i] = colors[idx]
+
 type
     TextureKey* = object
         fmt: TxTextureFmt
@@ -119,7 +172,7 @@ proc hash(key: TextureKey): Hash =
 
 proc getTargetFmt(fmt: TxTextureFmt): TextureFormat =
     case fmt
-    of txTexfmtRGB5A3, txTexfmtRGBA8: texfmtRGBA8
+    of txTexfmtRGB5A3, txTexfmtRGBA8, txTexfmtCmp: texfmtRGBA8
     of txTexfmtRGB565: texfmtRGB565
     of txTexfmtI4, txTexfmtI8: texfmtI8
     of txTexfmtIA4, txTexfmtIA8: texfmtIA8
@@ -177,7 +230,7 @@ proc setupTexture*(n: int) =
             nil,
             nil,
             nil,
-            nil,
+            decodeTextureCmpr,
             nil]
         const targetFmtPixelSize: array[TextureFormat, byte] = [1'u8, 1, 2, 4, 2, 2, 3]
 

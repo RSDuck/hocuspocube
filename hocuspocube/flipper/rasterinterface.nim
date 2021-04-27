@@ -23,8 +23,8 @@ proc finishFrame*() =
     #rasterogl.dispatchBatch()
     discard
 
-proc clear*(r, g, b, a: uint8, depth: uint32) =
-    rasterogl.clear(r, g, b, a, depth)
+proc clear*(r, g, b, a: uint8, depth: uint32, clearColor, clearAlpha, clearDepth: bool) =
+    rasterogl.clear(r, g, b, a, depth, clearColor, clearAlpha, clearDepth)
 
 import
     bp, xf,
@@ -146,6 +146,7 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt) =
         rasterogl.setViewport(int32(viewportX) - offsetX, int32(viewportY) - offsetY, int32(viewportW), int32(viewportH))
         rasterogl.setScissor(true, scissorX - offsetX, scissorY - offsetY, scissorW, scissorH)
         rasterogl.setBlendState(peCMode0.blendEnable, peCMode0.blendOp, peCMode0.srcFactor, peCMode0.dstFactor)
+        rasterogl.setColorAlphaUpdate(peCMode0.colorUpdate, peCMode0.alphaUpdate)
         rasterogl.setCullFace(genMode.cullmode)
         rasterogl.setZMode(zmode.enable, zmode.fun, zmode.update and zmode.enable)
         rasterStateDirty = false

@@ -1,4 +1,5 @@
 import
+    ../util/bitstruct,
     strformat, hashes,
     rasterinterfacecommon,
     xf, bp
@@ -90,6 +91,16 @@ proc `==`*(a, b: FragmentShaderKey): bool =
             if a.ksel.getTevKSel(i) != b.ksel.getTevKSel(i):
                 return false
 
+            for j in 0'u32..<2:
+                if a.ksel[a.alphaEnv[i].tswap*2+j].swaprb != b.ksel[a.alphaEnv[i].tswap*2+j].swaprb:
+                    return false
+                if a.ksel[a.alphaEnv[i].tswap*2+j].swapga != b.ksel[a.alphaEnv[i].tswap*2+j].swapga:
+                    return false
+                if a.ksel[a.alphaEnv[i].rswap*2+j].swaprb != b.ksel[a.alphaEnv[i].rswap*2+j].swaprb:
+                    return false
+                if a.ksel[a.alphaEnv[i].rswap*2+j].swapga != b.ksel[a.alphaEnv[i].rswap*2+j].swapga:
+                    return false
+
 proc hash*(key: FragmentShaderKey): Hash =
     result = result !& hash(key.numTevStages)
     result = result !& hash(key.alphaCompLogic)
@@ -103,6 +114,11 @@ proc hash*(key: FragmentShaderKey): Hash =
         result = result !& hash(key.alphaEnv[i])
         result = result !& hash(key.ras1Tref.getRas1Tref(i))
         result = result !& hash(key.ksel.getTevKSel(i))
+        for j in 0'u32..<2:
+            result = result !& hash(key.ksel[key.alphaEnv[i].tswap*2+j].swaprb)
+            result = result !& hash(key.ksel[key.alphaEnv[i].tswap*2+j].swapga)
+            result = result !& hash(key.ksel[key.alphaEnv[i].rswap*2+j].swaprb)
+            result = result !& hash(key.ksel[key.alphaEnv[i].rswap*2+j].swapga)
     result = !$result
 
 template line(str: string) =
@@ -355,6 +371,13 @@ proc genVertexShader*(key: VertexShaderKey): string =
 proc signedExtract(val: string, start, bits: int): string =
     &"(({val} << {32 - bits - start}) >> {32 - bits})"
 
+proc swizzleFromSwapTable(idx: uint32, swaptable: array[8, TevKSel]): string =
+    const letters: array[4, char] = ['r', 'g', 'b', 'a']
+    result &= letters[swaptable[idx*2+0].swaprb]
+    result &= letters[swaptable[idx*2+0].swapga]
+    result &= letters[swaptable[idx*2+1].swaprb]
+    result &= letters[swaptable[idx*2+1].swapga]
+
 proc genFragmentShader*(key: FragmentShaderKey): string =
     line "#version 430 core"
 
@@ -452,17 +475,20 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
                 of ras1trefColorZero: "vec4(0)"
                 else: "unimplemented"
 
-        line &"ivec4 rascolor = ivec4({rascolor} * 255.0);"
+        let colorSwizzle = swizzleFromSwapTable(alphaEnv.rswap, key.ksel)
+        line &"ivec4 rascolor = ivec4({rascolor} * 255.0).{colorSwizzle};"
 
         line &"ivec4 konstant = ivec4({colorKonstant}, {alphaKonstant});"
-
+        
         if texmapEnable:
-            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw / 128.0) * 255.0);"
+            let textureSwizzle = swizzleFromSwapTable(alphaEnv.tswap, key.ksel)
+            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw / 128.0) * 255.0).{textureSwizzle};"
         else:
             # welp what happens here?
             line &"ivec4 texcolor = ivec4(255, 255, 255, 255);"
 
         if key.zenv1.op != zenvOpDisable:
+            # does swizzle affect z textures?
             line "lastTexColor = texcolor;"
 
         line &"uvec3 colorA8 = uvec3({colorA}) & uvec3(0xFF);"
@@ -503,12 +529,12 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         if colorEnv.clamp:
             line &"{colorDst} = clamp(colorVal >> 8, 0, 255);"
         else:
-            line &"{colorDst} = clamp(colorVal >> 8, 0, 1023);"
+            line &"{colorDst} = clamp(colorVal >> 8, -1024, 1023);"
 
         if alphaEnv.clamp:
             line &"{alphaDst} = clamp(alphaVal >> 8, 0, 255);"
         else:
-            line &"{alphaDst} = clamp(alphaVal >> 8, 0, 1023);"
+            line &"{alphaDst} = clamp(alphaVal >> 8, -1024, 1023);"
 
         line "}"
 

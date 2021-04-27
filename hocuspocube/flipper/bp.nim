@@ -31,13 +31,13 @@ type
         txTexfmtReserved4
         txTexfmtCmp
         txTexfmtReserved5
-    
+
     TxLutFmt* = enum
         txLutfmtIA8
         txLutfmtRGB565
         txLutfmtRGB5A3
         txLutfmtReserved
-    
+
     Ras1TrefColor* = enum
         ras1trefColorColor0
         ras1trefColorColor1
@@ -47,7 +47,7 @@ type
         ras1trefColorBump
         ras1trefColorBumpN
         ras1trefColorZero
-    
+
     TevColorEnvSel* = enum
         ccCPrev
         ccAPrev
@@ -65,7 +65,7 @@ type
         ccHalf
         ccKonst
         ccZero
-    
+
     TevBias* = enum
         tevBiasZero
         tevBiasHalf
@@ -78,7 +78,7 @@ type
         tevScale2
         tevScale4
         tevScaleHalf
-    
+
     TevAlphaEnvSel* = enum
         caAPrev
         caA0
@@ -88,7 +88,7 @@ type
         caRasA
         caKonst
         caZero
-    
+
     TevKColorSel* = enum
         tevKColorSel1
         tevKColorSel7of8
@@ -122,7 +122,7 @@ type
         tevKColorSelK1A
         tevKColorSelK2A
         tevKColorSelK3A
-    
+
     TevKAlphaSel* = enum
         tevkAlphaSel1
         tevkAlphaSel7of8
@@ -156,7 +156,7 @@ type
         tevkAlphaSelK1A
         tevkAlphaSelK2A
         tevkAlphaSelK3A
-    
+
     AlphaCompLogic* = enum
         alphaCompLogicAnd
         alphaCompLogicOr
@@ -211,20 +211,22 @@ makeBitStruct uint32, *ZMode:
 makeBitStruct uint32, *PeCMode0:
     # still misses all the logicop stuff
     blendEnable[0]: bool
+    colorUpdate[3]: bool
+    alphaUpdate[4]: bool
     dstFactor[5..7]: BlendFactor
     srcFactor[8..10]: BlendFactor
     blendOp[11]: BlendOp
 
 makeBitStruct uint32, *Ras1Tref:
-    texmap0[0..2] {.evenStage.}: uint32
-    texcoord0[3..5] {.evenStage.}: uint32
-    texmapEnable0[6] {.evenStage.}: bool
-    color0[7..9] {.evenStage.}: Ras1TrefColor
+    texmap0[0..2]: uint32
+    texcoord0[3..5]: uint32
+    texmapEnable0[6]: bool
+    color0[7..9]: Ras1TrefColor
 
-    texmap1[12..14] {.oddStage.}: uint32
-    texcoord1[15..17] {.oddStage.}: uint32
-    texmapEnable1[18] {.oddStage.}: bool
-    color1[19..21] {.oddStage.}: Ras1TrefColor
+    texmap1[12..14]: uint32
+    texcoord1[15..17]: uint32
+    texmapEnable1[18]: bool
+    color1[19..21]: Ras1TrefColor
 
 makeBitStruct uint32, *TevColorEnv:
     seld[0..3]: TevColorEnvSel
@@ -258,12 +260,12 @@ makeBitStruct uint32, *TevRegister:
     setKonst[23]: bool
 
 makeBitStruct uint32, *TevKSel:
-    swaprg[0..1] {.evenStage, oddStage.}: uint32
-    swapba[2..3] {.evenStage, oddStage.}: uint32
-    kcsel0[4..8] {.evenStage.}: TevKColorSel
-    kasel0[9..13] {.evenStage.}: TevKAlphaSel
-    kcsel1[14..18] {.oddStage.}: TevKColorSel
-    kasel1[19..23] {.oddStage.}: TevKAlphaSel
+    swaprb[0..1]: uint32
+    swapga[2..3]: uint32
+    kcsel0[4..8]: TevKColorSel
+    kasel0[9..13]: TevKAlphaSel
+    kcsel1[14..18]: TevKColorSel
+    kasel1[19..23]: TevKAlphaSel
 
 makeBitStruct uint32, *SuSize:
     size[0..15]: uint32
@@ -360,11 +362,14 @@ var
     clearR, clearG, clearB, clearA: uint8
     clearZ: uint32
 
-    efbCopyDst, efbCopyDstStride: uint32
-    efbCopySrcX, efbCopySrcY, efbCopyW, efbCopyH: uint32
+    efbCopyDst: uint32
+    efbCopyDstStride: EfbCopyStride
+    efbCopySrcPos, efbCopySize: EfbCoordPair
 
     scissorTL, scissorBR: ScissorCoords
     scissorOffset: ScissorOffset
+
+    copyExecute: CopyExecute
 
     zmode*: ZMode
 
@@ -392,6 +397,8 @@ var
     alphaCompare*: AlphaCompare
 
     efbCopyStepY: uint32
+
+    bpMask: uint32
 
 proc getRas1Tref*(regs: array[8, Ras1Tref], i: uint32):
     tuple[texmap: uint32, texcoord: uint32, texmapEnable: bool, color: Ras1TrefColor] =
@@ -422,54 +429,56 @@ proc getScissorOffset*(): (int32, int32) =
 import
     rasterinterface
 
+proc maskedWrite[T](register: var T, val: uint32): bool {.discardable.} =
+    let prevValue = register
+    register = T((uint32(register) and not(bpMask)) or (val and bpMask))
+    register != prevValue
+
 proc bpWrite*(adr, val: uint32) =
     case adr
     of 0x00:
-        genMode = GenMode val
-        rasterStateDirty = true
+        if genMode.maskedWrite val:
+            rasterStateDirty = true
     of 0x01..0x04:
         # copy filter stuff
         discard
     of 0x20:
-        scissorTL = ScissorCoords val
-        rasterStateDirty = true
+        if scissorTL.maskedWrite val:
+            rasterStateDirty = true
     of 0x21:
-        scissorBR = ScissorCoords val
-        rasterStateDirty = true
+        if scissorBR.maskedWrite val:
+            rasterStateDirty = true
     of 0x28..0x2F:
-        ras1Tref[adr - 0x28] = Ras1Tref val
+        ras1Tref[adr - 0x28].maskedWrite val
     of 0x30..0x3F:
-        if (adr mod 2) == 0:
-            sSize[(adr - 0x30) div 2] = SuSize val
-        else:
-            tSize[(adr - 0x30) div 2] = SuSize val
-        registerUniformDirty = true
+        if
+            (if (adr mod 2) == 0:
+                sSize[(adr - 0x30) div 2].maskedWrite val
+            else:
+                tSize[(adr - 0x30) div 2].maskedWrite val):
+            registerUniformDirty = true
     of 0x40:
-        zmode = ZMode val
-        rasterStateDirty = true
+        if zmode.maskedWrite val:
+            rasterStateDirty = true
     of 0x41:
-        peCMode0 = PeCMode0 val
-        rasterStateDirty = true
+        if peCMode0.maskedWrite val:
+            rasterStateDirty = true
     of 0x49:
-        let val = EfbCoordPair val
-        efbCopySrcX = val.x
-        efbCopySrcY = val.y
+        efbCopySrcPos.maskedWrite val
     of 0x4A:
-        let val = EfbCoordPair val
-        efbCopyW = val.x + 1
-        efbCopyH = val.y + 1
+        efbCopySize.maskedWrite val
     of 0x4B:
-        efbCopyDst = val shl 5
+        efbCopyDst.maskedWrite val
     of 0x4D:
-        efbCopyDstStride = EfbCopyStride(val).stride shl 5
+        efbCopyDstStride.maskedWrite val
     of 0x45:
-        if (val and 0x2) != 0:
+        if ((val and bpMask) and 0x2) != 0:
             finishFrame()
 
             pe.flagFinish()
             echo "pe finish!"
     of 0x4E:
-        efbCopyStepY = val
+        efbCopyStepY.maskedWrite val
     of 0x4F:
         clearR = uint8(val)
         clearA = uint8(val shr 8)
@@ -477,135 +486,131 @@ proc bpWrite*(adr, val: uint32) =
         clearB = uint8(val)
         clearG = uint8(val shr 8)
     of 0x51:
-        clearZ = val
+        clearZ.maskedWrite val
     of 0x52:
-        let val = CopyExecute val
+        copyExecute.maskedWrite val
 
-        echo &"copy execute {efbCopySrcX}, {efbCopySrcY} {efbCopyW}x{efbCopyH} to {efbCopyDst:08X} stride: {efbCopyDstStride} {efbCopyStepY}"
+        let
+            srcX = efbCopySrcPos.x
+            srcY = efbCopySrcPos.y
+            width = efbCopySize.x
+            height = efbCopySize.y
+            stride = efbCopyDstStride.stride shl 5
 
-        doAssert val.mode == copyXfb
+        echo &"copy execute {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
 
-        var efbContent = newSeq[uint32](efbCopyW * efbCopyH)
-        retrieveFrame(efbContent, efbCopySrcX, efbCopySrcY, efbCopyW, efbCopyH)
+        doAssert copyExecute.mode == copyXfb
+
+        var efbContent = newSeq[uint32](width * height)
+        retrieveFrame(efbContent, srcX, srcY, width, height)
 
         var
-            adr = efbCopyDst
-            uniqueAdr = efbCopyDst
+            adr = efbCopyDst shl 5
+            uniqueAdr = efbCopyDst shl 5
             line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
             copied = 0
-        for i in 0..<efbCopyH:
+        for i in 0..<height:
             uniqueAdr = adr
             convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
-                toOpenArray(efbContent, int (efbCopyH-i-1)*efbCopyW, int (efbCopyH-i-1+1)*efbCopyW-1),
-                int efbCopyW)
-            adr += efbCopyDstStride
+                toOpenArray(efbContent, int (height-i-1)*width, int (height-i-1+1)*width-1),
+                int width)
+            adr += stride
             line += efbCopyStepY
             copied += 1
 
             while (line shr 8) == i:
-                copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], efbCopyW*2)
+                copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], width*2)
                 line += efbCopyStepY
-                adr += efbCopyDstStride
+                adr += stride
                 copied += 1
 
         #echo &"actually copied {copied} lines"
 
-        if val.clear:
-            rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ)
+        if copyExecute.clear:
+            rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ, peCMode0.colorUpdate, peCMode0.alphaUpdate, zmode.update)
     of 0x53, 0x54:
         discard # also copy filter
     of 0x59:
-        scissorOffset = ScissorOffset val
-        rasterStateDirty = true
+        if scissorOffset.maskedWrite val:
+            rasterStateDirty = true
     of 0x80..0x83:
         let idx = adr - 0x80
-        if texMaps[idx].setMode0 != TxSetMode0 val:
-            texMaps[idx].setMode0 = TxSetMode0 val
+        if texMaps[idx].setMode0.maskedWrite val:
             samplerStateDirty.incl idx
     of 0x84..0x87:
         let idx = adr - 0x84
-        if texMaps[idx].setMode1 != TxSetMode1 val:
-            texMaps[idx].setMode1 = TxSetMode1 val
+        if texMaps[idx].setMode1.maskedWrite val:
             samplerStateDirty.incl idx
     of 0x88..0x8B:
         let idx = adr - 0x88
-        if texMaps[idx].setImage0 != TxSetImage0 val:
-            texMaps[idx].setImage0 = TxSetImage0 val
+        if texMaps[idx].setImage0.maskedWrite val:
             imageStateDirty.incl idx
             registerUniformDirty = true
     of 0x8C..0x8F:
         let idx = adr - 0x8C
-        if texMaps[idx].setImage1 != TxSetImage12 val:
-            texMaps[idx].setImage1 = TxSetImage12 val
+        if texMaps[idx].setImage1.maskedWrite val:
             imageStateDirty.incl idx
     of 0x90..0x93:
         let idx = adr - 0x90
-        if texMaps[idx].setImage2 != TxSetImage12 val:
-            texMaps[idx].setImage2 = TxSetImage12 val
+        if texMaps[idx].setImage2.maskedWrite val:
             imageStateDirty.incl idx
     of 0x94..0x97:
         let idx = adr - 0x94
-        if texMaps[idx].setImage3 != val:
-            texMaps[idx].setImage3 = val
+        if texMaps[idx].setImage3.maskedWrite val:
             imageStateDirty.incl idx
     of 0xA0..0xA3:
         let idx = adr - 0xA0 + 4
-        if texMaps[idx].setMode0 != TxSetMode0 val:
-            texMaps[idx].setMode0 = TxSetMode0 val
+        if texMaps[idx].setMode0.maskedWrite val:
             samplerStateDirty.incl idx
     of 0xA4..0xA7:
         let idx = adr - 0xA4 + 4
-        if texMaps[idx].setMode1 != TxSetMode1 val:
-            texMaps[idx].setMode1 = TxSetMode1 val
+        if texMaps[idx].setMode1.maskedWrite val:
             samplerStateDirty.incl idx
     of 0xA8..0xAB:
         let idx = adr - 0xA8 + 4
-        if texMaps[idx].setImage0 != TxSetImage0 val:
-            texMaps[idx].setImage0 = TxSetImage0 val
+        if texMaps[idx].setImage0.maskedWrite val:
             imageStateDirty.incl idx
             registerUniformDirty = true
     of 0xAC..0xAF:
         let idx = adr - 0xAC + 4
-        if texMaps[idx].setImage1 != TxSetImage12 val:
-            texMaps[idx].setImage1 = TxSetImage12 val
+        if texMaps[idx].setImage1.maskedWrite val:
             imageStateDirty.incl idx
     of 0xB0..0xB3:
         let idx = adr - 0xB0 + 4
-        if texMaps[idx].setImage2 != TxSetImage12 val:
-            texMaps[idx].setImage2 = TxSetImage12 val
+        if texMaps[idx].setImage2.maskedWrite val:
             imageStateDirty.incl idx
     of 0xB4..0xB7:
         let idx = adr - 0xb4 + 4
-        if texMaps[idx].setImage3 != val:
-            texMaps[idx].setImage3 = val
+        if texMaps[idx].setImage3.maskedWrite val:
             imageStateDirty.incl idx
     of 0xC0..0xDF:
         if (adr mod 2) == 0:
-            colorEnv[(adr - 0xC0) div 2] = TevColorEnv val
+            colorEnv[(adr - 0xC0) div 2].maskedWrite val
         else:
-            alphaEnv[(adr - 0xC1) div 2] = TevAlphaEnv val
+            alphaEnv[(adr - 0xC1) div 2].maskedWrite val
     of 0xE0..0xE7:
-        let val = TevRegister val
         var dirty = false
-        if val.setKonst:
-            dirty = konstants[adr - 0xE0] != val
-            konstants[adr - 0xE0] = val
+        # TODO: figure out how exactly this works
+        if TevRegister(val).setKonst:
+            dirty = konstants[adr - 0xE0].maskedWrite uint32(val)
         else:
-            dirty = tevRegister[adr - 0xE0] != val
-            tevRegister[adr - 0xE0] = val
+            dirty = tevRegister[adr - 0xE0].maskedWrite uint32(val)
         registerUniformDirty = registerUniformDirty or dirty
     of 0xF3:
         let val = AlphaCompare val
         if alphaCompare.ref0 != val.ref0 or alphaCompare.ref1 != val.ref1:
             registerUniformDirty = true
-        alphaCompare = val
+        alphaCompare.maskedWrite uint32(val)
     of 0xF4:
-        if zenv0 != val:
-            zenv0 = val
+        if zenv0.maskedWrite(val):
             registerUniformDirty = true
     of 0xF5:
-        zenv1 = TevZEnv1 val
+        zenv1.maskedWrite val
     of 0xF6..0xFD:
-        tevKSel[adr - 0xF6] = TevKSel val
-
+        tevKSel[adr - 0xF6].maskedWrite val
+    of 0xFE:
+        bpMask = val
+        return
     else: echo &"unknown bp write {adr:02X} {val:06X}"
+
+    bpMask = 0xFFFFFF'u32

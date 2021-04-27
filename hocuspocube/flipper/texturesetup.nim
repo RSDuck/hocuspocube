@@ -191,7 +191,7 @@ proc setupTexture*(n: int) =
             height: texmap.height,
             adr: texmap.adr)
 
-    echo "setup texture"
+    echo &"setup texture {n} {key.width}x{key.height} {key.adr:08X} {key.fmt}"
 
     assert(not texmap.setImage1.preloaded)
 
@@ -204,7 +204,7 @@ proc setupTexture*(n: int) =
             (dataSize, _, _) = calculateTexSize(key.fmt, key.width, key.height, 1)
 
         for i in 0..<dataSize div 32:
-            mainRAMTagging[(key.adr shr 32) + i] = memoryTagTexture
+            mainRAMTagging[(key.adr shr 5) + i] = memoryTagTexture
 
         texture.dataSize = dataSize
         texture.native = rasterogl.createTexture(int key.width, int key.height, 1, targetFmt)
@@ -248,4 +248,6 @@ proc setupTexture*(n: int) =
 proc invalidateTexture*(adr: uint32) =
     for key, entry in mpairs textures:
         if adr >= key.adr and adr < key.adr + entry.dataSize:
+            if not entry.invalid:
+                echo &"invalidating texture at {key.adr:08X} (write to {adr:08X})"
             entry.invalid = true

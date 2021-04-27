@@ -83,6 +83,8 @@ type
         enableScissor
         enableCulling
         enableBlending
+        enableColorWrite
+        enableAlphaWrite
 
     RenderState = object
         textures: array[8, NativeTexture]
@@ -310,6 +312,7 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
     let
         toEnable = state.enable - currentRenderstate.enable
         toDisable = currentRenderstate.enable - state.enable
+        enableDirty = toEnable + toDisable
 
     var firstChange = true
 
@@ -318,19 +321,26 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
             onChange()
             firstChange = false
 
-    if (toEnable + toDisable) * {enableDepthWrite, enableScissor} != {}:
+    if enableDirty * {enableDepthWrite, enableScissor, enableColorWrite, enableAlphaWrite} != {}:
         callback
 
-    if enableDepthWrite in toEnable:
-        glDepthMask(GL_TRUE)
-        currentRenderstate.enable.incl enableDepthWrite
+    if enableDepthWrite in enableDirty:
+        glDepthMask(if enableDepthWrite in state.enable: GL_TRUE else: GL_FALSE)
+        currentRenderstate.enable[enableDepthWrite] = enableDepthWrite in state.enable
+
+    if (enableDirty * {enableColorWrite, enableAlphaWrite}) != {}:
+        let
+            colorWrite =
+                if enableColorWrite in state.enable: GL_TRUE else: GL_FALSE
+            alphaWrite =
+                if enableAlphaWrite in state.enable: GL_TRUE else: GL_FALSE
+        glColorMask(colorWrite, colorWrite, colorWrite, alphaWrite)
+        currentRenderstate.enable[enableColorWrite] = enableColorWrite in state.enable
+        currentRenderstate.enable[enableAlphaWrite] = enableAlphaWrite in state.enable
+
     if enableScissor in toEnable:
         glEnable(GL_SCISSOR_TEST)
         currentRenderstate.enable.incl enableScissor
-
-    if enableDepthWrite in toDisable:
-        glDepthMask(GL_FALSE)
-        currentRenderstate.enable.excl enableDepthWrite
     if enableScissor in toDisable:
         glDisable(GL_SCISSOR_TEST)
         currentRenderstate.enable.excl enableScissor
@@ -505,16 +515,15 @@ proc init*() =
     metaRenderstate = RenderState(
         vertexShader: fullscreenQuadVtxShader,
         fragmentShader: fullscreenQuadFragShader,
-        viewport: (0'i32, 0'i32, 640'i32, 480'i32)) # bah
+        viewport: (0'i32, 0'i32, 640'i32, 480'i32),
+        enable: {enableColorWrite, enableDepthWrite}) # bah
     metaRenderstate.textures[0] = rawXfbTexture
 
     flipperRenderstate = RenderState(
         viewport: (0'i32, 0'i32, 640'i32, 528'i32),
         framebuffer: efb)
 
-    clearRenderstate = RenderState(
-        enable: {enableDepthWrite},
-        framebuffer: efb)
+    clearRenderstate = RenderState(framebuffer: efb)
 
 proc bindShader*(vertex, fragment: NativeShader) =
     flipperRenderstate.vertexShader = vertex
@@ -534,11 +543,17 @@ proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
     applyRenderstate flipperRenderstate, framebufferOnly = true
     glReadPixels(GLint x, GLint(528 - (y + height)), GLsizei width, GLsizei height, GL_RGBA, GL_UNSIGNED_BYTE, addr data[0])
 
-proc clear*(r, g, b, a: uint8, depth: uint32) =
+proc clear*(r, g, b, a: uint8, depth: uint32, clearColor, clearAlpha, clearDepth: bool) =
+    clearRenderstate.enable[enableColorWrite] = clearColor
+    clearRenderstate.enable[enableAlphaWrite] = clearAlpha
+    if clearDepth: clearRenderstate.enable.incl enableDepthWrite
     applyRenderstate clearRenderstate, framebufferOnly = true
     glClearDepth(float(depth) / float((1'u32 shl 24) - 1))
     glClearColor(float32(r) / 255, float32(g) / 255, float32(b) / 255, float32(a) / 255)
-    glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+    var mask: GLbitfield
+    if clearColor or clearAlpha: mask = GL_COLOR_BUFFER_BIT
+    if clearDepth: mask = mask or GL_DEPTH_BUFFER_BIT
+    glClear(mask)
 
 proc setViewport*(x, y, w, h: int32) =
     flipperRenderstate.viewport = (x, 528 - (y + h), w, h)
@@ -559,11 +574,14 @@ proc setBlendState*(enable: bool, op: BlendOp, srcFactor, dstFactor: BlendFactor
 proc setCullFace*(mode: CullFace) =
     if mode == cullNone:
         flipperRenderstate.enable.excl enableCulling
-    else:    
+    else:
         flipperRenderstate.enable.incl enableCulling
         flipperRenderstate.cullface = mode
 proc bindSampler*(i: int, sampler: NativeSampler) =
     flipperRenderstate.samplers[i] = sampler
+proc setColorAlphaUpdate*(updateColor, updateAlpha: bool) =
+    flipperRenderstate.enable[enableColorWrite] = updateColor
+    flipperRenderstate.enable[enableAlphaWrite] = updateAlpha
 
 proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArray[byte]) =
     applyRenderstate(flipperRenderstate)

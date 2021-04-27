@@ -8,13 +8,13 @@ template diLog(msg: string): untyped =
     echo msg
 
 makeBitStruct uint32, DiSr:
-    brk[0]: bool
-    deintmask[1] {.mutable.}: bool
-    deint[2]: bool
-    tcintmask[3] {.mutable.}: bool
-    tcint[4]: bool
-    brkintmask[5] {.mutable.}: bool
-    brkint[6]: bool
+    brk[0]: bool # request break
+    deintmask[1] {.mutable.}: bool # error interrupt mask
+    deint[2]: bool # error interrupt
+    tcintmask[3] {.mutable.}: bool # transfer interrupt
+    tcint[4]: bool # transfer finish interrupt
+    brkintmask[5] {.mutable.}: bool # break interrupt
+    brkint[6]: bool # break interrupt mask
 
 makeBitStruct uint32, DiMmAdr:
     _[5..25] {.adr.}: uint32

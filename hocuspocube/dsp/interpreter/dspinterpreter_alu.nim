@@ -195,7 +195,7 @@ proc add*(state; s, d, x: uint16) =
     addAccumOp(int d, case range[0..7](s)
             of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
             of 4..5: state.readAuxAccum(int s - 4)
-            of 6: state.readAccum((int s - 6) xor 1)
+            of 6: state.readAccum(int(1 - d))
             of 7: state.readProduct()):
         state.dispatchSecondary(x)
 
@@ -208,7 +208,7 @@ proc sub*(state; s, d, x: uint16) =
         subtrahend = case range[0..7](s)
             of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
             of 4..5: state.readAuxAccum(int s - 4)
-            of 6: state.readAccum((int s - 6) xor 1)
+            of 6: state.readAccum(int(1 - d))
             of 7: state.readProduct()
         accum = state.readAccum(int d)
         diff = accum - subtrahend
@@ -228,7 +228,7 @@ proc amv*(state; s, d, x: uint16) =
         val = case range[0..7](s)
             of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
             of 4..5: int64(state.readAuxAccum(int s - 4))
-            of 6: state.readAccum(int d xor 1)
+            of 6: state.readAccum(int(1 - d))
             of 7: state.readProduct()
     state.dispatchSecondary(x)
 

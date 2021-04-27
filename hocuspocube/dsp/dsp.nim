@@ -240,7 +240,7 @@ proc dataRead*(adr: uint16): uint16 =
         of 0xFFFC: dmb.hi
         of 0xFFFD: dmb.lo
         of 0xFFFE: cmb.hi
-        of 0xFFFF: dspLog &"dsp: reading cmb lo status {cmb.status}"; cmb.status = false; cmb.lo
+        of 0xFFFF: dspLog &"dsp: reading cmb lo status {cmb.status} {uint32(cmb):X}"; cmb.status = false; cmb.lo
         else: echo &"unknown dsp data read {adr:X} from {mDspState.pc:04X}"; 0'u16
 
 proc dataWrite*(adr, val: uint16) =
@@ -268,6 +268,11 @@ proc dataWrite*(adr, val: uint16) =
             if dsCr.direction == dspDmaToMainRam:
                 swap src, dst
 
+            if dsCr.direction == dspDmaFromMain and dsCr.dspMem == dspMemIMem:
+                let file = newFileStream("ucode.bin", fmWrite)
+                file.writeData(src, int dsbl.len)
+                file.close()
+
             copySwapBytes16(toOpenArray(dst, 0, int(dsbl.len div 2) - 1), toOpenArray(src, 0, int(dsbl.len div 2) - 1))
         of 0xFFCD: dspa.adr = val
         of 0xFFCE: dsma.hi = val
@@ -278,38 +283,12 @@ proc dataWrite*(adr, val: uint16) =
                 dspLog "cpu interrupt triggered by dsp"
                 dspCsr.dspint = true
                 updateDspInt()
+            else:
+                echo "non 1 value write to dsp cpu interrupt trigger"
 
-        of 0xFFFC: dspLog "dsp: writing dmb hi"; dmb.hiWrite = val
-        of 0xFFFD: dspLog &"dsp: writing dmb lo status {dmb.status}"; dmb.status = true; dmb.lo = val
+        of 0xFFFC: dspLog &"dsp: writing dmb hi {val:02X}"; dmb.hiWrite = val
+        of 0xFFFD: dspLog &"dsp: writing dmb lo status {dmb.status} {val:02X}"; dmb.status = true; dmb.lo = val
         else: echo &"unknown dsp data write {adr:04X} {`val`:X} from {mDspState.pc:04X}"
-
-proc doDspDma(mmPtr: ptr UncheckedArray[byte], transferLines: uint32,
-    direction: static[DspDmaDirection],
-    aramSize: uint32, aramSizeSimple: static[int]) =
-
-    let (maskLo, maskHi) = if aramSizeSimple < 0: (0x1FF'u32, 0xFF800000'u32)
-        elif aramSize > 0: (0x3FFFFF'u32, 0xFF800000'u32)
-        else: (0xFFFFFFFF'u32, 0'u32)
-
-    for i in 0..<transferLines:
-        let offset = uint32(i) shl 5
-
-        if offset < aramSize*1024*1024:
-            if direction == dspDmaFromAram:
-                zeroMem(addr mmPtr[offset], 32)
-        else:
-            let
-                hi = offset and maskHi
-                aramAdr = (offset and maskLo) or
-                    (if aramSizeSimple < 0: hi shl 1
-                        elif aramSizeSimple > 0: hi shr 1
-                        else: 0'u32)
-
-            case direction
-            of dspDmaFromAram:
-                copyMem(addr mmPtr[offset], addr aram[aramAdr], 32)
-            of dspDmaToAram:
-                copyMem(addr aram[aramAdr], addr mmPtr[offset], 32)
 
 proc curAiSCnt(): uint32 =
     if aiCr.pstat:
@@ -333,7 +312,7 @@ proc startAid(timestamp: int64) =
             (case aiCr.dfr
                 of dmaFreq32Khz: gekkoCyclesPerSecond div 32_000
                 of dmaFreq48Khz: gekkoCyclesPerSecond div 48_000)
-        dspLog &"playing {aidLen.len * 32 div (2*2)} stereo samples"
+        dspLog &"playing {aidCntInit * 32 div (2*2)} stereo samples"
         aidDoneEvent = scheduleEvent(timestamp + cycles, 0, proc(timestamp: int64) =
             aidCntInitTimestamp = timestamp
             if aidLen.play:
@@ -344,7 +323,9 @@ proc startAid(timestamp: int64) =
             dspCsr.aidint = true
             updateDspInt())
     else:
-        echo "skipping inital value == 0"
+        dspLog &"playing back with 0 samples!"
+        dspCsr.aidint = true
+        updateDspInt()
 
 proc rescheduleAi(timestamp: int64) =
     if aiItIntEvent != InvalidEventToken:
@@ -363,14 +344,14 @@ proc rescheduleAi(timestamp: int64) =
 ioBlock dsp, 0x200:
 of cmbh, 0x00, 2:
     read: cmb.hi
-    write: dspLog &"cpu: writing cmb hi {cmb.status}"; cmb.hiWrite = val
+    write: dspLog &"cpu: writing cmb hi {cmb.status} {val:02X} {gekkoState.pc:08X} {gekkoState.lr:08X}"; cmb.hiWrite = val
 of cmbl, 0x02, 2:
     read: cmb.lo
-    write: dspLog &"cpu: writing cmb lo {cmb.status}"; cmb.lo = val; cmb.status = true
+    write: dspLog &"cpu: writing cmb lo {cmb.status} {val:02X} {gekkoState.pc:08X} {gekkoState.lr:08X}"; cmb.lo = val; cmb.status = true
 of dmbh, 0x04, 2:
     read: dmb.hi
 of dmbl, 0x06, 2:
-    read: dspLog &"cpu: reading dmb lo {dmb.status}"; dmb.status = false; dmb.lo
+    read: dspLog &"cpu: reading dmb lo {dmb.status} {uint32(dmb):X} {gekkoState.pc:08X} {gekkoState.lr:08X}"; dmb.status = false; dmb.lo
 of dspcr, 0x0A, 2:
     read: uint16(dspCsr)
     write:
@@ -385,7 +366,10 @@ of dspcr, 0x0A, 2:
         dspCsr.mutable = val.mutable
 
         if val.aidint: dspCsr.aidint = false
-        if val.arint: dspCsr.arint = false
+        if val.arint and
+            # this is a bit dirty, but as long as the dma count is equal aidint should be constantly reflagged
+            not(aidCntInit == 0 and aidLen.play):
+            dspCsr.arint = false
         if val.dspint: dspCsr.dspint = false
         updateDspInt()
 
@@ -411,23 +395,44 @@ of arDmaCntLo, 0x2A, 2:
 
         dspLog &"ARAM DMA MM Adr: {arDmaMmAdr.adr:08X} aram: {arDmaArAdr.adr:08X} len {arDmaCnt.length} direction: {arDmaCnt.direction}"
 
-        # based on https://github.com/dolphin-emu/dolphin/pull/7740
-        let
-            transferLines = min(arDmaCnt.length shr 5, 16)
-            aramSize = min(2'u32 shl arInfo.baseSize, 32) # in MB
-            mmPtr = cast[ptr UncheckedArray[byte]](addr mainRAM[arDmaMmAdr.adr])
-
-        template doDma(dir: DspDmaDirection): untyped =
-            if aramSize < 16:
-                doDspDma(mmPtr, transferLines, dir, aramSize, -1)
-            elif aramSize > 16:
-                doDspDma(mmPtr, transferLines, dir, aramSize, 1)
-            else:
-                doDspDma(mmPtr, transferLines, dir, aramSize, 0)
-
+        # this desparately needs more research
+        var
+            arAdr = arDmaArAdr.adr
+            mmAdr = arDmaMmAdr.adr
+            length = arDmaCnt.length
+        const arMask = uint32(sizeof(aram)-1)
         case arDmaCnt.direction:
-        of dspDmaToAram: doDma(dspDmaToAram)
-        of dspDmaFromAram: doDma(dspDmaFromAram)
+        of dspDmaToAram:
+            if arAdr < uint32(sizeof(aram)):
+                while length > 0:
+                    if arInfo.baseSize == 4 and arAdr < 0x400000'u32:
+                        copyMem(addr aram[(arAdr + 0x400000'u32) and arMask], addr mainRAM[mmAdr], 32)
+                    copyMem(addr aram[arAdr and arMask], addr mainRAM[mmAdr], 32)
+
+                    mmAdr += 32
+                    arAdr += 32
+                    length -= 32
+            else:
+                arAdr += length
+                mmAdr += length
+                length = 0
+        of dspDmaFromAram:
+            if arAdr < uint32(sizeof(aram)):
+                while length > 0:
+                    copyMem(addr mainRAM[mmAdr], addr aram[arAdr and arMask], 32)
+
+                    arAdr += 32
+                    mmAdr += 32
+                    length -= 32
+            else:
+                zeroMem(addr mainRAM[mmAdr], length)
+                arAdr += length
+                mmAdr += length
+                length = 0
+
+        arDmaArAdr.adr = arAdr
+        arDmaMmAdr.adr = mmAdr
+        arDmaCnt.length = length
 
         dspCsr.arint = true
 

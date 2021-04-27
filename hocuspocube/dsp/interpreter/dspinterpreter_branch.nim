@@ -59,17 +59,30 @@ proc exec*(state; cc: uint16) =
 
 proc loopi*(state; c: uint16) =
     let lastInstr = fetchFollowingImm
-    state.setupLoop c, lastInstr
+    if c > 0:
+        state.setupLoop c, lastInstr
+    else:
+        state.pc = lastInstr - 1
 
 proc loop*(state; r: uint16) =
     let
         count = state.readReg(DspReg r)
         lastInstr = fetchFollowingImm
-    state.setupLoop count, lastInstr
+
+    if count > 0:
+        state.setupLoop count, lastInstr
+    else:
+        state.pc = lastInstr - 1
 
 proc repi*(state; c: uint16) =
-    state.setupLoop c, state.pc + 1
+    if c > 0:
+        state.setupLoop c, state.pc + 1
+    else:
+        state.pc += 1
 
 proc rep*(state; r: uint16) =
     let count = state.readReg(DspReg r)
-    state.setupLoop count, state.pc + 1
+    if count > 0:
+        state.setupLoop count, state.pc + 1
+    else:
+        state.pc += 1

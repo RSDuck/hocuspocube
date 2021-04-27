@@ -189,8 +189,8 @@ func setN2*(state; dd: uint16) =
     state.status.mi = dd.getBit(15)
 
 func setE1*(state; full: uint64) =
-    state.status.ext = (full and 0xFF_8000_0000'u64) != 0'u64 or
-        (full and 0xFF_8000_0000'u64) != 0xFF_8000_0000'u64
+    let masked = full and 0xFF_8000_0000'u64
+    state.status.ext = masked != 0'u64 and masked != 0xFF_8000_0000'u64
 func setE1*(state; hi, mid: uint16) =
     # for instructions which may only operate on the middle part
     # the flag will be based on the high part which has to be passed in!
@@ -205,13 +205,18 @@ func dppAdr*(state; a: uint16): uint16 =
     (state.readReg(dspRegDpp) shl 8) or a
 
 proc conditionHolds*(state; cond: uint32): bool =
+    let
+        equal = state.status.zr
+        isLess = state.status.ov != state.status.mi
+        isLequal = equal or isLess
+
     case range[0..15](cond)
-    of 0: state.status.ov == state.status.mi # greater or equal
-    of 1: state.status.ov != state.status.mi # less
-    of 2: not state.status.zr or state.status.ov == state.status.mi # greater
-    of 3: state.status.zr or state.status.ov != state.status.mi # less or equal
-    of 4: not state.status.zr
-    of 5: state.status.zr
+    of 0: not isLess # greater or equal
+    of 1: isLess # less
+    of 2: not isLequal # greater
+    of 3: isLequal # less or equal
+    of 4: not equal # not equal
+    of 5: equal # equal
     of 6: not state.status.ca
     of 7: state.status.ca
     of 8: not state.status.ext

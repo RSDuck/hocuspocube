@@ -15,39 +15,63 @@ proc undefinedInstr(state: var DspState, instr: uint16) =
 
 var logstuff = false
 
+proc handleExceptions() =
+    if mDspState.status.et:
+        if mDspState.status.te3:
+            if dspCsr.piint:
+                mDspState.callStack.push(mDspState.pc)
+                mDspState.statusStack.push(uint16 mDspState.status)
+                mDspState.pc = 0x000E'u16
+
+                #echo "piint!"
+
+                dspCsr.piint = false
+                dspCsr.halt = false
+
+            # put accelerator overflow etc. here
+
 proc dspRun*(timestamp: var int64, target: int64) =
     runPeripherals()
 
     # is reset affected by global interrupt enable?
     # also does a reset reset any registers (including the stack)?
+    # apparently it does, otherwise the stack overflows (because there's still stuff on it)
     if dspCsr.reset:
         dspCsr.reset = false
         echo "resetting to rom init vector"
         mDspState = default(DspState)
+        # necessary for the for the AX ucode to work
+        # Dolphin does this too, needs to be tested
+        for i in 0..<4:
+            mDspState.r[dspRegWrap0.succ(i)] = 0xFFFF'u16
         mDspState.pc = IRomStartAdr
 
+    handleExceptions()
+
     if dspCsr.halt or dspCsr.busyCopying:
+        timestamp = target
+        #echo &"skipping dsp slice {dspCsr.halt} {dspCsr.busyCopying}"
         return
 
     while true:
         {.computedGoto.}
 
-        if mDspState.status.et:
-            if dspCsr.piint and mDspState.status.te3:
-                mDspState.callStack.push(mDspState.pc)
-                mDspState.statusStack.push(uint16 mDspState.status)
-                mDspState.pc = 0x000E'u16
+        handleExceptions()
 
-                dspCsr.piint = false
-
-        let prevPc = mDspState.pc
-
-        if logStuff:
-            echo &"dspstate {mDspState.pc:02X} {uint16(mDspState.status):02X}"
-            for i in 0..<32:
-                echo &"r {i}: {mDspState.r[DspReg(i)]:02X}"
+        #let prevPc = mDspState.pc
 
         let instr = instrRead(mDspState.pc)
+
+#[        if mDspState.pc == 0x05e3'u16 and instr == 0x00d8'u16:
+            logstuff = true
+        if mDspState.pc == 0x05fd'u16:
+            logstuff = false
+
+        if logStuff:
+            echo &"dspstate {mDspState.pc:02X} {uint16(mDspState.status):02X} {instr:04X}"
+            for i in 0..<32:
+                echo &"r {i}: {mDspState.r[DspReg(i)]:02X}"]#
+
         dspMainDispatch instr, mDspState, undefinedInstr
 
         while mDspState.loopAddrStack.sp > 0 and

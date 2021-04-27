@@ -137,19 +137,19 @@ makeBitStruct uint32, *Hid1:
     pc0[31]: bool
 
 makeBitStruct uint32, *Hid2:
-    dqoee[16]: bool # DMA queue overflow error enable
-    dqmee[17]: bool # DMA cache miss error enable
-    dncee[18]: bool # DMA access to normal cache error enable
-    dchee[19]: bool # dcbz_l cache hit error enable
-    dqoerr[20]: bool # DMA queue overflow error
-    dcmerr[21]: bool # DMA cache miss error
-    dncerr[22]: bool # DMA access to normal cache error
-    dcherr[23]: bool # dcbz_l cache hit error
+    dqoee[16] {.mutable.}: bool # DMA queue overflow error enable
+    dqmee[17] {.mutable.}: bool # DMA cache miss error enable
+    dncee[18] {.mutable.}: bool # DMA access to normal cache error enable
+    dchee[19] {.mutable.}: bool # dcbz_l cache hit error enable
+    dqoerr[20] {.mutable.}: bool # DMA queue overflow error
+    dcmerr[21] {.mutable.}: bool # DMA cache miss error
+    dncerr[22] {.mutable.}: bool # DMA access to normal cache error
+    dcherr[23] {.mutable.}: bool # dcbz_l cache hit error
     dmaql[24..27]: uint32 # DMA queue length
-    lce[28]: bool # locked cache enable
-    pse[29]: bool # paired singles enabled
-    wpe[30]: bool # write gather pipe enabled
-    lsqe[31]: bool # load store quantisied instructions enabled
+    lce[28] {.mutable.}: bool # locked cache enable
+    pse[29] {.mutable.}: bool # paired singles enabled
+    wpe[30] {.mutable.}: bool # write gather pipe enabled
+    lsqe[31] {.mutable.}: bool # load store quantisied instructions enabled
 
 type
     GqrType* = enum

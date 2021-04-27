@@ -471,7 +471,7 @@ proc dcbz*(state; a, b: uint32) =
 proc dcbz_l*(state; a, b: uint32) =
     calcAddr false:
         doMemOp:
-            doAssert adr.get >= 0xE0000000'u32 and adr.get <= 0xE0003fff'u32, "dcbz_l in unusal region"
+            doAssert adr.get >= 0xE0000000'u32 and adr.get <= 0xE0003FFF'u32, "dcbz_l in unusal region"
 
             zeroMem(addr lockedCache[adr.get and 0x3FE0], 0x20)
 

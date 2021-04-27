@@ -3,8 +3,9 @@ import
     options, strformat, strutils,
     bitops, stew/bitops2, math
 
-proc updateSo*(state: var PpcState) =
-    state.xer.so = state.xer.so or state.xer.ov
+proc updateOv*(state: var PpcState, ov: bool) {.inline.} =
+    state.xer.ov = ov
+    state.xer.so = state.xer.so or ov
 
 proc setCr*[T](state: var PpcState, n: int, a, b: T) =
     var cr = if state.xer.so: 1'u32 else: 0'u32

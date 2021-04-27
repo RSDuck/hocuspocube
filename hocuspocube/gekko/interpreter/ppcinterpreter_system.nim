@@ -1,5 +1,5 @@
 import
-    stew/bitops2, strformat, options,
+    stew/bitops2, strformat,
 
     ../../util/aluhelper,
     ppcinterpreter_aux,
@@ -36,7 +36,7 @@ proc sync*(state) =
 proc rfi*(state) =
     state.msr.exceptionSaved = state.srr1.exceptionSaved
     state.msr.pow = false
-    state.pc = state.srr0 - 4    
+    state.pc = state.srr0 - 4
 
 proc sc*(state) =
     #echo "system call"
@@ -54,7 +54,7 @@ proc twi*(state; to, a, imm: uint32) =
     assert not(to.getBit(1) and r(a) < simm), &"{r(a)} < {simm} {to:X}"
     assert not(to.getBit(0) and r(a) > simm)
 
-proc mcrxr*(state; crfS: uint32) =
+proc mcrxr*(state; crfD: uint32) =
     raiseAssert "instr not implemented mcrxr"
 
 proc mfcr*(state; d: uint32) =
@@ -140,8 +140,9 @@ proc mtmsr*(state; s: uint32) =
     state.msr = Msr(r(s))
 
 proc mcrfs*(state; crfD, crfS: uint32) =
-    state.cr.crf(int crfD, state.fpscr.crf(int crfS))
-    state.fpscr.exceptionBit = state.fpscr.exceptionBit and not(0xF'u32 shl (7-crfS)*4)
+    handleFloatException:
+        state.cr.crf(int crfD, state.fpscr.crf(int crfS))
+        state.fpscr.exceptionBit = state.fpscr.exceptionBit and not(0xF'u32 shl (7-crfS)*4)
 
 proc mtspr*(state; d, spr: uint32) =
     # TODO: a ton of validation/masking misses here!
@@ -215,7 +216,7 @@ proc mtspr*(state; d, spr: uint32) =
 
         of 1009: state.hid1 = Hid1 r(d)
         of 912..919: state.gqr[n - 912] = Gqr r(d)
-        of 920: state.hid2 = Hid2 r(d)
+        of 920: state.hid2.mutable = r(d)
         of 921:
             state.gatherpipeOffset = 0
             state.wpar.gbAddr = r(d)
@@ -237,7 +238,7 @@ proc mtspr*(state; d, spr: uint32) =
                             128'u32
                         else:
                             state.dmaL.lenLo or (state.dmaU.lenHi shl 2)
-                    echo &"dma {state.dmaL.load} lc: {state.dmaL.lcAdr:08X} mem: {state.dmaU.memAdr:08X} {cacheLines} lines"
+                    echo &"dma {state.dmaL.load} lc: {state.dmaL.lcAdr:08X} mem: {state.dmaU.memAdr:08X} {cacheLines} lines {gekkoState.pc:08X} {gekkoState.lr:08X}"
 
                     # we currently don't check if lcAdr is really in locked cache
                     # bad!

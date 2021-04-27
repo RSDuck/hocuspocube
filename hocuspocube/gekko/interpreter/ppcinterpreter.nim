@@ -50,7 +50,7 @@ proc handleExceptions() =
 proc stateStr(): string =
     for i in 0..<32:
         result &= &"r{i}: {gekkoState.r[i]:08X}\n"
-    result &= &"lr: {gekkoState.pc:08X}\n"
+    result &= &"lr: {gekkoState.lr:08X}\n"
     result &= &"pc: {gekkoState.pc:08X}\n"
 
 var nextPrintTimestamp = 0

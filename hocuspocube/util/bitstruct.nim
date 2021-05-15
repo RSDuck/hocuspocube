@@ -1,5 +1,5 @@
 import
-    macros, bitops, tables
+    macros, bitops, tables, typetraits
 
 proc exportifyIdent(node: NimNode, `export`: bool): NimNode =
     if `export`:
@@ -101,3 +101,9 @@ macro makeBitStruct*(baseTyp: typedesc, name, body: untyped): untyped =
                 `baseTyp`(struct) and cast[`baseTyp`](`mask`)
             proc `setterName`(struct: var `name`, newVal: `baseTyp`) {.inline, used.} =
                 struct = `name`((`baseTyp`(struct) and cast[`baseTyp`](`invMask`)) or (newVal and cast[`baseTyp`](`mask`))))
+
+
+template getFieldMask*[T](field: untyped): untyped =
+    var x: T
+    x.field = true
+    x.distinctBase

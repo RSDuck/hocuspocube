@@ -1,2 +1,3 @@
 --gc:arc
+--exceptions:goto
 --d:swapBytesBuiltin

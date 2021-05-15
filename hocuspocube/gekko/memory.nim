@@ -1,4 +1,5 @@
 import
+    options,
     strformat, strutils,
     stew/endians2,
 
@@ -81,13 +82,14 @@ proc flushGatherPipe(state: var PpcState) =
         # move the remaining state back to the beginning
         copyMem(addr state.gatherpipe[0], addr state.gatherpipe[initialOffset - state.gatherPipeOffset], state.gatherPipeOffset)
 
-proc writeMemory*[T](state: var PpcState, adr: uint32, val: T) {.inline.} =
+proc writeMemory*[T](state: var PpcState, adr: uint32, val: T) =
     # according to the manual gather pipe writes where the offset within the cache line
     # is not zeroe produce incorrect results
     # though for easier implementation of pair load/store we do it this way for now
     # it would probably be more correct to implement them via a 64-bit load/store
     if unlikely((adr and not(0x1F'u32)) == state.wpar.gbAddr and state.hid2.wpe):
-        #echo &"writing to gather pipe {toHex(fromBE val)} {sizeof(T)} {state.pc:08X} {state.lr:08X}"
+        #let valstr = toHex(fromBE val)
+        #echo &"writing to gather pipe {valstr} {sizeof(T)} {state.pc:08X} {state.lr:08X}"
         copyMem(addr state.gatherpipe[state.gatherpipeOffset], unsafeAddr val, sizeof(T))
         state.gatherpipeOffset += uint32 sizeof(T)
         if state.gatherpipeOffset >= 32'u32:
@@ -98,7 +100,7 @@ proc writeMemory*[T](state: var PpcState, adr: uint32, val: T) {.inline.} =
         writeBus[T](adr, val)
 
 # put processor and cache stuff into these procs:
-proc readMemory*[T](state: var PpcState, adr: uint32): T {.inline.} =
+proc readMemory*[T](state: var PpcState, adr: uint32): T =
     if (adr and 0xFFFFC000'u32) == 0xE0000000'u32:
         cast[ptr T](addr lockedCache[adr and 0x3FFF'u32])[]
     else:
@@ -124,3 +126,31 @@ proc flashInvalidateICache*() =
     for tag in mitems(mainRAMTagging):
         if tag == memoryTagCode:
             tag = memoryTagNone
+
+proc translateBat[T; U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32): Option[uint32] {.inline.} =
+    # TODO check privilege level
+    for i in 0..<4:
+        if (adr and (not(batsHi[i].bl) shl 17)) == batsHi[i].bepi:
+            return some((adr and not(not(batsHi[i].bl) shl 17)) or batsLo[i].brpn)
+    echo &"failed to translate addr {adr:X}"
+    none(uint32)
+
+proc translateDataAddr*(state: PpcState, adr: uint32): Option[uint32] {.inline.} =
+    if state.msr.dr:
+        # TODO: page translation
+        translateBat(state.dbatLo, state.dbatHi, adr)
+    else:
+        some(adr)
+
+proc translateInstrAddr*(state: PpcState, adr: uint32): Option[uint32] {.inline.} =
+    if state.msr.ir:
+        # TODO: page translation
+        translateBat(state.ibatLo, state.ibatHi, adr)
+    else:
+        some(adr)
+
+proc jitReadMemory*[T](state: var PpcState, adr: uint32): T {.cdecl.} =
+    fromBE state.readMemory[:T](state.translateDataAddr(adr).get)
+
+proc jitWriteMemory*[T](state: var PpcState, adr: uint32, val: T) {.cdecl.} =
+    state.writeMemory[:T](state.translateDataAddr(adr).get, toBE val)

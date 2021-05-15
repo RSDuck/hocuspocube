@@ -20,7 +20,7 @@ setupDspRom cfg.getSectionValue("General", "DSPIROMPath"), cfg.getSectionValue("
 configureSiDevice 0, makeGcController()
 
 echo "starting file ", paramStr(1)
-#loadDol(newFileStream(paramStr(1)))
-loadDvd(paramStr(1))
-boot()
+loadDol(newFileStream(paramStr(1)))
+#loadDvd(paramStr(1))
+#boot()
 run()

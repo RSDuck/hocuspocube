@@ -5,7 +5,7 @@ import
     ppcinterpreter_aux,
     ../ppcstate,
 
-    ../../cycletiming, ../memory,
+    ../../cycletiming, ../memory, ../ppccommon,
     ../gekko # kind of stupid breaks loose coupling a bit
 
 using state: var PpcState
@@ -63,14 +63,6 @@ proc mfcr*(state; d: uint32) =
 proc mfmsr*(state; d: uint32) =
     r(d) = uint32(state.msr)
 
-proc decodeSplitSpr(spr: uint32): uint32 =
-    ((spr and 0x1F) shl 5) or (spr shr 5)
-
-proc getDecrementer(state): uint32 =
-    let cyclesPassed = uint32((gekkoTimestamp - state.decInitTimestamp) div gekkoCyclesPerTbCycle)
-    # the decrementer go negative
-    state.decInit - cyclesPassed
-
 proc mfspr*(state; d, spr: uint32) =
     let n = decodeSplitSpr spr
 
@@ -78,6 +70,10 @@ proc mfspr*(state; d, spr: uint32) =
         of 1: uint32(state.xer)
         of 8: uint32(state.lr)
         of 9: uint32(state.ctr)
+        of 937..938: uint32(state.pmc[n - 937])
+        of 941..942: uint32(state.pmc[n - 941 + 2])
+        of 936: uint32(state.mmcr0) # UMMCR0
+        of 940: uint32(state.mmcr1) # UMMCR1
         else:
             doAssert not state.msr.pr, "unprivileged spr access"
             case n
@@ -97,9 +93,9 @@ proc mfspr*(state; d, spr: uint32) =
             of 536..543:
                 let n = n - 536
                 if (n and 1) == 0:
-                    uint32 state.ibatHi[n shr 1]
+                    uint32 state.dbatHi[n shr 1]
                 else:
-                    uint32 state.ibatLo[n shr 1]
+                    uint32 state.dbatLo[n shr 1]
             of 1008: uint32(state.hid0)
             of 1009: uint32(state.hid1)
             of 912..919: uint32(state.gqr[n - 912])
@@ -109,18 +105,11 @@ proc mfspr*(state; d, spr: uint32) =
             of 923: uint32(state.dmaL)
             of 1017: uint32(state.l2cr)
             of 952: uint32(state.mmcr0)
-            of 936: uint32(state.mmcr0) # UMMCR0
             of 956: uint32(state.mmcr1)
-            of 940: uint32(state.mmcr1) # MMCR1
             of 953..954: uint32(state.pmc[n - 953])
-            of 937..938: uint32(state.pmc[n - 937])
-            of 957..958: uint32(state.pmc[n - 957])
-            of 941..942: uint32(state.pmc[n - 941])
+            of 957..958: uint32(state.pmc[n - 957 + 2])
             else:
                 raiseAssert &"unknown spr register {n}"
-
-proc currentTb(state): uint64 =
-    uint64((gekkoTimestamp - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
 
 proc mftb*(state; d, tpr: uint32) =
     let n = decodeSplitSpr(tpr)
@@ -158,30 +147,7 @@ proc mtspr*(state; d, spr: uint32) =
         case n
         of 18: state.dsisr = r(d)
         of 19: state.dar = r(d)
-        of 22:
-            let topBitChanged = r(d).getBit(31) and not(state.getDecrementer().getBit(31))
-
-            if state.decDoneEvent != InvalidEventToken:
-                cancelEvent state.decDoneEvent
-
-            state.decInit = r(d)
-            state.decInitTimestamp = gekkoTimestamp
-
-            let
-                cyclesUntilZeroToOne = gekkoCyclesPerTbCycle *
-                    (if state.decInit.getBit(31):
-                        int64(state.decInit) + 0xFFFFFFFF'i64 # I doubt this will ever happen
-                    else:
-                        int64(state.decInit))
-
-            echo &"setup up decrementer {state.decInit} {state.decInitTimestamp} | {cyclesUntilZeroToOne} | {state.pc:08X}"
-            state.decDoneEvent = scheduleEvent(state.decInitTimestamp + cyclesUntilZeroToOne, 0,
-                proc(timestamp: int64) =
-                    echo &"decrementer done {gekkoState.decInit} {gekkoState.decInitTimestamp} {gekkoState.getDecrementer()}"
-                    gekkoState.pendingExceptions.incl exceptionDecrementer)
-            if topBitChanged:
-                echo "decrementer interrupt by manually changing top bit"
-                state.pendingExceptions.incl exceptionDecrementer
+        of 22: state.setupDecrementer(r(d))
         of 26: state.srr0 = r(d) and not(0x3'u32)
         of 27: state.srr1 = Srr1 r(d)
         of 272..275: state.sprg[n - 272] = r(d)
@@ -252,7 +218,7 @@ proc mtspr*(state; d, spr: uint32) =
         of 952: state.mmcr0 = Mmcr0 r(d)
         of 956: state.mmcr1 = Mmcr1 r(d)
         of 953..954: state.pmc[n - 953] = Pmc r(d)
-        of 957..958: state.pmc[n - 957] = Pmc r(d)
+        of 957..958: state.pmc[n - 957 + 2] = Pmc r(d)
         else:
             raiseAssert &"unknown spr register {n}"
 

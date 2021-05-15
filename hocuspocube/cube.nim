@@ -1,6 +1,7 @@
 import
     streams, strformat,
     gekko/[interpreter/ppcinterpreter, gekko, ppcstate],
+    gekko/jit/ppcfrontend,
     dsp/interpreter/dspinterpreter,
     flipper/[rasterinterface, cp],
     util/dolfile,
@@ -28,7 +29,7 @@ proc run*() =
     rasterinterface.init()
     while true:
         gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
-        ppcinterpreter.gekkoRun gekkoTimestamp, gekkoTarget
+        ppcfrontend.gekkoRun gekkoTimestamp, gekkoTarget
         dspRun dspTimestamp, gekkoTimestamp
 
         cpRun()

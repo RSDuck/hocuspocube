@@ -1,5 +1,5 @@
 import
-    ../ppcstate, ppcinterpreter_aux,
+    ../ppcstate, ppcinterpreter_aux, ../ppccommon,
 
     math
 

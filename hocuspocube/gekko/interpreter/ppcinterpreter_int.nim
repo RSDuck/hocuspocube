@@ -1,5 +1,6 @@
 import
-    ../ppcstate, ../../util/aluhelper,
+    ../../util/aluhelper,
+    ../ppcstate, ../ppccommon,
     ppcinterpreter_aux,
     bitops, stew/bitops2
 
@@ -257,16 +258,10 @@ proc xori*(state; s, a, imm: uint32) =
 proc xoris*(state; s, a, imm: uint32) =
     r(a) = r(s) xor (imm shl 16'u32)
 
-proc mask(mb, me: uint32): uint32 =
-    if mb > me:
-        result = not toMask[uint32](int(31-mb+1)..int(31-me-1))
-    else:
-        result = toMask[uint32](int(31-me)..int(31-mb))
-
 proc rlwimix*(state; s, a, sh, mb, me, rc: uint32) =
     let
         r = rotateLeftBits(r(s), sh)
-        m = mask(mb, me)
+        m = ppcmask(mb, me)
 
     r(a) = (r and m) or (r(a) and not(m))
 
@@ -275,7 +270,7 @@ proc rlwimix*(state; s, a, sh, mb, me, rc: uint32) =
 proc rlwinmx*(state; s, a, sh, mb, me, rc: uint32) =
     let
         r = rotateLeftBits(r(s), sh)
-        m = mask(mb, me)
+        m = ppcmask(mb, me)
     
     r(a) = r and m
 
@@ -284,7 +279,7 @@ proc rlwinmx*(state; s, a, sh, mb, me, rc: uint32) =
 proc rlwnmx*(state; s, a, b, mb, me, rc: uint32) =
     let
         r = rotateLeftBits(r(s), r(b) and 0x1F'u32)
-        m = mask(mb, me)
+        m = ppcmask(mb, me)
 
     r(a) = r and m
 

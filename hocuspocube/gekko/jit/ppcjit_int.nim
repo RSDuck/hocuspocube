@@ -7,13 +7,16 @@ import
 using builder: var IrBlockBuilder[PpcIrRegState]
 
 proc setCr(builder; signed: bool, cond: uint32, a, b: IrInstrRef) =
-    if signed:
-        discard builder.storectx(irInstrStoreCrBit, cond*4+0, builder.biop(irInstrCmpLessSI, a, b))
-        discard builder.storectx(irInstrStoreCrBit, cond*4+1, builder.biop(irInstrCmpGreaterSI, a, b))
-    else:
-        discard builder.storectx(irInstrStoreCrBit, cond*4+0, builder.biop(irInstrCmpLessUI, a, b))
-        discard builder.storectx(irInstrStoreCrBit, cond*4+1, builder.biop(irInstrCmpGreaterUI, a, b))
-    discard builder.storectx(irInstrStoreCrBit, cond*4+2, builder.biop(irInstrCmpEqualI, a, b))
+    let
+        (lt, gt) =
+            if signed:
+                (builder.biop(irInstrCmpLessSI, a, b), builder.biop(irInstrCmpGreaterSI, a, b))
+            else:
+                (builder.biop(irInstrCmpLessUI, a, b), builder.biop(irInstrCmpGreaterUI, a, b))
+        eq = builder.biop(irInstrCmpEqualI, a, b)
+    discard builder.storectx(irInstrStoreCrBit, cond*4+0, lt)
+    discard builder.storectx(irInstrStoreCrBit, cond*4+1, gt)
+    discard builder.storectx(irInstrStoreCrBit, cond*4+2, eq)
     discard builder.storectx(irInstrStoreCrBit, cond*4+3, builder.loadctx(irInstrLoadXer, irXerNumSo.uint32))
 
 proc handleRc(builder; val: IrInstrRef, rc: uint32) =
@@ -23,7 +26,8 @@ proc handleRc(builder; val: IrInstrRef, rc: uint32) =
 template updateOv(builder; val: IrInstrRef, oe: uint32) =
     if oe != 0:
         discard builder.storectx(irInstrStoreXer, irXerNumOv.uint32, val)
-        discard builder.storectx(irInstrStoreXer, irXerNumSo.uint32, builder.biop(irInstrCondOr, builder.loadctx(irInstrLoadXer, irXerNumSo.uint32), val))
+        discard builder.storectx(irInstrStoreXer, irXerNumSo.uint32,
+            builder.biop(irInstrCondOr, builder.loadctx(irInstrLoadXer, irXerNumSo.uint32), val))
 
 proc addx*(builder; d, a, b, oe, rc: uint32) =
     let

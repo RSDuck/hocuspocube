@@ -34,6 +34,11 @@ type
         freeRegs: HostRegSet
         freeSpillLocs: set[0..maxSpill-1]
 
+    FlagState = enum
+        flagStateUnknown
+        flagStateCmpZero
+        flagStateCmpVal
+
 proc toReg(num: int32): Register32 =
     registersToUse[num]
 
@@ -43,8 +48,6 @@ proc getSpillLoc(num: int32): Rm32 =
 proc allocHostReg(regalloc: var RegAlloc, s: var AssemblerX64, lockedRegs: HostRegSet): int32 =
     if regalloc.freeRegs == {}:
         # spill a register
-        assert regalloc.freeSpillLocs != {}, "no spill locations left"
-
         # first try to spill an immediate as those are faster to restore
         for i in 0..<regalloc.activeRegs.len:
             if regalloc.activeRegs[i].location == regLocHostGprRegImm and
@@ -56,6 +59,8 @@ proc allocHostReg(regalloc: var RegAlloc, s: var AssemblerX64, lockedRegs: HostR
         for i in 0..<regalloc.activeRegs.len:
             if regalloc.activeRegs[i].location == regLocHostGprReg and
                 regalloc.activeRegs[i].idx notin lockedRegs:
+
+                assert regalloc.freeSpillLocs != {}, "no spill locations left"
 
                 let reg = regalloc.activeRegs[i].idx
                 regalloc.activeRegs[i].location = regLocHostSpill
@@ -79,11 +84,13 @@ proc prepareHostRead(regalloc: var RegAlloc, s: var AssemblerX64,
             else:
                 let targetReg = allocHostReg(regalloc, s, lockedRegs)
                 s.mov(targetReg.toReg, getSpillLoc(reg.idx))
+                reg.location = regLocHostGprReg
                 reg.idx = targetReg
                 return int32(i)
 
     if (let instr = blk.getInstr(iref); instr.kind in LoadImmInstrs):
         let targetReg = allocHostReg(regalloc, s, lockedRegs)
+
 
         if instr.kind == irInstrLoadImmB:
             s.mov(reg(targetReg.toReg()), int32(instr.immValB))
@@ -93,7 +100,7 @@ proc prepareHostRead(regalloc: var RegAlloc, s: var AssemblerX64,
         regalloc.activeRegs.add(ActiveReg(location: regLocHostGprRegImm, val: iref, idx: targetReg))
         return int32(regalloc.activeRegs.len-1)
 
-    raiseAssert(&"register was never instantiated {regalloc.activeRegs}")
+    raiseAssert(&"register was never instantiated {iref} {regalloc.activeRegs}")
 
 proc allocOpW0R1(regalloc: var RegAlloc, s: var AssemblerX64,
     src: IrInstrRef,
@@ -125,6 +132,7 @@ proc allocOpW1R1(regalloc: var RegAlloc, s: var AssemblerX64,
     let srcLoc = prepareHostRead(regalloc, s, src, blk, {})
     if blk.getInstr(src).lastRead == instrIdx:
         # recycle register
+        regalloc.activeRegs[srcLoc].location = regLocHostGprReg
         regalloc.activeRegs[srcLoc].val = dst
         (regalloc.activeRegs[srcLoc].idx, regalloc.activeRegs[srcLoc].idx)
     else:
@@ -141,9 +149,11 @@ proc allocOpW1R2(regalloc: var RegAlloc, s: var AssemblerX64,
         src1Loc = prepareHostRead(regalloc, s, src1, blk, {HostRegRange(regalloc.activeRegs[src0Loc].idx)})
     if blk.getInstr(src0).lastRead == instrIdx:
         # recycle register
+        regalloc.activeRegs[src0Loc].location = regLocHostGprReg
         regalloc.activeRegs[src0Loc].val = dst
         (regalloc.activeRegs[src0Loc].idx, regalloc.activeRegs[src0Loc].idx, regalloc.activeRegs[src1Loc].idx)
     elif commutative and blk.getInstr(src1).lastRead == instrIdx:
+        regalloc.activeRegs[src1Loc].location = regLocHostGprReg
         regalloc.activeRegs[src1Loc].val = dst
         (regalloc.activeRegs[src1Loc].idx, regalloc.activeRegs[src1Loc].idx, regalloc.activeRegs[src0Loc].idx)
     else:
@@ -156,14 +166,15 @@ proc allocOpW1R3(regalloc: var RegAlloc, s: var AssemblerX64,
     blk: IrBasicBlock,
     commutative = false): (int32, int32, int32, int32) =
     (result[0], result[1], result[2]) = regalloc.allocOpW1R2(s, dst, src0, src1, instrIdx, blk, commutative)
-    result[3] = prepareHostRead(regalloc, s, src2, blk, {HostRegRange(result[0]), HostRegRange(result[1]), HostRegRange(result[2])})
+    result[3] = regalloc.activeRegs[prepareHostRead(regalloc, s, src2, blk, {HostRegRange(result[0]), HostRegRange(result[1]), HostRegRange(result[2])})].idx
 
 
 proc freeExpiredRegs(regalloc: var RegAlloc, blk: IrBasicBlock, pos: int) =
     var i = 0
     while i < regalloc.activeRegs.len:
         if blk.getInstr(regalloc.activeRegs[i].val).lastRead == pos:
-            regalloc.freeRegs.incl regalloc.activeRegs[i].idx
+            if regalloc.activeRegs[i].location in {regLocHostGprReg, regLocHostGprRegImm}:
+                regalloc.freeRegs.incl regalloc.activeRegs[i].idx
             regalloc.activeRegs.del i
         else:
             i += 1
@@ -217,7 +228,20 @@ var printcmp* = false
 proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
     template s: untyped = assembler
 
-    var regalloc = initRegAlloc()
+    var
+        regalloc = initRegAlloc()
+        flagstate = flagStateUnknown
+        flagstateL, flagstateR: IrInstrRef
+
+    template setFlagUnk(): untyped =
+        flagstate = flagStateUnknown
+    template setFlagCmpZero(val: IrInstrRef): untyped =
+        flagstate = flagStateCmpZero
+        flagstateL = val
+    template setFlagCmp(a, b: IrInstrRef): untyped =
+        flagstate = flagStateCmpVal
+        flagstateL = a
+        flagstateR = b
 
     result = s.getFuncStart[:BlockEntryFunc]()
 
@@ -239,6 +263,8 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             instr = blk.getInstr(iref)
 
         case instr.kind
+        of irInstrIdentity:
+            raiseAssert("should have been lowered")
         of irInstrLoadImmI:
             discard
         of irInstrLoadImmB:
@@ -260,6 +286,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             s.test(mem32(rcpu, int32 offsetof(PpcState, cr)), cast[int32](1'u32 shl (31'u32-instr.ctxLoadIdx)))
             s.setcc(reg(Register8(dst.toReg.ord)), condNotZero)
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrStoreCrBit:
             let src = regalloc.allocOpW0R1(s, instr.ctxStoreSrc, blk)
             s.mov(regEax, mem32(rcpu, int32 offsetof(PpcState, cr)))
@@ -268,6 +295,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             s.sshl(reg(regEcx), int8(31'u32-instr.ctxStoreIdx))
             s.oor(reg(regEax), regEcx)
             s.mov(mem32(rcpu, int32 offsetof(PpcState, cr)), regEax)
+            setFlagUnk()
         of irInstrLoadXer:
             let
                 dst = regalloc.allocOpW1R0(s, iref, blk)
@@ -278,6 +306,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             s.test(mem32(rcpu, int32 offsetof(PpcState, xer)), cast[int32](1'u32 shl bitidx))
             s.setcc(reg(Register8(dst.toReg.ord)), condNotZero)
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrStoreXer:
             let
                 src = regalloc.allocOpW0R1(s, instr.ctxStoreSrc, blk)
@@ -291,6 +320,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             s.sshl(reg(regEcx), int8 bitidx)
             s.oor(reg(regEax), regEcx)
             s.mov(mem32(rcpu, int32 offsetof(PpcState, xer)), regEax)
+            setFlagUnk()
         of irInstrLoadSpr:
             let dst = regalloc.allocOpW1R0(s, iref, blk)
             if IrSprNum(instr.ctxLoadIdx) in {irSprNumTbL, irSprNumTbU}:
@@ -306,6 +336,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             else:
                 let offset = getSprOffset(instr.ctxLoadIdx)
                 s.mov(dst.toReg, mem32(rcpu, int32(offset)))
+            setFlagUnk()
         of irInstrStoreSpr:
             if IrSprNum(instr.ctxStoreIdx) in {irSprNumTbL, irSprNumTbU}:
                 raiseAssert("to be implemented")
@@ -320,11 +351,13 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                 else:
                     let src = regalloc.allocOpW0R1(s, instr.ctxStoreSrc, blk)
                     s.mov(mem32(rcpu, int32(offset)), src.toReg)
+            setFlagUnk()
         of irInstrCsel:
             let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), int32(i), blk)
             if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
             s.test(reg(src2.toReg), src2.toReg)
             s.cmov(dst.toReg, reg(src1.toReg), condZero)
+            setFlagUnk()
         of irInstrIAdd, irInstrBitAnd, irInstrBitOr, irInstrBitXor, irInstrMul:
             if (let imm = blk.isEitherImmI(instr.source(0), instr.source(1)); imm.isSome):
                 let (dst, src) = regalloc.allocOpW1R1(s, iref, imm.get[0], int32(i), blk)
@@ -356,6 +389,11 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                     of irInstrBitXor: s.xxor(reg(dst.toReg), src1.toReg)
                     of irInstrMul: s.imul(dst.toReg, reg(src1.toReg))
                     else: raiseAssert("shouldn't happen")
+
+            if instr.kind in {irInstrBitAnd, irInstrBitOr, irInstrBitXor}:
+                setFlagCmpZero(iref)
+            else:
+                setFlagUnk()
         of irInstrISub:
             if (let imm = blk.isImmValI(instr.source(1)); imm.isSome):
                 let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
@@ -365,17 +403,21 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                 let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), int32(i), blk)
                 if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
                 s.sub(reg(dst.toReg), src1.toReg)
+            setFlagUnk()
         of irInstrIAddExtended:
             let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), int32(i), blk)
+            assert src2 < 7, &"blah {regalloc}"
             s.bt(reg(src2.toReg), 0)
             if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
             s.adc(reg(dst.toReg), src1.toReg)
+            setFlagUnk()
         of irInstrISubExtended:
             let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), int32(i), blk)
             s.bt(reg(src2.toReg), 0)
             s.cmc()
             if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
             s.sbb(reg(dst.toReg), src1.toReg)
+            setFlagUnk()
         of irInstrMulhS, irInstrMulhU, irInstrDivS, irInstrDivU:
             let
                 isDivide = instr.kind in {irInstrDivS, irInstrDivU}
@@ -389,10 +431,12 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             of irInstrDivU: s.ddiv(reg(src1.toReg))
             else: raiseAssert("shouldn't happen")
             s.mov(reg(dst.toReg), if isDivide: regEax else: regEdx)
+            setFlagUnk()
         of irInstrBitNot:
             let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
             if dst != src: s.mov(reg(dst.toReg), src.toReg)
             s.nnot(reg(dst.toReg))
+            setFlagCmpZero(iref)
         of irInstrRol, irInstrShl, irInstrShrLogic, irInstrShrArith:
             if (let immShift = blk.isImmValI(instr.source(1)); immShift.isSome() and immShift.get <= 31):
                 let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
@@ -415,12 +459,14 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                     s.sar(reg(Register64(dst.toReg.ord)))
                 of irInstrRol: s.rol(reg(dst.toReg))
                 else: raiseAssert("shouldn't happen")
+            setFlagUnk()
         of irInstrClz:
             let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
             s.bsr(regEax, reg(src.toReg))
             s.mov(reg(dst.toReg), 32 xor 0x1F)
             s.cmov(dst.toReg, reg(regEax), condNotZero)
             s.xxor(reg(dst.toReg), 0x1F)
+            setFlagUnk()
         of irInstrExtsb, irInstrExtsh:
             let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
             case instr.kind
@@ -442,10 +488,12 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                 of irInstrCondOr: s.oor(reg(dst.toReg), src1.toReg)
                 of irInstrCondXor: s.xxor(reg(dst.toReg), src1.toReg)
                 else: raiseAssert("welp")
+            setFlagUnk()
         of irInstrCondNot:
             let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
             if dst != src: s.mov(reg(dst.toReg), src.toReg)
             s.xxor(reg(dst.toReg), 1)
+            setFlagUnk()
         of irInstrOverflowAdd:
             raiseAssert("unimplemented code gen")
         of irInstrOverflowSub:
@@ -456,11 +504,13 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             s.add(reg(regEax), src1.toReg)
             s.setcc(reg(Register8(dst.toReg.ord)), condBelow)
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrCarrySub:
             let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), int32(i), blk)
             s.cmp(reg(src0.toReg), src1.toReg)
             s.setcc(reg(Register8(dst.toReg.ord)), condNotBelow)
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrOverflowAddExtended:
             raiseAssert("unimplemented code gen")
         of irInstrOverflowSubExtended:
@@ -480,15 +530,28 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
             s.sbb(reg(regEax), src1.toReg)
             s.setcc(reg(Register8(dst.toReg.ord)), condNotBelow)
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrCmpEqualI, irInstrCmpGreaterUI, irInstrCmpLessUI, irInstrCmpGreaterSI, irInstrCmpLessSI:
-            let dst = (if (let imm = blk.isImmValI(instr.source(1)); imm.isSome):
-                    let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
-                    s.cmp(reg(src.toReg), cast[int32](imm.get))
-                    dst
+            let dst = 
+                (if flagstate == flagStateCmpVal and
+                        flagstateL == instr.source(0) and flagstateR == instr.source(1):
+                    regalloc.allocOpW1R0(s, iref, blk)
+                elif (let imm = blk.isImmValI(instr.source(1)); imm.isSome):
+                    if imm.get == 0 and flagstate == flagStateCmpZero and flagstateL == instr.source(0):
+                        regalloc.allocOpW1R0(s, iref, blk)
+                    else:
+                        let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), int32(i), blk)
+                        s.cmp(reg(src.toReg), cast[int32](imm.get))
+                        if imm.get == 0:
+                            setFlagCmpZero(instr.source(0))
+                        else:
+                            setFlagCmp(instr.source(0), instr.source(1))
+                        dst
                 else:
                     let (dst, src0, src1) =
                         regalloc.allocOpW1R2(assembler, iref, instr.source(0), instr.source(1), int32(i), blk)
                     s.cmp(reg(src0.toReg), src1.toReg)
+                    setFlagCmp(instr.source(0), instr.source(1))
                     dst)
             s.setcc(reg(Register8(dst.toReg.ord)),
                 case instr.kind
@@ -518,6 +581,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                 s.movzx(dst.toReg, reg(regAl))
             else:
                 raiseAssert("welp")
+            setFlagUnk()
         of irInstrStore8, irInstrStore16, irInstrStore32:
             let (adr, val) = regalloc.allocOpW0R2(s, instr.source(0), instr.source(1), blk)
             s.mov(reg(param1), rcpu)
@@ -533,6 +597,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                 s.movzx(Register32(param3.ord), reg(Register8(val.toReg.ord)))
                 s.call(jitWriteMemory[uint8])
             else: raiseAssert("welp")
+            setFlagUnk()
         of irInstrBranch:
             #assert blk.isImmVal(instr.source(0), false), "should have been lowered before"
             if blk.isImmVal(instr.source(0), true):
@@ -549,14 +614,14 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
                 s.cmov(regEax, reg(regEcx), condNotZero)
 
                 s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), regEax)
+            setFlagUnk()
         of irInstrSyscall:
             s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), cast[int32](blk.isImmValI(instr.source(0)).get))
             s.mov(reg(param1), rcpu)
             s.call(systemCall)
+            setFlagUnk()
 
         regalloc.freeExpiredRegs(blk, i)
-
-        assert regalloc.freeRegs.len == registersToUse.len-regalloc.activeRegs.len, &"{regalloc}"
 
     s.mov(reg(regEax), cycles)
 
@@ -572,7 +637,3 @@ proc genCode*(blk: IrBasicBlock, cycles: int32): BlockEntryFunc =
     s.ret()
 
     assert s.offset < sizeof(codeMemory)
-
-    let resultFile = newFileStream("block.bin", fmWrite)
-    resultFile.writeData(result, cast[ByteAddress](s.curAdr) - cast[ByteAddress](result))
-    resultFile.close()

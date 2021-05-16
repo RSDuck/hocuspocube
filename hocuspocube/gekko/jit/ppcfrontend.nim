@@ -42,10 +42,13 @@ proc compileBlock(): BlockEntryFunc =
             discard builder.triop(irInstrBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
+    #echo "preopt: \n", builder.blk
+
     builder.blk.ctxLoadStoreEliminiate()
     builder.blk.removeIdentities()
-    builder.blk.calcLiveIntervals()
+    builder.blk.foldConstants()
     builder.blk.removeIdentities()
+    builder.blk.calcLiveIntervals()
 
     #echo "made block: \n", builder.blk
 

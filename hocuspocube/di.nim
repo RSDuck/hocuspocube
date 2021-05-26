@@ -100,39 +100,47 @@ proc setError(code: uint32) =
 proc processCmd() =
     case diCmdBuf[0]
     of CmdReadSector:
-        let
-            offset = diCmdBuf[1] shl 2
-            len = diCmdBuf[2]
-        diLog &"read sector {offset} {len} to {diMar.adr:08X} {diLen.adr}"
+        if discFile == nil:
+            curDriveState = driveStateNoDisc
+            setError(ErrorCodeNoDisc)
+        else:
+            let
+                offset = diCmdBuf[1] shl 2
+                len = diCmdBuf[2]
+            diLog &"read sector {offset} {len} to {diMar.adr:08X} {diLen.adr}"
 
-        assert diLen.adr == len
+            assert diLen.adr == len
 
-        discFile.setPosition(int(offset))
+            discFile.setPosition(int(offset))
 
-        #if diMar.adr < uint32(mainRAM.len):
-        let bytesRead = discFile.readData(addr mainRAM[diMar.adr], int(len))
-        assert uint32(bytesRead) == len
-        #else:
-        #    echo "skipped weird disc access"
+            #if diMar.adr < uint32(mainRAM.len):
+            let bytesRead = discFile.readData(addr mainRAM[diMar.adr], int(len))
+            assert uint32(bytesRead) == len
+            #else:
+            #    echo "skipped weird disc access"
 
-        diLen.adr = 0
+            diLen.adr = 0
 
-        transferFinish()
+            transferFinish()
     of CmdReadDiscId:
-        assert diCr.dma
-        assert diLen.adr == 0x20
+        if discFile == nil:
+            curDriveState = driveStateNoDisc
+            setError(ErrorCodeNoDisc)
+        else:
+            assert diCr.dma
+            assert diLen.adr == 0x20
 
-        discFile.setPosition(0)
-        let bytesRead = discFile.readData(addr mainRAM[diMar.adr], 0x20)
-        assert bytesRead == 0x20
+            discFile.setPosition(0)
+            let bytesRead = discFile.readData(addr mainRAM[diMar.adr], 0x20)
+            assert bytesRead == 0x20
 
-        diLog &"di: read disc id to {diMar.adr:08X}"
+            diLog &"di: read disc id to {diMar.adr:08X}"
 
-        diLen.adr = 0
+            diLen.adr = 0
 
-        curDriveState = driveStateOk
+            curDriveState = driveStateOk
 
-        transferFinish()
+            transferFinish()
     of CmdRequestError:
         assert not(diCr.dma)
 

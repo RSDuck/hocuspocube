@@ -1,5 +1,5 @@
 import
-    bitops, strutils, strformat, options
+    bitops, strutils, strformat, options, algorithm
 
 type
     IrInstrKind* = enum
@@ -16,6 +16,10 @@ type
         irInstrStoreXer = "strxer"
         irInstrLoadSpr = "ldrspr"
         irInstrStoreSpr = "strspr"
+        irInstrLoadFpr = "ldrfreg"
+        irInstrStoreFpr = "strfreg"
+        irInstrLoadFprPair = "ldrfregp"
+        irInstrStoreFprPair = "strfregp"
 
         irInstrCsel = "csel"
 
@@ -74,22 +78,82 @@ type
         irInstrLoadU16 = "ldrh"
         irInstrLoadS16 = "ldrsh"
         irInstrLoad32 = "ldr"
+        irInstrLoadFss = "ldrfss"
+        irInstrLoadFsd = "ldrfsd"
+        irInstrLoadFsq = "ldrfsq"
+        irInstrLoadFpq = "ldrfpq"
 
         irInstrStore8 = "strb"
         irInstrStore16 = "strh"
         irInstrStore32 = "str"
+        irInstrStoreFss = "strfss"
+        irInstrStoreFsd = "strfsd"
+        irInstrStoreFsq = "strfsq"
+        irInstrStoreFpq = "strfpq"
 
         irInstrBranch = "b"
 
         irInstrSyscall = "sc"
 
+        irInstrFSwizzleD00 = "swizzlefd00"
+        irInstrFSwizzleD11 = "swizzlefd11"
+
+        irInstrFMergeD = "mergefd"
+
+        irInstrCvtsd2ss = "cvtsd2ss"
+        irInstrCvtss2sd = "cvtss2sd"
+
+        irInstrCvtpd2ps = "cvtpd2ps"
+        irInstrCvtps2pd = "cvtps2pd"
+
+        irInstrCvtsd2intTrunc = "cvtsd2intTrunc"
+
+        irInstrFRessd = "fressd"
+        irInstrFRsqrtsd = "frsqrtsd"
+
+        irInstrFRespd = "frespd"
+        irInstrFRsqrtpd = "frsqrtpd"
+
+        irInstrFNegsd = "fnegsd"
+        irInstrFAbssd = "fnegsd"
+
+        irInstrFNegpd = "fnegsd"
+        irInstrFAbspd = "fnegsd"
+
+        irInstrFAddsd = "faddsd"
+        irInstrFSubsd = "fsubsd"
+        irInstrFMulsd = "fmulsd"
+        irInstrFDivsd = "fdivsd"
+
+        irInstrFAddpd = "faddpd"
+        irInstrFSubpd = "fsubpd"
+        irInstrFMulpd = "fmulpd"
+        irInstrFDivpd = "fdivpd"
+
+        irInstrFMaddsd = "fmaddsd"
+        irInstrFMsubsd = "fmsubsd"
+        irInstrFNmaddsd = "fnmaddsd"
+        irInstrFNmsubsd = "fnmsubsd"
+
+        irInstrFMaddpd = "fmaddpd"
+        irInstrFMsubpd = "fmsubpd"
+        irInstrFNmaddpd = "fnmaddpd"
+        irInstrFNmsubpd = "fnmsubpd"
+
+        irInstrCmpEqualFsd = "cmpfeq"
+        irInstrCmpGreaterFsd = "cmpfgt"
+        irInstrCmpLessFsd = "cmpflt"
+        irInstrCmpUnorderedSd = "cmpfunord"
+
+        irInstrCallInterpreter = "interpreter"
+
 const
     LoadImmInstrs* = {
         irInstrLoadImmI, irInstrLoadImmB}
     CtxLoadInstrs* = {
-        irInstrLoadReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr}
+        irInstrLoadReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr, irInstrLoadFpr, irInstrLoadFprPair}
     CtxStoreInstrs* = {
-        irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr}
+        irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair}
     UnOpInstrs* = {
         irInstrIdentity,
 
@@ -101,8 +165,23 @@ const
         irInstrExtSh,
 
         irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
+        irInstrLoadFss, irInstrLoadFsd,
 
-        irInstrSyscall}
+        irInstrSyscall,
+
+        irInstrFSwizzleD00,
+        irInstrFSwizzleD11,
+
+        irInstrCvtsd2ss, irInstrCvtss2sd,
+        irInstrCvtpd2ps, irInstrCvtps2pd,
+
+        irInstrCvtsd2intTrunc,
+        
+        irInstrFRessd, irInstrFRsqrtsd,
+        irInstrFRespd, irInstrFRsqrtpd,
+
+        irInstrFNegsd, irInstrFAbssd,
+        irInstrFNegpd, irInstrFAbspd}
     BiOpInstrs* = {        
         irInstrIAdd, irInstrISub,
 
@@ -123,21 +202,52 @@ const
 
         irInstrCondAnd, irInstrCondOr, irInstrCondXor,
 
-        irInstrStore8, irInstrStore16, irInstrStore32}
+        irInstrStore8, irInstrStore16, irInstrStore32,
+        irInstrStoreFss, irInstrStoreFsd,
+
+        irInstrLoadFsq, irInstrLoadFpq,
+
+        irInstrFMergeD,
+
+        irInstrFAddsd, irInstrFSubsd, irInstrFMulsd, irInstrFDivsd,
+        irInstrFAddpd, irInstrFSubpd, irInstrFMulpd, irInstrFDivpd,
+
+        irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedsd}
     TriOpInstrs* = {
         irInstrCsel,
         irInstrIAddExtended, irInstrISubExtended,
         irInstrOverflowAddExtended, irInstrOverflowSubExtended,
         irInstrCarryAddExtended, irInstrCarrySubExtended,
 
-        irInstrBranch}
+        irInstrStoreFsq, irInstrStoreFpq,
+
+        irInstrBranch,
+
+        irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
+        irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd}
 
     ResultlessOps* = {
-        irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr,
+        irInstrStoreReg,
+        irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr,
+        irInstrStoreFpr, irInstrStoreFprPair,
         irInstrStore8, irInstrStore16, irInstrStore32,
-        
+        irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
+
         irInstrBranch,
-        irInstrSyscall}
+        irInstrSyscall,
+        
+        irInstrCallInterpreter}
+    SideEffectOps = {
+        irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer,
+        irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
+
+        irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
+        irInstrLoadFss, irInstrLoadFsd, irInstrLoadFsq, irInstrLoadFpq,
+
+        irInstrStore8, irInstrStore16, irInstrStore32,
+        irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
+
+        irInstrBranch, irInstrSyscall, irInstrCallInterpreter}
 
 type
     IrInstrRef* = distinct int32
@@ -148,6 +258,9 @@ type
             immValI*: uint32
         of irInstrLoadImmB:
             immValB*: bool
+        of irInstrCallInterpreter:
+            instr*, pc*: uint32
+            target*: pointer
         of CtxLoadInstrs:
             ctxLoadIdx*: uint32
         of CtxStoreInstrs:
@@ -156,7 +269,7 @@ type
         else:
             srcRegular: array[3, IrInstrRef]
 
-        lastRead*: int32
+        lastRead*, numUses*: int32
 
     IrBasicBlock* = ref object
         instrs*: seq[IrInstrRef]
@@ -212,6 +325,8 @@ type
         irSprNumPmc2
         irSprNumPmc3
 
+        irSprNumWpar
+
         irSprNumGqr0
         irSprNumGqr1
         irSprNumGqr2
@@ -243,13 +358,9 @@ const
 
 proc numSources*(instr: IrInstr): int =
     case instr.kind
-    of LoadImmInstrs:
+    of LoadImmInstrs, CtxLoadInstrs, irInstrCallInterpreter:
         0
-    of CtxLoadInstrs:
-        0
-    of CtxStoreInstrs:
-        1
-    of UnopInstrs:
+    of CtxStoreInstrs, UnopInstrs:
         1
     of BiOpInstrs:
         2
@@ -374,6 +485,11 @@ proc triop*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, a, b, c: IrIns
     else:
         raiseAssert("{kind} is not an unop")
 
+proc interpreter*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
+    let instr = builder.blk.allocInstr()
+    builder.blk.instrs.add instr
+    builder.blk.getInstr(instr) = IrInstr(kind: irInstrCallInterpreter, target: target, instr: instrcode, pc: pc)
+
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)
     instr.kind == irInstrLoadImmB and instr.immValB == imm
@@ -409,7 +525,7 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
     for i in 0..<32:
         regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
         crs[i] = regs[i]
-    
+
     proc doLoad(states: var openArray[RegState], blk: IrBasicBlock, iref: IrInstrRef, regIdx: uint32) =
         if states[regIdx].curVal == InvalidIrInstrRef:
             states[regIdx].curVal = iref
@@ -423,6 +539,10 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
     for i in 0..<blk.instrs.len:
         let instr = blk.getInstr(blk.instrs[i])
         case instr.kind
+        of irInstrCallInterpreter:
+            for i in 0..<32:
+                regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
+                crs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
         of irInstrLoadReg:
             doLoad(regs, blk, blk.instrs[i], instr.ctxLoadIdx)
         of irInstrLoadCrBit:
@@ -456,6 +576,10 @@ proc foldConstants*(blk: IrBasicBlock) =
                 b = blk.isImmValI(instr.source(1))
             if a.isSome and b.isSome:
                 blk.getInstr(iref) = makeImm(a.get + b.get)
+            elif a.isSome and a.get == 0:
+                blk.getInstr(iref) = makeIdentity(instr.source(1))
+            elif b.isSome and b.get == 0:
+                blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrISub:
             if instr.source(0) == instr.source(1):
                 blk.getInstr(iref) = makeImm(0)
@@ -465,6 +589,8 @@ proc foldConstants*(blk: IrBasicBlock) =
                     b = blk.isImmValI(instr.source(1))
                 if a.isSome and b.isSome:
                     blk.getInstr(iref) = makeImm(a.get - b.get)
+                elif b.isSome and b.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrRol, irInstrShl, irInstrShrArith, irInstrShrLogic:
             let b = blk.isImmValI(instr.source(1))
             if b.isSome and (b.get and 0x3F'u32) == 0:
@@ -480,7 +606,7 @@ proc foldConstants*(blk: IrBasicBlock) =
                     of irInstrShrLogic: a.get shr b.get
                     else: raiseAssert("shouldn't happen")
                 blk.getInstr(iref) = makeImm(imm)
-        of irInstrBitOr, irInstrBitAnd:
+        of irInstrBitOr:
             if instr.source(0) == instr.source(1):
                 blk.getInstr(iref) = makeIdentity(instr.source(0))
             else:
@@ -488,12 +614,30 @@ proc foldConstants*(blk: IrBasicBlock) =
                     a = blk.isImmValI(instr.source(0))
                     b = blk.isImmValI(instr.source(1))
                 if a.isSome and b.isSome:
-                    let imm =
-                        case instr.kind
-                        of irInstrBitOr: a.get or b.get
-                        of irInstrBitAnd: a.get and b.get
-                        else: raiseAssert("shouldn't happen")
-                    blk.getInstr(iref) = makeImm(imm)
+                    blk.getInstr(iref) = makeImm(a.get or b.get)
+                elif (a.isSome and a.get == 0xFFFF_FFFF'u32) or
+                    (b.isSome and b.get == 0xFFFF_FFFF'u32):
+                    blk.getInstr(iref) = makeImm(0xFFFF_FFFF'u32)
+                elif a.isSome and a.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif b.isSome and b.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
+        of irInstrBitAnd:
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = makeIdentity(instr.source(0))
+            else:
+                let
+                    a = blk.isImmValI(instr.source(0))
+                    b = blk.isImmValI(instr.source(1))
+                if a.isSome and b.isSome:
+                    blk.getInstr(iref) = makeImm(a.get and b.get)
+                elif (a.isSome and a.get == 0'u32) or
+                    (b.isSome and b.get == 0'u32):
+                    blk.getInstr(iref) = makeImm(0'u32)
+                elif a.isSome and a.get == 0xFFFF_FFFF'u32:
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif b.isSome and b.get == 0xFFFF_FFFF'u32:
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrBitXor:
             if instr.source(0) == instr.source(1):
                 blk.getInstr(iref) = makeImm(0)
@@ -503,6 +647,10 @@ proc foldConstants*(blk: IrBasicBlock) =
                     b = blk.isImmValI(instr.source(1))
                 if a.isSome and b.isSome:
                     blk.getInstr(iref) = makeImm(a.get xor b.get)
+                elif a.isSome and a.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif b.isSome and b.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrBitNot:
             if (let a = blk.isImmValI(instr.source(0)); a.isSome):
                 blk.getInstr(iref) = makeImm(not a.get)
@@ -515,7 +663,7 @@ proc foldConstants*(blk: IrBasicBlock) =
                     b = blk.isImmValB(instr.source(1))
                 if a.isSome and b.isSome:
                     blk.getInstr(iref) = makeImm(a.get xor b.get)
-        of irInstrCondAnd, irInstrCondOr:
+        of irInstrCondOr:
             if instr.source(0) == instr.source(1):
                 blk.getInstr(iref) = makeIdentity(instr.source(0))
             else:
@@ -523,12 +671,28 @@ proc foldConstants*(blk: IrBasicBlock) =
                     a = blk.isImmValB(instr.source(0))
                     b = blk.isImmValB(instr.source(1))
                 if a.isSome and b.isSome:
-                    let imm =
-                        case instr.kind
-                        of irInstrCondAnd: a.get or b.get
-                        of irInstrCondOr: a.get and b.get
-                        else: raiseAssert("shouldn't happen")
-                    blk.getInstr(iref) = makeImm(imm)
+                    blk.getInstr(iref) = makeImm(a.get or b.get)
+                elif (a.isSome and a.get) or (b.isSome and b.get):
+                    blk.getInstr(iref) = makeImm(true)
+                elif (a.isSome and not a.get):
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif (b.isSome and not b.get):
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
+        of irInstrCondAnd:
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = makeIdentity(instr.source(0))
+            else:
+                let
+                    a = blk.isImmValB(instr.source(0))
+                    b = blk.isImmValB(instr.source(1))
+                if a.isSome and b.isSome:
+                    blk.getInstr(iref) = makeImm(a.get and b.get)
+                elif (a.isSome and not a.get) or (b.isSome and not b.get):
+                    blk.getInstr(iref) = makeImm(false)
+                elif (a.isSome and a.get):
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif (b.isSome and b.get):
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrCondNot:
             if (let a = blk.isImmValB(instr.source(0)); a.isSome):
                 blk.getInstr(iref) = makeImm(not a.get)
@@ -551,6 +715,71 @@ proc removeIdentities*(blk: IrBasicBlock) =
         else:
             blk.freeInstrs.add iref
     blk.instrs = newInstrs
+
+proc removeDeadCode*(blk: IrBasicBlock) =
+    # calculate initial uses
+    for i in 0..<blk.instrs.len:
+        let iref = blk.instrs[i]
+        for source in msources blk.getInstr(iref):
+            blk.getInstr(source).numUses += 1
+
+    var newInstrs: seq[IrInstrRef]
+    for i in countdown(blk.instrs.len-1, 0):
+        let
+            iref = blk.instrs[i]
+            instr = blk.getInstr(iref)
+        if instr.numUses == 0 and instr.kind notin SideEffectOps:
+            for source in sources instr:
+                blk.getInstr(source).numUses -= 1
+
+            blk.freeInstrs.add iref
+        else:
+            newInstrs.add iref
+
+    assert newInstrs.len <= blk.instrs.len
+
+    newInstrs.reverse()
+    blk.instrs = newInstrs
+
+proc verify*(blk: IrBasicBlock) =
+    for i in 0..<blk.instrs.len:
+        let
+            iref = blk.instrs[i]
+            instr = blk.getInstr(iref)
+
+        for source in sources instr:
+            assert blk.getInstr(source).kind notin ResultlessOps
+            # that one is slow
+            #assert source in blk.instrs
+
+        if i == blk.instrs.len - 1:
+            assert instr.kind in {irInstrBranch, irInstrSyscall}
+
+proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAdr: uint32): bool =
+    let lastInstr = blk.getInstr(blk.instrs[^1])
+    if lastInstr.kind == irInstrBranch and
+        (let target = blk.isImmValI(lastInstr.source(1));
+        target.isSome and target.get >= startAdr and target.get < endAdr):
+
+        var
+            regsWritten, regsRead: set[0..31]
+        for i in instrIndexes[(target.get - startAdr) div 4]..<blk.instrs.len:
+            let instr = blk.getInstr(blk.instrs[i])
+            case instr.kind
+            of irInstrSyscall, irInstrStore8, irInstrStore16, irInstrStore32,
+                irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
+                irInstrLoadSpr, irInstrStoreSpr:
+                return false
+            of irInstrLoadReg:
+                regsRead.incl instr.ctxLoadIdx
+            of irInstrStoreReg:
+                if instr.ctxStoreIdx in regsRead:
+                    return false
+                regsWritten.incl instr.ctxStoreIdx
+            else: discard
+
+        return true
+    return false
 
 proc calcLiveIntervals*(blk: IrBasicBlock) =
     for i in 0..<blk.instrs.len:

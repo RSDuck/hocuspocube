@@ -257,7 +257,7 @@ type
 
     PpcState* = object
         r*: array[32, uint32]
-        fr*: array[32, PairedSingle]
+        fr* {.align(16).}: array[32, PairedSingle]
 
         cr*: Cr
         xer*: Xer

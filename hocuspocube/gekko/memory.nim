@@ -132,7 +132,7 @@ proc translateBat[T; U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32): 
     for i in 0..<4:
         if (adr and (not(batsHi[i].bl) shl 17)) == batsHi[i].bepi:
             return some((adr and not(not(batsHi[i].bl) shl 17)) or batsLo[i].brpn)
-    echo &"failed to translate addr {adr:X}"
+    echo &"failed to translate addr {adr:X} {gekkoState.pc:08X} {batsLo.repr} {batsHi.repr}"
     none(uint32)
 
 proc translateDataAddr*(state: PpcState, adr: uint32): Option[uint32] {.inline.} =

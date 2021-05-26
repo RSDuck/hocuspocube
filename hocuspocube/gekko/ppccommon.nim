@@ -20,6 +20,14 @@ proc makeFieldMask*(mask: uint32): uint32 =
 proc currentTb*(state: var PpcState): uint64 =
     uint64((gekkoTimestamp - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
 
+proc setTbl*(state: var PpcState, val: uint32) =
+    state.tbInit = (state.currentTb() and not(0xFFFFFFFF'u64)) or val
+    state.tbInitTimestamp = gekkoTimestamp
+
+proc setTbu*(state: var PpcState, val: uint32) =
+    state.tbInit = (state.currentTb() and 0xFFFFFFFF'u64) or (uint64(val) shl 32)
+    state.tbInitTimestamp = gekkoTimestamp
+
 proc getDecrementer*(state: var PpcState): uint32 =
     let cyclesPassed = uint32((gekkoTimestamp - state.decInitTimestamp) div gekkoCyclesPerTbCycle)
     # the decrementer go negative
@@ -41,13 +49,13 @@ proc setupDecrementer*(state: var PpcState, val: uint32) =
             else:
                 int64(state.decInit))
 
-    echo &"setup up decrementer {state.decInit} {state.decInitTimestamp} | {cyclesUntilZeroToOne} | {state.pc:08X}"
+    #echo &"setup up decrementer {state.decInit} {state.decInitTimestamp} | {cyclesUntilZeroToOne} | {state.pc:08X}"
     state.decDoneEvent = scheduleEvent(state.decInitTimestamp + cyclesUntilZeroToOne, 0,
         proc(timestamp: int64) =
-            echo &"decrementer done {gekkoState.decInit} {gekkoState.decInitTimestamp} {gekkoState.getDecrementer()}"
+            #echo &"decrementer done {gekkoState.decInit} {gekkoState.decInitTimestamp} {gekkoState.getDecrementer()}"
             gekkoState.pendingExceptions.incl exceptionDecrementer)
     if topBitChanged:
-        echo "decrementer interrupt by manually changing top bit"
+        #echo "decrementer interrupt by manually changing top bit"
         state.pendingExceptions.incl exceptionDecrementer
 
 proc handleExceptions*() =
@@ -73,11 +81,22 @@ proc handleExceptions*() =
             0x100'u32, 0x1300, 0x400, 0x200, 0x700, 0xC00, 0x800, 0x500, 0xF00, 0x900, 0x600, 0x300, 0xD00]
         let oldPc = gekkoState.pc
         gekkoState.pc = (if gekkoState.msr.ip: 0xFFF00000'u32 else: 0'u32) + exceptionOffsets[exception]
-        echo &"taking interrupt to {gekkoState.pc:08X} from {oldPc:08X} {gekkoState.lr:08X}"
+        #echo &"taking interrupt to {gekkoState.pc:08X} from {oldPc:08X} {gekkoState.lr:08X}"
         break
+
+proc setWpar*(state: var PpcState, val: uint32) =
+    state.gatherpipeOffset = 0
+    state.wpar.gbAddr = val
 
 proc stateStr*(): string =
     for i in 0..<32:
         result &= &"r{i}: {gekkoState.r[i]:08X}\n"
     result &= &"lr: {gekkoState.lr:08X}\n"
     result &= &"pc: {gekkoState.pc:08X}\n"
+
+proc handleFException*(state: var PpcState): uint32 =
+    if unlikely(not state.msr.fp):
+        state.pendingExceptions.incl exceptionNoFloatPoint
+        1
+    else:
+        0

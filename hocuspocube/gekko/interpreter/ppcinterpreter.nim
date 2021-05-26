@@ -10,7 +10,6 @@ import
     ppcinterpreter_loadstore,
     ppcinterpreter_system,
     ppcinterpreter_branch,
-    ppcinterpreter_aux,
 
     ../memory
 

@@ -1,8 +1,8 @@
 import
+    bitops, stew/bitops2,
     ../../util/aluhelper,
     ../ppcstate, ../ppccommon,
-    ppcinterpreter_aux,
-    bitops, stew/bitops2
+    ppcinterpreter_aux
 
 using state: var PpcState
 

@@ -151,12 +151,8 @@ proc mtspr*(state; d, spr: uint32) =
         of 26: state.srr0 = r(d) and not(0x3'u32)
         of 27: state.srr1 = Srr1 r(d)
         of 272..275: state.sprg[n - 272] = r(d)
-        of 284:
-            state.tbInit = (state.currentTb() and not(0xFFFFFFFF'u64)) or r(d)
-            state.tbInitTimestamp = gekkoTimestamp
-        of 285:
-            state.tbInit = (state.currentTb() and 0xFFFFFFFF'u64) or (uint64(r(d)) shl 32)
-            state.tbInitTimestamp = gekkoTimestamp
+        of 284: state.setTbl(r(d))
+        of 285: state.setTbu(r(d))
         of 528..535:
             let n = n - 528
             # TODO: validate ibats
@@ -183,9 +179,7 @@ proc mtspr*(state; d, spr: uint32) =
         of 1009: state.hid1 = Hid1 r(d)
         of 912..919: state.gqr[n - 912] = Gqr r(d)
         of 920: state.hid2.mutable = r(d)
-        of 921:
-            state.gatherpipeOffset = 0
-            state.wpar.gbAddr = r(d)
+        of 921: state.setWpar(r(d))
         of 922:
             state.dmaU = DmaU r(d)
         of 923:

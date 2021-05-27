@@ -168,14 +168,7 @@ proc mtspr*(state; d, spr: uint32) =
             else:
                 state.dbatLo[n shr 1] = BatLo r(d)
         of 1008:
-            state.hid0 = Hid0 r(d)
-            if state.hid0.icfi:
-                state.hid0.icfi = false
-                echo "flash icache"
-                flashInvalidateICache()
-            if state.hid0.dcfi:
-                state.hid0.dcfi = false
-
+            state.setHid0(r(d))
         of 1009: state.hid1 = Hid1 r(d)
         of 912..919: state.gqr[n - 912] = Gqr r(d)
         of 920: state.hid2.mutable = r(d)

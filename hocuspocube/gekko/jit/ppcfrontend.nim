@@ -4,6 +4,7 @@ import
     ../gekko, ../ppcdef, ../ppcstate, ../memory,
     ir, ppcfrontendcommon, ../ppccommon,
     codegenx64,
+    blockcache,
 
     ppcjit_int,
     ppcjit_loadstore,
@@ -11,17 +12,8 @@ import
     ppcjit_branch,
     ppcjit_system
 
-var
-    blockEntries: array[(0x1800000 + 0x900) div 4, BlockEntryFunc]
-
 proc undefinedInstr(builder: var IrBlockBuilder[PpcIrRegState], instr: uint32) =
     raiseAssert(&"undefined instruction {toBE(instr):08X} at {builder.regs.pc:08X}")
-
-proc mapBlockEntryAdr(adr: uint32): uint32 =
-    if adr >= 0xFFF00000'u32:
-        (adr - 0xFFF00000'u32 + 0x1800000) div 4
-    else:
-        adr div 4
 
 proc compileBlock(): BlockEntryFunc =
     var
@@ -46,7 +38,7 @@ proc compileBlock(): BlockEntryFunc =
         builder.regs.pc += 4
         cycles += 1
 
-        if cycles >= 64:
+        if cycles >= 64 and not builder.regs.branch:
             discard builder.triop(irInstrBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
@@ -87,6 +79,3 @@ proc gekkoRun*(timestamp: var int64, target: var int64) =
         else:
             #echo "skipping idle loop!"
             timestamp = target
-
-        if timestamp >= target:
-            return

@@ -135,6 +135,7 @@ proc fsubsx*(builder; d, a, b, rc: uint32) =
 
 proc fselx*(builder; d, a, b, c, rc: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.fselx)
+    builder.regs.floatInstr = true
 
 proc fmaddx*(builder; d, a, b, c, rc: uint32) =
     when interpretFloat:
@@ -343,6 +344,7 @@ proc fmrx*(builder; d, b, rc: uint32) =
 
 proc fnabsx*(builder; d, b, rc: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.fnabsx)
+    builder.regs.floatInstr = true
 
 proc fnegx*(builder; d, b, rc: uint32) =
     when interpretFloat:
@@ -395,9 +397,11 @@ proc ps_add*(builder; d, a, b, rc: uint32) =
 
 proc ps_sel*(builder; d, a, b, c, rc: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_sel)
+    builder.regs.floatInstr = true
 
 proc ps_res*(builder; d, b, rc: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_res)
+    builder.regs.floatInstr = true
 
 proc ps_mul*(builder; d, a, c, rc: uint32) =
     when interpretFloat:
@@ -414,6 +418,7 @@ proc ps_mul*(builder; d, a, c, rc: uint32) =
 
 proc ps_rsqrte*(builder; d, b, rc: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_rsqrte)
+    builder.regs.floatInstr = true
 
 proc ps_msub*(builder; d, a, b, c, rc: uint32) =
     when interpretFloat:
@@ -490,9 +495,11 @@ proc ps_mr*(builder; d, b, rc: uint32) =
 
 proc ps_nabs*(builder; d, b, rc: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_nabs)
+    builder.regs.floatInstr = true
 
 proc ps_abs*(builder; d, b, rc: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_abs)
+    builder.regs.floatInstr = true
 
 proc ps_sum0*(builder; d, a, b, c, rc: uint32) =
     when interpretFloat:
@@ -580,15 +587,19 @@ proc ps_madds1*(builder; d, a, b, c, rc: uint32) =
 
 proc ps_cmpu0*(builder; crfD, a, b: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_cmpu0)
+    builder.regs.floatInstr = true
 
 proc ps_cmpo0*(builder; crfD, a, b: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_cmpo0)
+    builder.regs.floatInstr = true
 
 proc ps_cmpu1*(builder; crfD, a, b: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_cmpu1)
+    builder.regs.floatInstr = true
 
 proc ps_cmpo1*(builder; crfD, a, b: uint32) =
     builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_cmpo1)
+    builder.regs.floatInstr = true
 
 proc ps_merge00*(builder; d, a, b, rc: uint32) =
     when interpretFloat:

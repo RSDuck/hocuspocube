@@ -753,7 +753,7 @@ proc verify*(blk: IrBasicBlock) =
             #assert source in blk.instrs
 
         if i == blk.instrs.len - 1:
-            assert instr.kind in {irInstrBranch, irInstrSyscall}
+            assert instr.kind in {irInstrBranch, irInstrSyscall, irInstrCallInterpreter}
 
 proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAdr: uint32): bool =
     let lastInstr = blk.getInstr(blk.instrs[^1])
@@ -768,7 +768,7 @@ proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAd
             case instr.kind
             of irInstrSyscall, irInstrStore8, irInstrStore16, irInstrStore32,
                 irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
-                irInstrLoadSpr, irInstrStoreSpr:
+                irInstrLoadSpr, irInstrStoreSpr, irInstrCallInterpreter:
                 return false
             of irInstrLoadReg:
                 regsRead.incl instr.ctxLoadIdx

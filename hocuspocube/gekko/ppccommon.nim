@@ -1,6 +1,7 @@
 import
     strformat,
     bitops, stew/bitops2,
+    memory,
     ../cycletiming, ppcstate, gekko
 
 proc ppcmask*(mb, me: uint32): uint32 =
@@ -87,6 +88,15 @@ proc handleExceptions*() =
 proc setWpar*(state: var PpcState, val: uint32) =
     state.gatherpipeOffset = 0
     state.wpar.gbAddr = val
+
+proc setHid0*(state: var PpcState, val: uint32) =
+    state.hid0 = Hid0 val
+    if state.hid0.icfi:
+        state.hid0.icfi = false
+        echo "flash icache"
+        flashInvalidateICache()
+    if state.hid0.dcfi:
+        state.hid0.dcfi = false
 
 proc stateStr*(): string =
     for i in 0..<32:

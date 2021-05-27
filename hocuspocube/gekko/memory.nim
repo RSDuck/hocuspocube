@@ -9,7 +9,9 @@ import
     ../si/si,
     ../exi/[exi, rtcsramrom],
     ../flipper/[cp, pe, texturesetup],
-    ../di
+    ../di,
+
+    jit/blockcache
 
 proc writeBus*[T](adr: uint32, val: T) =
     if adr < uint32 mainRAM.len:
@@ -119,11 +121,13 @@ proc readCode*(adr: uint32): uint32 =
 
 proc invalidateCode*(adr: uint32) =
     if adr < uint32 mainRAM.len:
+        invalidateBlockCacheCode(adr and not(0x1F'u32))
         if mainRAMTagging[adr div 32] == memoryTagCode:
             mainRAMTagging[adr div 32] = memoryTagNone
 
 proc flashInvalidateICache*() =
-    for tag in mitems(mainRAMTagging):
+    for i, tag in mpairs mainRAMTagging:
+        invalidateBlockCacheCode(uint32(i) * 32)
         if tag == memoryTagCode:
             tag = memoryTagNone
 

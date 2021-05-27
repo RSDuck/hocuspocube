@@ -3,7 +3,7 @@ import
     catnip/[x64assembler, reprotect],
     ../../util/setminmax,
     ../ppcstate, ../memory, ../ppccommon,
-    ppcfrontendcommon,
+    ppcfrontendcommon, blockcache,
     ir
 
 const
@@ -200,8 +200,10 @@ proc freeExpiredRegs[T](regalloc: var RegAlloc[T], blk: IrBasicBlock, pos: int) 
     var i = 0
     while i < regalloc.activeRegs.len:
         if blk.getInstr(regalloc.activeRegs[i].val).lastRead == pos:
-            assert regalloc.activeRegs[i].location in {regLocHostGprReg, regLocHostGprRegImm}, &"{i} {regalloc}"
-            regalloc.freeRegs.incl regalloc.activeRegs[i].idx
+            if regalloc.activeRegs[i].location in {regLocHostGprReg, regLocHostGprRegImm}:
+                regalloc.freeRegs.incl regalloc.activeRegs[i].idx
+            else:
+                regalloc.freeSpillLocs[].incl regalloc.activeRegs[i].idx
             regalloc.activeRegs.del i
         else:
             i += 1
@@ -267,6 +269,10 @@ proc dumpLastFunc*(start: pointer) =
 proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): BlockEntryFunc =
     template s: untyped = assembler
 
+    if sizeof(codeMemory) - s.offset < 64*1024:
+        clearBlockCache()
+        s.offset = 0
+
     var
         freeSpillLocs = fullSet(range[0..maxSpill-1])
         regalloc = initRegAlloc[HostIRegRange](addr freeSpillLocs)
@@ -279,14 +285,12 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): Blo
     template setFlagUnk(): untyped =
         flagstate = flagStateUnknown
     template setFlagCmpZero(val: IrInstrRef): untyped =
-        #flagstate = flagStateCmpZero
-        #flagstateL = val
-        discard
+        flagstate = flagStateCmpZero
+        flagstateL = val
     template setFlagCmp(a, b: IrInstrRef): untyped =
-        #flagstate = flagStateCmpVal
-        #flagstateL = a
-        #flagstateR = b
-        discard
+        flagstate = flagStateCmpVal
+        flagstateL = a
+        flagstateR = b
 
     result = s.getFuncStart[:BlockEntryFunc]()
 
@@ -329,6 +333,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): Blo
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), cast[int32](instr.instr))
             s.call(instr.target)
+            setFlagUnk()
         of irInstrLoadReg:
             let
                 offset = getRegOffset(instr.ctxLoadIdx)
@@ -399,18 +404,16 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): Blo
             setFlagUnk()
         of irInstrStoreSpr:
             let num = IrSprNum instr.ctxStoreIdx
-            if num in {irSprNumTbL, irSprNumTbU, irSprNumDec}:
+            if num in {irSprNumTbL, irSprNumTbU, irSprNumDec, irSprNumWpar, irSprNumHid0}:
                 s.mov(reg(param1), rcpu)
                 s.mov(reg(Register32(param2.ord)), regalloc.allocOpW0R1(s, instr.ctxStoreSrc, blk).toReg)
                 case num
                 of irSprNumDec: s.call(setupDecrementer)
                 of irSprNumTbL: s.call(setTbl)
                 of irSprNumTbU: s.call(setTbu)
+                of irSprNumHid0: s.call(setHid0)
+                of irSprNumWpar: s.call(setWpar)
                 else: raiseAssert("welp!")
-            elif num == irSprNumWpar:
-                s.mov(reg(param1), rcpu)
-                s.mov(reg(Register32(param2.ord)), regalloc.allocOpW0R1(s, instr.ctxStoreSrc, blk).toReg)
-                s.call(setWpar)
             else:
                 let offset = getSprOffset(num)
                 if (let imm = blk.isImmValI(instr.source(0)); imm.isSome()):
@@ -620,7 +623,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): Blo
                 (if flagstate == flagStateCmpVal and
                         flagstateL == instr.source(0) and flagstateR == instr.source(1):
                     regalloc.allocOpW1R0(s, iref, blk)
-                #[elif (let imm = blk.isImmValI(instr.source(1)); imm.isSome):
+                elif (let imm = blk.isImmValI(instr.source(1)); imm.isSome):
                     if imm.get == 0 and flagstate == flagStateCmpZero and flagstateL == instr.source(0):
                         regalloc.allocOpW1R0(s, iref, blk)
                     else:
@@ -630,7 +633,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): Blo
                             setFlagCmpZero(instr.source(0))
                         else:
                             setFlagCmp(instr.source(0), instr.source(1))
-                        dst]#
+                        dst
                 else:
                     let (dst, src0, src1) =
                         regalloc.allocOpW1R2(assembler, iref, instr.source(0), instr.source(1), i, blk)

@@ -198,12 +198,9 @@ proc dcbst*(builder; a, b: uint32) =
     discard
 
 proc dcbt*(builder; a, b: uint32) =
-    raiseAssert "unimplemented instr dcbt"
+    discard
 
 proc dcbtst*(builder; a, b: uint32) =
-    raiseAssert "unimplemented instr dcbtst"
-
-proc icbi*(builder; a, b: uint32) =
     discard
 
 proc mfsr*(builder; d, sr: uint32) =

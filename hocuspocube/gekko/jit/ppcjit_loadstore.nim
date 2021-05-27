@@ -465,7 +465,10 @@ proc psq_stu*(builder; s, a, w, i, imm: uint32) =
 
 # not really a load/store operation
 proc dcbz*(builder; a, b: uint32) =
-    discard
+    builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.dcbz)
 
 proc dcbz_l*(builder; a, b: uint32) =
-    raiseAssert("unimplemented instr dcbz_l")
+    builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.dcbz_l)
+
+proc icbi*(builder; a, b: uint32) =
+    builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.icbi)

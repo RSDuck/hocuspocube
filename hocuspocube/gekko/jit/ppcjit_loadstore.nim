@@ -266,63 +266,63 @@ proc stswx*(builder; s, a, b: uint32) =
 
 # Float
 
-proc expandAndDup(builder; instr: IrInstrRef): IrInstrRef =
-    builder.unop(irInstrFSwizzleD00, builder.unop(irInstrCvtss2sd, instr))
+proc expand(builder; instr: IrInstrRef): IrInstrRef =
+    builder.unop(irInstrCvtss2sd, instr)
 
 proc lfd*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfd)
     else:
-        builder.storefreg d, builder.unop(irInstrLoadFsd, builder.calcAdrImm(a, imm, false))
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdrImm(a, imm, false))
     builder.regs.floatInstr = true
 
 proc lfdu*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfdu)
     else:
-        builder.storefreg d, builder.unop(irInstrLoadFsd, builder.calcAdrImm(a, imm, true))
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdrImm(a, imm, true))
     builder.regs.floatInstr = true
 
 proc lfdux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfdux)
     else:
-        builder.storefreg d, builder.unop(irInstrLoadFsd, builder.calcAdr(a, b, true))
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdr(a, b, true))
     builder.regs.floatInstr = true
 
 proc lfdx*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfdx)
     else:
-        builder.storefreg d, builder.unop(irInstrLoadFsd, builder.calcAdr(a, b, false))
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdr(a, b, false))
     builder.regs.floatInstr = true
 
 proc lfs*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfs)
     else:
-        builder.storefregp d, builder.expandAndDup(builder.unop(irInstrLoadFss, builder.calcAdrImm(a, imm, false)))
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdrImm(a, imm, false)))
     builder.regs.floatInstr = true
 
 proc lfsu*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfsu)
     else:
-        builder.storefregp d, builder.expandAndDup(builder.unop(irInstrLoadFss, builder.calcAdrImm(a, imm, true)))
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdrImm(a, imm, true)))
     builder.regs.floatInstr = true
 
 proc lfsux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfsux)
     else:
-        builder.storefregp d, builder.expandAndDup(builder.unop(irInstrLoadFss, builder.calcAdr(a, b, true)))
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdr(a, b, true)))
     builder.regs.floatInstr = true
 
 proc lfsx*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfsx)
     else:
-        builder.storefregp d, builder.expandAndDup(builder.unop(irInstrLoadFss, builder.calcAdr(a, b, false)))
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdr(a, b, false)))
     builder.regs.floatInstr = true
 
 proc stfd*(builder; s, a, imm: uint32) =
@@ -400,7 +400,7 @@ proc quantstore(builder; adr: IrInstrRef, s, w, i: uint32) =
             if w == 1:
                 builder.unop(irInstrCvtsd2ss, builder.loadfreg(s))
             else:
-                builder.unop(irInstrCvtpd2ps, builder.loadfregp(s))
+                builder.unop(irInstrCvtpd2ps, builder.loadfreg(s))
 
     discard builder.triop(if w == 1: irInstrStoreFsq else: irInstrStoreFpq,
         adr,

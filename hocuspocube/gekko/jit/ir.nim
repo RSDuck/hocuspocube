@@ -1,5 +1,6 @@
 import
-    bitops, strutils, strformat, options, algorithm
+    bitops, strutils, strformat, options, algorithm,
+    stew/bitseqs
 
 type
     IrInstrKind* = enum
@@ -248,6 +249,20 @@ const
         irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
 
         irInstrBranch, irInstrSyscall, irInstrCallInterpreter}
+
+    FpScalarOps = {
+        irInstrStoreFsd, irInstrCvtsd2ss, irInstrFRessd, irInstrFRsqrtsd,
+        irInstrFSwizzleD00, irInstrCvtsd2intTrunc, irInstrFNegsd, irInstrFAbssd,
+        irInstrFAddsd, irInstrFSubsd, irInstrFMulsd, irInstrFDivsd,
+        irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
+        irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedSd}
+    FpPairOps = {
+        irInstrFSwizzleD11,
+        irInstrCvtpd2ps, irInstrCvtps2pd,
+        irInstrFRespd, irInstrFRsqrtpd,
+        irInstrFNegpd, irInstrFAbspd,
+        irInstrFAddpd, irInstrFSubpd, irInstrFMulpd, irInstrFDivpd,
+        irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd}
 
 type
     IrInstrRef* = distinct int32
@@ -522,9 +537,11 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
     var
         regs: array[32, RegState]
         crs: array[32, RegState]
+        fprs: array[32, RegState]
     for i in 0..<32:
         regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
         crs[i] = regs[i]
+        fprs[i] = regs[i]
 
     proc doLoad(states: var openArray[RegState], blk: IrBasicBlock, iref: IrInstrRef, regIdx: uint32) =
         if states[regIdx].curVal == InvalidIrInstrRef:
@@ -537,20 +554,27 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
         states[regIdx] = RegState(curVal: val, lastStore: iref)
 
     for i in 0..<blk.instrs.len:
-        let instr = blk.getInstr(blk.instrs[i])
+        let
+            iref = blk.instrs[i]
+            instr = blk.getInstr(iref)
         case instr.kind
         of irInstrCallInterpreter:
             for i in 0..<32:
                 regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
                 crs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
+                fprs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
         of irInstrLoadReg:
-            doLoad(regs, blk, blk.instrs[i], instr.ctxLoadIdx)
+            doLoad(regs, blk, iref, instr.ctxLoadIdx)
         of irInstrLoadCrBit:
-            doLoad(crs, blk, blk.instrs[i], instr.ctxLoadIdx)
+            doLoad(crs, blk, iref, instr.ctxLoadIdx)
+        of irInstrLoadFprPair:
+            doLoad(fprs, blk, iref, instr.ctxLoadIdx)
         of irInstrStoreReg:
-            doStore(regs, blk, blk.instrs[i], instr.ctxStoreSrc, instr.ctxStoreIdx)
+            doStore(regs, blk, iref, instr.ctxStoreSrc, instr.ctxStoreIdx)
         of irInstrStoreCrBit:
-            doStore(crs, blk, blk.instrs[i], instr.ctxStoreSrc, instr.ctxStoreIdx)
+            doStore(crs, blk, iref, instr.ctxStoreSrc, instr.ctxStoreIdx)
+        of irInstrStoreFprPair:
+            doStore(fprs, blk, iref, instr.ctxStoreSrc, instr.ctxStoreIdx)
         of irInstrLoadSpr:
             if instr.ctxLoadIdx == irSprNumCr.uint32:
                 for i in 0..<32:
@@ -563,6 +587,47 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
                         crs[i].lastStore = InvalidIrInstrRef
                     crs[i].curVal = InvalidIrInstrRef
         else: discard
+
+proc floatOpts*(blk: IrBasicBlock) =
+    #[
+        currently performs the following optimisations:
+            - if only ever the lower part of a irInstrLoadFprPair is used
+                it's replaced by an irInstrLoadFpr instruction
+
+            - PPC scalar instructions either replicate the result
+                across the pair (floats) or merge in the previous register value (doubles).
+                But if the following instructions only use the lower part of the instruction
+                anyway this operation in unecessary.
+
+                Thus for cases like this we change the source of scalar operations to directly
+                use the unreplicated/unmerged scalar value.
+
+                If no instruction depends on the upper part at all the swizzle/merge will be
+                be removed by dead code elimination.
+    ]#
+    var
+        pairLoads: seq[IrInstrRef]
+        pairLoadUpperUsed = init(BitSeq, blk.instrPool.len)
+    for i in 0..<blk.instrs.len:
+        let iref = blk.instrs[i]
+        case blk.getInstr(iref).kind
+        of FpScalarOps:
+            for source in msources blk.getInstr(iref):
+                while blk.getInstr(source).kind in {irInstrFSwizzleD00, irInstrFMergeD}:
+                    let instr = blk.getInstr(source)
+                    source = instr.source(if instr.kind == irInstrFSwizzleD00: 0 else: 1)
+        of irInstrLoadFprPair:
+            pairLoads.add iref
+        of FpPairOps:
+            for source in sources blk.getInstr(iref):
+                pairLoadUpperUsed.setBit(int(source))
+        of irInstrFMergeD:
+            pairLoadUpperUsed.setBit(int(blk.getInstr(iref).source(0)))
+        else: discard
+
+    for pairLoad in pairLoads:
+        if not pairLoadUpperUsed[int(pairLoad)]:
+            blk.getInstr(pairLoad) = IrInstr(kind: irInstrLoadFpr, ctxLoadIdx: blk.getInstr(pairLoad).ctxLoadIdx)
 
 proc foldConstants*(blk: IrBasicBlock) =
     for i in 0..<blk.instrs.len:

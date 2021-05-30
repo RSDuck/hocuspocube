@@ -4,7 +4,9 @@ import
 
 using builder: var IrBlockBuilder[PpcIrRegState]
 
-const interpretFloat = false
+const
+    interpretFloat = false
+    interpretPs = false
 
 proc faddx*(builder; d, a, b, rc: uint32) =
     when interpretFloat:
@@ -16,7 +18,7 @@ proc faddx*(builder; d, a, b, rc: uint32) =
 
             val = builder.biop(irInstrFAddSd, fra, frb)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc faddsx*(builder; d, a, b, rc: uint32) =
@@ -29,7 +31,7 @@ proc faddsx*(builder; d, a, b, rc: uint32) =
 
             val = builder.postSingleOp(builder.biop(irInstrFAddSd, fra, frb))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fdivx*(builder; d, a, b, rc: uint32) =
@@ -42,7 +44,7 @@ proc fdivx*(builder; d, a, b, rc: uint32) =
 
             val = builder.biop(irInstrFDivSd, fra, frb)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fdivsx*(builder; d, a, b, rc: uint32) =
@@ -55,7 +57,7 @@ proc fdivsx*(builder; d, a, b, rc: uint32) =
 
             val = builder.postSingleOp(builder.biop(irInstrFDivSd, fra, frb))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fmulx*(builder; d, a, c, rc: uint32) =
@@ -68,7 +70,7 @@ proc fmulx*(builder; d, a, c, rc: uint32) =
 
             val = builder.biop(irInstrFMulSd, fra, frc)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fmulsx*(builder; d, a, c, rc: uint32) =
@@ -81,7 +83,7 @@ proc fmulsx*(builder; d, a, c, rc: uint32) =
 
             val = builder.postSingleOp(builder.biop(irInstrFMulSd, fra, frc))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
 
 proc fresx*(builder; d, b, rc: uint32) =
     when interpretFloat:
@@ -92,7 +94,7 @@ proc fresx*(builder; d, b, rc: uint32) =
 
             val = builder.postSingleOp(builder.unop(irInstrFResSd, frb))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc frsqrtex*(builder; d, b, rc: uint32) =
@@ -104,7 +106,7 @@ proc frsqrtex*(builder; d, b, rc: uint32) =
 
             val = builder.postSingleOp(builder.unop(irInstrFRsqrtSd, frb))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fsubx*(builder; d, a, b, rc: uint32) =
@@ -117,7 +119,7 @@ proc fsubx*(builder; d, a, b, rc: uint32) =
 
             val = builder.biop(irInstrFSubSd, fra, frb)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fsubsx*(builder; d, a, b, rc: uint32) =
@@ -130,7 +132,7 @@ proc fsubsx*(builder; d, a, b, rc: uint32) =
 
             val = builder.postSingleOp(builder.biop(irInstrFSubSd, fra, frb))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fselx*(builder; d, a, b, c, rc: uint32) =
@@ -148,7 +150,7 @@ proc fmaddx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.triop(irInstrFMaddSd, fra, frb, frс)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fmaddsx*(builder; d, a, b, c, rc: uint32) =
@@ -162,7 +164,7 @@ proc fmaddsx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.postSingleOp(builder.triop(irInstrFMaddSd, fra, frb, frс))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fmsubx*(builder; d, a, b, c, rc: uint32) =
@@ -176,7 +178,7 @@ proc fmsubx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.triop(irInstrFMsubSd, fra, frb, frс)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fmsubsx*(builder; d, a, b, c, rc: uint32) =
@@ -190,7 +192,7 @@ proc fmsubsx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.postSingleOp(builder.triop(irInstrFMsubSd, fra, frb, frс))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fnmaddx*(builder; d, a, b, c, rc: uint32) =
@@ -204,7 +206,7 @@ proc fnmaddx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.triop(irInstrFNmaddSd, fra, frb, frс)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fnmaddsx*(builder; d, a, b, c, rc: uint32) =
@@ -218,7 +220,7 @@ proc fnmaddsx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.postSingleOp(builder.triop(irInstrFNmaddSd, fra, frb, frс))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fnmsubx*(builder; d, a, b, c, rc: uint32) =
@@ -232,7 +234,7 @@ proc fnmsubx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.triop(irInstrFNmsubSd, fra, frb, frс)
 
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fnmsubsx*(builder; d, a, b, c, rc: uint32) =
@@ -246,7 +248,7 @@ proc fnmsubsx*(builder; d, a, b, c, rc: uint32) =
 
             val = builder.postSingleOp(builder.triop(irInstrFNmsubSd, fra, frb, frс))
 
-        builder.storefregp d, val
+        builder.storefregReplicate d, val
     builder.regs.floatInstr = true
 
 proc fctiwx*(builder; d, b, rc: uint32) =
@@ -259,7 +261,7 @@ proc fctiwzx*(builder; d, b, rc: uint32) =
         let
             frb = builder.loadfreg(b)
             val = builder.unop(irInstrCvtsd2intTrunc, frb)
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc frspx*(builder; d, b, rc: uint32) =
@@ -269,7 +271,7 @@ proc frspx*(builder; d, b, rc: uint32) =
         let
             frb = builder.loadfreg(b)
             val = builder.postSingleOp(frb)
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fcmpo*(builder; crfD, a, b: uint32) =
@@ -326,20 +328,20 @@ proc mtfsfix*(builder; crfD, imm, rc: uint32) =
     raiseAssert("unimplemented instr mtfsfix")
 
 proc fabsx*(builder; d, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.fabsx)
     else:
         let
             frb = builder.loadfreg(b)
             val = builder.unop(irInstrFAbssd, frb)
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc fmrx*(builder; d, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.fmrx)
     else:
-        builder.storefreg d, builder.loadfreg(b)
+        builder.storefregLowOnly d, builder.loadfreg(b)
     builder.regs.floatInstr = true
 
 proc fnabsx*(builder; d, b, rc: uint32) =
@@ -347,22 +349,22 @@ proc fnabsx*(builder; d, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fnegx*(builder; d, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.fnegx)
     else:
         let
             frb = builder.loadfreg(b)
             val = builder.unop(irInstrFNegsd, frb)
-        builder.storefreg d, val
+        builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
 proc ps_div*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_div)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
 
             val = builder.postSingleOpPair(builder.biop(irInstrFDivpd, fra, frb))
 
@@ -370,12 +372,12 @@ proc ps_div*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_sub*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_sub)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
 
             val = builder.postSingleOpPair(builder.biop(irInstrFSubpd, fra, frb))
 
@@ -383,12 +385,12 @@ proc ps_sub*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_add*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_add)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
 
             val = builder.postSingleOpPair(builder.biop(irInstrFAddpd, fra, frb))
 
@@ -404,12 +406,12 @@ proc ps_res*(builder; d, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_mul*(builder; d, a, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_mul)
     else:
         let
-            fra = builder.loadfregp(a)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.biop(irInstrFMulpd, fra, frc))
 
@@ -421,13 +423,13 @@ proc ps_rsqrte*(builder; d, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_msub*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_msub)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.triop(irInstrFMsubpd, fra, frb, frc))
 
@@ -435,13 +437,13 @@ proc ps_msub*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_madd*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_madd)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.triop(irInstrFMaddpd, fra, frb, frc))
 
@@ -449,13 +451,13 @@ proc ps_madd*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_nmsub*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_nmsub)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.triop(irInstrFNmsubpd, fra, frb, frc))
 
@@ -463,13 +465,13 @@ proc ps_nmsub*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_nmadd*(builder; d, a, b, c, rc : uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_nmadd)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.triop(irInstrFNmaddpd, fra, frb, frc))
 
@@ -477,20 +479,20 @@ proc ps_nmadd*(builder; d, a, b, c, rc : uint32) =
     builder.regs.floatInstr = true
 
 proc ps_neg*(builder; d, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_neg)
     else:
         let
-            frb = builder.loadfregp(b)
+            frb = builder.loadfreg(b)
             val = builder.unop(irInstrFNegpd, frb)
         builder.storefregp d, val
     builder.regs.floatInstr = true
 
 proc ps_mr*(builder; d, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_mr)
     else:
-        builder.storefregp d, builder.loadfregp(b)
+        builder.storefregp d, builder.loadfreg(b)
     builder.regs.floatInstr = true
 
 proc ps_nabs*(builder; d, b, rc: uint32) =
@@ -502,13 +504,13 @@ proc ps_abs*(builder; d, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_sum0*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_sum0)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             sumpart = builder.biop(irInstrFAddsd, fra, builder.unop(irInstrFSwizzleD11, frb))
             merged = builder.biop(irInstrFMergeD, frc, sumpart)
@@ -517,13 +519,13 @@ proc ps_sum0*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_sum1*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_sum1)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             sumpart = builder.biop(irInstrFAddpd, builder.unop(irInstrFSwizzleD00, fra), frb)
             merged = builder.biop(irInstrFMergeD, sumpart, frc)
@@ -532,12 +534,12 @@ proc ps_sum1*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_muls0*(builder; d, a, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_muls0)
     else:
         let
-            fra = builder.loadfregp(a)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.biop(irInstrFMulpd, fra, builder.unop(irInstrFSwizzleD00, frc)))
 
@@ -545,12 +547,12 @@ proc ps_muls0*(builder; d, a, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_muls1*(builder; d, a, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_muls1)
     else:
         let
-            fra = builder.loadfregp(a)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.biop(irInstrFMulpd, fra, builder.unop(irInstrFSwizzleD11, frc)))
 
@@ -558,13 +560,13 @@ proc ps_muls1*(builder; d, a, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_madds0*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_madds0)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.triop(irInstrFMaddpd, fra, frb, builder.unop(irInstrFSwizzleD00, frc)))
 
@@ -572,13 +574,13 @@ proc ps_madds0*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_madds1*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_madds1)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
-            frc = builder.loadfregp(c)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
+            frc = builder.loadfreg(c)
 
             val = builder.postSingleOpPair(builder.triop(irInstrFMaddpd, fra, frb, builder.unop(irInstrFSwizzleD11, frc)))
 
@@ -602,12 +604,12 @@ proc ps_cmpo1*(builder; crfD, a, b: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_merge00*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_merge00)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
 
             val = builder.biop(irInstrFMergeD,
                 builder.unop(irInstrFSwizzleD00, frb),
@@ -617,12 +619,12 @@ proc ps_merge00*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_merge01*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_merge01)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
 
             val = builder.biop(irInstrFMergeD, frb, fra)
 
@@ -630,12 +632,12 @@ proc ps_merge01*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_merge10*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_merge10)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
 
             val = builder.biop(irInstrFMergeD,
                 builder.unop(irInstrFSwizzleD00, frb),
@@ -645,12 +647,12 @@ proc ps_merge10*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc ps_merge11*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretPs:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ps_merge11)
     else:
         let
-            fra = builder.loadfregp(a)
-            frb = builder.loadfregp(b)
+            fra = builder.loadfreg(a)
+            frb = builder.loadfreg(b)
 
             val = builder.biop(irInstrFMergeD,
                 frb,

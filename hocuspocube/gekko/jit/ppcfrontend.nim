@@ -49,6 +49,7 @@ proc compileBlock(): BlockEntryFunc =
 
     builder.blk.ctxLoadStoreEliminiate()
     builder.blk.removeIdentities()
+    builder.blk.floatOpts()
     builder.blk.foldConstants()
     builder.blk.removeIdentities()
     builder.blk.removeDeadCode()

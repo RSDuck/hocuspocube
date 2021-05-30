@@ -302,9 +302,11 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): Blo
     s.push(reg(regR14))
     s.push(reg(regR15))
     s.push(reg(regRbp))
-    s.sub(reg(regRsp), 8 + xmmsToUse.len*16 + stackFrameSize)
-    for i in 0..<xmmsToUse.len:
-        s.movaps(memXmm(regRsp, int32(stackFrameSize + i*16)), xmmsToUse[i])
+    let stackOffset = int32(8 + (if fexception: xmmsToUse.len*16 else: 0) + stackFrameSize)
+    s.sub(reg(regRsp), stackOffset)
+    if fexception:
+        for i in 0..<xmmsToUse.len:
+            s.movaps(memXmm(regRsp, int32(stackFrameSize + i*16)), xmmsToUse[i])
 
     s.mov(reg(regRbp), param1)
 
@@ -928,9 +930,10 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): Blo
     if idleLoop and idleLoopBranch != ForwardsLabel(): s.label(idleLoopBranch)
     if fexception: s.label(floatExceptionBranch)
 
-    for i in 0..<xmmsToUse.len:
-        s.movaps(xmmsToUse[i], memXmm(regRsp, int32(stackFrameSize + i*16)))
-    s.add(reg(regRsp), 8 + xmmsToUse.len*16 + stackFrameSize)
+    if fexception:
+        for i in 0..<xmmsToUse.len:
+            s.movaps(xmmsToUse[i], memXmm(regRsp, int32(stackFrameSize + i*16)))
+    s.add(reg(regRsp), stackOffset)
     s.pop(reg(regRbp))
     s.pop(reg(regR15))
     s.pop(reg(regR14))

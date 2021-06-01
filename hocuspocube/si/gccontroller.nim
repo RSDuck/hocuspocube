@@ -26,9 +26,9 @@ makeBitStruct uint16, Buttons:
     a[0]: bool
     b[1]: bool
     x[2]: bool
-    y[2]: bool
-    start[3]: bool
-    getOrigin[4]: bool
+    y[3]: bool
+    start[4]: bool
+    getOrigin[5]: bool
 
     left[8]: bool
     right[9]: bool

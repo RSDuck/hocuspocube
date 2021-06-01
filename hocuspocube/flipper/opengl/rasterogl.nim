@@ -1,6 +1,6 @@
 import
     std/setutils,
-    ../rasterinterfacecommon,
+    ../rasterinterfacecommon, ../bpcommon,
 
     opengl
 

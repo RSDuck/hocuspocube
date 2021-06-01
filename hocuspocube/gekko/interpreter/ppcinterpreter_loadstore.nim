@@ -286,7 +286,7 @@ proc quantise[T](x: float32, scale: uint32): T =
     else:
         T(adjustedVal)
 
-template loadQuant(T: typedesc; U: typedesc): untyped =
+template loadQuant(T: typedesc; U: typedesc): untyped {.dirty.} =
     fr(d).ps0 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get)), state.gqr[i].ldScale)
     #checkNan(fr(d).ps0)
     if w == 0:
@@ -295,7 +295,7 @@ template loadQuant(T: typedesc; U: typedesc): untyped =
     else:
         fr(d).ps1 = 1.0
 
-template storeQuant(T: typedesc, U: typedesc): untyped =
+template storeQuant(T: typedesc, U: typedesc): untyped {.dirty.} =
     #checkNan(fr(s).ps0)
     state.writeMemory[:U](adr.get, toBE cast[U](quantise[T](float32(fr(s).ps0), state.gqr[i].stScale)))
     if w == 0:

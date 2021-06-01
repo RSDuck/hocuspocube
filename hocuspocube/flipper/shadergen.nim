@@ -1,8 +1,7 @@
 import
-    ../util/bitstruct,
     strformat, hashes,
     rasterinterfacecommon,
-    xf, bp
+    xf, bp, bpcommon
 
 type
     VertexShaderKey* = object
@@ -237,6 +236,10 @@ proc genVertexShader*(key: VertexShaderKey): string =
             materialAlpha = case alphaLightCtrl.matSrc
                 of matColorSrcPerVertex: &"inColor{i}.a"
                 of matColorSrcRegister: &"materialReg{i}.a"
+
+        if matColorSrcPerVertex in {colorLightCtrl.ambSrc, alphaLightCtrl.ambSrc,
+            colorLightCtrl.matSrc, alphaLightCtrl.matSrc} and vtxAttrColor0.succ(int i) notin key.enabledAttrs:
+            line &"vec4 inColor{i} = vec4(0);"
 
         line &"vec4 finalColor;"
         if colorLightCtrl.enableLighting:
@@ -479,7 +482,7 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         line &"ivec4 rascolor = ivec4({rascolor} * 255.0).{colorSwizzle};"
 
         line &"ivec4 konstant = ivec4({colorKonstant}, {alphaKonstant});"
-        
+
         if texmapEnable:
             let textureSwizzle = swizzleFromSwapTable(alphaEnv.tswap, key.ksel)
             line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw / 128.0) * 255.0).{textureSwizzle};"

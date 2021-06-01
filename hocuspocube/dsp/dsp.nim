@@ -63,9 +63,6 @@ makeBitStruct uint32, DspDmaCnt:
     hi[16..31]: uint16
     lo[0..15]: uint16
 
-makeBitStruct uint32, DspDmaAdr:
-    _[5..25] {.adr.}: uint32
-
 makeBitStruct uint16, ArInfo:
     baseSize[0..2] {.mutable.}: uint32
     expansionSize[3..5] {.mutable.}: uint32
@@ -137,11 +134,11 @@ var
     dsma: DsMa
 
     arDmaCnt: DspDmaCnt
-    arDmaMmAdr, arDmaArAdr: DspDmaAdr
+    arDmaMmAdr, arDmaArAdr: HwPtr
 
     arInfo: ArInfo
 
-    aidMAdr: DspDmaAdr
+    aidMAdr: HwPtr
     aidLen: AidLen
     aidCntInit: uint16
     aidCntInitTimestamp: int64

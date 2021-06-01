@@ -39,6 +39,9 @@ makeBitStruct uint32, FifoPtr:
     _[5..25] {.adr.}: uint32
     overflow[26]: bool
 
+makeBitStruct uint32, *HwPtr:
+    _[5..25] {.adr.}: uint32
+
 type
     MemoryTag* = enum
         memoryTagNone

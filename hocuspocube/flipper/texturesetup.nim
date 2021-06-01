@@ -1,10 +1,18 @@
 import
     hashes, tables, strformat,
     stew/endians2,
+    xxhash,
+
     ../util/bitstruct,
-    rasterinterfacecommon, opengl/rasterogl,
-    bp,
+
+    rasterinterfacecommon,
+    opengl/rasterogl,
+    bpcommon, bp,
     ../gekko/gekko
+
+proc calcTexPalHash(adr, size: uint32): uint64 =
+    assert adr + size <= uint32(sizeof(tmem))
+    XXH3_64bits(cast[ptr UncheckedArray[byte]](addr tmem[adr]), csize_t(size))
 
 proc calculateTexSize(fmt: TxTextureFmt, width, height, levels: uint32): (uint32, uint32, uint32) =        
     let (tileW, tileH, lineBytes) = case fmt
@@ -60,7 +68,7 @@ proc decodeTextureIA4(dst, src: ptr UncheckedArray[byte], width, height: int) =
         let
             intensity = uint16((src[srcIdx] and 0xF) shl 4)
             alpha = uint16(src[srcIdx] and 0xF0)
-        dst[dstIdx] = (intensity shl 8) or alpha
+        dst[dstIdx] = (alpha shl 8) or intensity
 
 proc decodeTextureIA8RGB565(dst, src: ptr UncheckedArray[byte], width, height: int) =
     let
@@ -69,24 +77,27 @@ proc decodeTextureIA8RGB565(dst, src: ptr UncheckedArray[byte], width, height: i
     for (dstIdx, srcIdx) in doTileLoop(width, height, 4, 4):
         dst[dstIdx] = fromBE src[srcIdx]
 
+proc RGB5A3ToRGBA8*(color: uint32): uint32 =
+    if (color and 0x8000) != 0:
+        # color is RGB5
+        ((color and 0x1F) shl 19) or
+            ((color and 0x3E0) shl 6) or
+            ((color and 0x7C00) shr 7) or
+            0xFF000000'u32
+    else:
+        # color is RGB4A3
+        ((color and 0xF) shl 20) or
+            ((color and 0xF0) shl 8) or
+            ((color and 0xF00) shr 4) or
+            ((color and 0x7000) shl 17)
+
+
 proc decodeTextureRGB5A3(dst, src: ptr UncheckedArray[byte], width, height: int) =
     let
         dst = cast[ptr UncheckedArray[uint32]](dst)
         src = cast[ptr UncheckedArray[uint16]](src)
     for (dstIdx, srcIdx) in doTileLoop(width, height, 4, 4):
-        let color = uint32(fromBE src[srcIdx])
-        if (color and 0x8000) != 0:
-            # color is RGB5
-            dst[dstIdx] = ((color and 0x1F) shl 19) or
-                    ((color and 0x3E0) shl 6) or
-                    ((color and 0x7C00) shr 7) or
-                    0xFF000000'u32
-        else:
-            # color is RGB4A3
-            dst[dstIdx] = ((color and 0xF) shl 20) or
-                ((color and 0xF0) shl 8) or
-                ((color and 0xF00) shr 4) or
-                ((color and 0x7000) shl 17)
+        dst[dstIdx] = RGB5A3ToRGBA8(fromBE src[srcIdx])
 
 proc decodeTextureRGBA8(dst, src: ptr UncheckedArray[byte], width, height: int) =
     let
@@ -98,6 +109,30 @@ proc decodeTextureRGBA8(dst, src: ptr UncheckedArray[byte], width, height: int) 
             bg = uint32(src[srcIdx+16])
 
         dst[dstIdx] = (ra shr 8) or (bg shl 8) or ((ra and 0xFF00'u32) shl 16)
+
+proc decodeTextureC4IA8RGB565(dst, src: ptr UncheckedArray[byte], width, height: int, palette: ptr UncheckedArray[uint16]) =
+    let dst = cast[ptr UncheckedArray[uint16]](dst)
+    for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 8, 2):
+        let srcPixels = src[srcIdx]
+        dst[dstIdx] = fromBE palette[srcPixels shr 4]
+        dst[dstIdx + 1] = fromBE palette[srcPixels and 0xF]
+
+proc decodeTextureC4RGB5A3(dst, src: ptr UncheckedArray[byte], width, height: int, palette: ptr UncheckedArray[uint16]) =
+    let dst = cast[ptr UncheckedArray[uint32]](dst)
+    for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 8, 2):
+        let srcPixels = src[srcIdx]
+        dst[dstIdx] = RGB5A3ToRGBA8(fromBE palette[srcPixels shr 4])
+        dst[dstIdx + 1] = RGB5A3ToRGBA8(fromBE palette[srcPixels and 0xF])
+
+proc decodeTextureC8IA8RGB565(dst, src: ptr UncheckedArray[byte], width, height: int, palette: ptr UncheckedArray[uint16]) =
+    let dst = cast[ptr UncheckedArray[uint16]](dst)
+    for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 4):
+        dst[dstIdx] = fromBE palette[src[srcIdx]]
+
+proc decodeTextureC8RGB5A3(dst, src: ptr UncheckedArray[byte], width, height: int, palette: ptr UncheckedArray[uint16]) =
+    let dst = cast[ptr UncheckedArray[uint32]](dst)
+    for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 4):
+        dst[dstIdx] = RGB5A3ToRGBA8(fromBE palette[src[srcIdx]])
 
 makeBitStruct uint64, CmprBlock:
     indices[n, (n*2)..(n*2)+1]: uint32
@@ -157,6 +192,9 @@ type
         width, height: uint32
         adr: uint32
 
+        palHash: uint64
+        palFmt: TxLutFmt
+
     TextureCacheEntry = object
         native: NativeTexture
         dataSize: uint32
@@ -165,18 +203,37 @@ var
     textures: Table[TextureKey, TextureCacheEntry]
 
 proc hash(key: TextureKey): Hash =
+    result = result !& hash(key.fmt)
     result = result !& hash(key.width)
     result = result !& hash(key.height)
     result = result !& hash(key.adr)
+    if key.fmt in PalettedTexFmts:
+        result = result !& hash(key.palFmt)
+        result = result !& hash(key.palHash)
     result = !$result
 
-proc getTargetFmt(fmt: TxTextureFmt): TextureFormat =
+proc `==`(a, b: TextureKey): bool =
+    result = a.fmt == b.fmt and
+        a.width == b.width and a.height == b.height and
+        a.adr == b.adr
+    if result:
+        if a.palFmt != b.palFmt:
+            return false
+        if a.palHash != b.palHash:
+            return false
+
+proc getTargetFmt(fmt: TxTextureFmt, palfmt: TxLutFmt): TextureFormat =
     case fmt
     of txTexfmtRGB5A3, txTexfmtRGBA8, txTexfmtCmp: texfmtRGBA8
     of txTexfmtRGB565: texfmtRGB565
     of txTexfmtI4, txTexfmtI8: texfmtI8
     of txTexfmtIA4, txTexfmtIA8: texfmtIA8
-    of txTexfmtC4, txTexfmtC8: texfmtL8
+    of txTexfmtC4, txTexfmtC8:
+        case palfmt
+        of txLutfmtIA8: texfmtIA8
+        of txLutfmtRGB565: texfmtRGB565
+        of txLutfmtRGB5A3: texfmtRGBA8
+        else: raiseAssert("reserved value")
     else: raiseAssert(&"texfmt {fmt} not supported yet!")
 
 proc setupSampler*(n: int) =
@@ -185,13 +242,23 @@ proc setupSampler*(n: int) =
 proc setupTexture*(n: int) =
     let
         texmap = texMaps[n]
-        key = TextureKey(
+        texpalAdr = (texmap.setLut.tmemOffset shl 9) + 0x80000
+    var key = TextureKey(
             fmt: texmap.setImage0.fmt,
             width: texmap.width,
             height: texmap.height,
             adr: texmap.adr)
 
-    echo &"setup texture {n} {key.width}x{key.height} {key.adr:08X} {key.fmt}"
+    if key.fmt in PalettedTexFmts:
+        key.palFmt = texmap.setLut.fmt
+        key.palHash = calcTexPalHash(texpalAdr,
+            (case key.fmt
+            of txTexfmtC4: 4'u32
+            of txTexfmtC8: 8'u32
+            of txTexfmtC14X2: (1'u32 shl 14)
+            else: raiseAssert("reserved value")) * 2)
+
+    #echo &"setup texture {n} {key.width}x{key.height} {key.adr:08X} {key.fmt} {texpalAdr:X} {key.palHash:016X} {key.palFmt}"
 
     assert(not texmap.setImage1.preloaded)
 
@@ -199,7 +266,7 @@ proc setupTexture*(n: int) =
     if (texture = textures.getOrDefault(key); texture.native == nil):
         # load in texture
         let
-            targetFmt = getTargetFmt(key.fmt)
+            targetFmt = getTargetFmt(key.fmt, texmap.setLut.fmt)
 
             (dataSize, _, _) = calculateTexSize(key.fmt, key.width, key.height, 1)
 
@@ -215,37 +282,51 @@ proc setupTexture*(n: int) =
 
     if texture.invalid:
         type DecodingFunc = proc(dst, src: ptr UncheckedArray[byte], width, height: int) {.nimcall.}
-        const decodingFuncs: array[TxTextureFmt, DecodingFunc] = [
-            decodeTextureI4,
-            decodeTextureI8,
-            decodeTextureIA4,
-            decodeTextureIA8RGB565,
-            decodeTextureIA8RGB565,
-            decodeTextureRGB5A3,
-            decodeTextureRGBA8,
-            nil,
-            decodeTextureI4,
-            decodeTextureI8,
-            nil,
-            nil,
-            nil,
-            nil,
-            decodeTextureCmpr,
-            nil]
+        const
+            decodingFuncs: array[TxTextureFmt, DecodingFunc] = [
+                decodeTextureI4,
+                decodeTextureI8,
+                decodeTextureIA4,
+                decodeTextureIA8RGB565,
+                decodeTextureIA8RGB565,
+                decodeTextureRGB5A3,
+                decodeTextureRGBA8,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                decodeTextureCmpr,
+                nil]
+            decodeTexturePaletted = [
+                [decodeTextureC4IA8RGB565, decodeTextureC4RGB5A3],
+                [decodeTextureC8IA8RGB565, decodeTextureC8RGB5A3]]
+
         const targetFmtPixelSize: array[TextureFormat, byte] = [1'u8, 1, 2, 4, 2, 2, 3]
 
         let (_, roundedWidth, roundedHeight) = calculateTexSize(key.fmt, key.width, key.height, 1)
 
-        var data = newSeq[byte](roundedWidth*roundedHeight*uint32(targetFmtPixelSize[getTargetFmt(key.fmt)]))
-        decodingFuncs[key.fmt](cast[ptr UncheckedArray[byte]](addr data[0]),
-            cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
-            int(key.width), int(key.height))
+        var data = newSeq[byte](roundedWidth*roundedHeight*uint32(targetFmtPixelSize[getTargetFmt(key.fmt, key.palFmt)]))
+
+        if key.fmt notin PalettedTexFmts:
+            decodingFuncs[key.fmt](cast[ptr UncheckedArray[byte]](addr data[0]),
+                cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
+                int(key.width), int(key.height))
+        else:
+            decodeTexturePaletted[int(key.fmt == txTexfmtC8)][int(key.palFmt == txLutfmtRGB5A3)](
+                cast[ptr UncheckedArray[byte]](addr data[0]),
+                cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
+                int(key.width), int(key.height),
+                cast[ptr UncheckedArray[uint16]](addr tmem[texpalAdr]))
 
         rasterogl.uploadTexture(texture.native, 0, 0, 0, int(key.width), int(key.height), int(roundedWidth), addr data[0])
 
     rasterogl.bindTexture(n, texture.native)
 
 proc invalidateTexture*(adr: uint32) =
+    # pretty inefficient
     for key, entry in mpairs textures:
         if adr >= key.adr and adr < key.adr + entry.dataSize:
             if not entry.invalid:

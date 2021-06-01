@@ -1,7 +1,8 @@
 import
     tables, hashes,
     opengl/rasterogl,
-    rasterinterfacecommon
+    rasterinterfacecommon,
+    bpcommon
 
 var
     curVertexBuffer*: VertexBuffer

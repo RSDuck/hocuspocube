@@ -16,9 +16,6 @@ makeBitStruct uint32, DiSr:
     brkintmask[5] {.mutable.}: bool # break interrupt
     brkint[6]: bool # break interrupt mask
 
-makeBitStruct uint32, DiMmAdr:
-    _[5..25] {.adr.}: uint32
-
 makeBitStruct uint32, DiCr:
     tstart[0]: bool
     dma[1] {.mutable.}: bool
@@ -65,7 +62,7 @@ var
     diSr: DiSr
     diCvr: DiCvr
 
-    diMar, diLen: DiMmAdr
+    diMar, diLen: HwPtr
 
     diCmdBuf: array[3, uint32]
     diImmBuf: uint32

@@ -161,8 +161,6 @@ makeBitStruct uint32, VatC:
     tex7fmt[24..26]: VertexCoordFmt
     tex7shift[27..31]: uint32
 
-makeBitStruct uint32, ArrayBase:
-    _[5..25] {.adr.}: uint32
 makeBitStruct uint32, ArrayStride:
     stride[0..7]: uint32
 
@@ -175,7 +173,7 @@ type
         vatB: VatB
         vatC: VatC
     VertexArray = object
-        base: ArrayBase
+        base: HwPtr
         stride: ArrayStride
 
 proc read[T](arr: VertexArray, idx: uint32, offset = 0'u32): T =
@@ -260,7 +258,7 @@ proc cpWrite*(adr, val: uint32) =
         modifyFmt 0x80, VatB, vertexFormats[fmtIdx].vatB
     of 0x90..0x97:
         modifyFmt 0x90, VatC, vertexFormats[fmtIdx].vatC
-    of 0xA0..0xAF: vertexArrays[VertexArrayKind(adr - 0xA0)].base = ArrayBase val
+    of 0xA0..0xAF: vertexArrays[VertexArrayKind(adr - 0xA0)].base = HwPtr val
     of 0xB0..0xBF: vertexArrays[VertexArrayKind(adr - 0xB0)].stride = ArrayStride val
     else: echo &"unknown cp write {adr:04X} {val:08X}"
 
@@ -512,7 +510,7 @@ proc run(data: openArray[byte],
                         doAssert not inCommandList, "recursive command list"
                         ensureLength 8
                         let
-                            adr = ArrayBase(read32()).adr
+                            adr = HwPtr(read32()).adr
                             size = read32()
                         cpLog &"call disp list {adr:08X} {size:08X}"
 

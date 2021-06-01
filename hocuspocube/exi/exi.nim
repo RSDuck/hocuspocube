@@ -45,9 +45,6 @@ makeBitStruct uint32, ExiCr:
     transferKind[2..3] {.mutable.}: ExiTransferKind
     tlen[4..5] {.mutable.}: uint32
 
-makeBitStruct uint32, DmaPtr:
-    _[5..25] {.val.}: uint32
-
 template inbytes*(): untyped =
     max(response.len, input.len)
 
@@ -60,7 +57,7 @@ type
     ExiChannel = object
         csr: ExiCsr
         cr: ExiCr
-        dmaStart, dmaLen: DmaPtr
+        dmaStart, dmaLen: HwPtr
         data: uint32
         device: ExiDevice
 
@@ -134,10 +131,10 @@ of exiCsr, 0x00, 4, 3, 20:
                     channels[idx].device.select(channels[idx].device, true)
 of exiDmaMar, 0x04, 4, 3, 20:
     read: uint32 channels[idx].dmaStart
-    write: channels[idx].dmaStart.val = val
+    write: channels[idx].dmaStart.adr = val
 of exiDmaLen, 0x08, 4, 3, 20:
     read: uint32 channels[idx].dmaLen
-    write: channels[idx].dmaLen.val = val
+    write: channels[idx].dmaLen.adr = val
 of exiCr, 0x0C, 4, 3, 20:
     read: uint32 channels[idx].cr
     write:
@@ -153,8 +150,8 @@ of exiCr, 0x0C, 4, 3, 20:
                 assert channels[idx].cr.transferKind in {exiTransferRead, exiTransferWrite}
 
                 let
-                    startAdr = channels[idx].dmaStart.val
-                    endAdr = startAdr + channels[idx].dmaLen.val - 1
+                    startAdr = channels[idx].dmaStart.adr
+                    endAdr = startAdr + channels[idx].dmaLen.adr - 1
 
                 exiLog &"exi {idx} dma {channels[idx].cr.transferKind} from {startAdr:08X} to {endAdr:08X} {gekkoState.pc:08X}"
 

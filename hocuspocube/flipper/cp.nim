@@ -1,4 +1,5 @@
 import
+    strformat,
     ../util/[ioregs, bitstruct],
 
     ../gekko/gekko,
@@ -18,20 +19,18 @@ makeBitStruct uint16, Cr:
     fifoUnderflowIntmsk[2] {.mutable.}: bool
     fifoOverflowIntmsk[3] {.mutable.}: bool
     gpLink[4] {.mutable.}: bool # enable linking of fifo and cp
-    bpEnable[5]: bool # enable breakpoint
+    bpEnable[5] {.mutable.}: bool # enable breakpoint
 
 makeBitStruct uint16, ClearRegister:
     clearOverflow[0]: bool
     clearUnderflow[1]: bool
 
-makeBitStruct uint32, FifoPtr:
-    _[5..25] {.adr.}: uint32
-
 var
-    fifoBase, fifoEnd: FifoPtr
-    fifoHighWatermark, fifoLowWatermark: FifoPtr # those actually aren't pointers
-    fifoReadWriteDistance: FifoPtr
-    fifoWritePointer, fifoReadPointer: FifoPtr
+    fifoBase, fifoEnd: HwPtr
+    fifoHighWatermark, fifoLowWatermark: HwPtr # those actually aren't pointers
+    fifoReadWriteDistance: HwPtr
+    fifoWritePointer, fifoReadPointer: HwPtr
+    fifoBreakPoint: HwPtr
 
     sr: Sr
     cr: Cr
@@ -41,6 +40,13 @@ var
 proc setIdleByFifoSetup() =
     sr.readIdle = fifoWritePointer.adr == fifoReadPointer.adr
     sr.commandIdle = fifoWritePointer.adr == fifoReadPointer.adr
+
+proc updateInt() =
+    setExtInt extintCp, sr.bpHit and cr.cpMask
+
+proc setBreakPointByFifoSetup() =
+    sr.bpHit = cr.bpEnable and fifoBreakPoint == fifoReadPointer
+    updateInt()
 
 # who ever came up with the idea to swap the upper and lower 16-bit halves?
 func swapHalves(x: uint32): uint32 =
@@ -54,6 +60,8 @@ of cpCr, 0x2, 2:
     read: uint16 cr
     write:
         cr.mutable = val
+        setBreakPointByFifoSetup()
+        updateInt()
 of cpClear, 0x4, 2:
     read: 0'u16
     write: discard
@@ -76,12 +84,21 @@ of cpReadPointer, 0x34, 4:
     read: swapHalves(uint32 fifoReadPointer)
     write:
         fifoReadPointer.adr = swapHalves(val)
+        echo &"set fifo read ptr {fifoReadPointer.adr:08X}"
         setIdleByFifoSetup()
+        setBreakPointByFifoSetup()
 of cpWritePointer, 0x38, 4:
     read: swapHalves(uint32 fifoWritePointer)
     write:
         fifoWritePointer.adr = swapHalves(val)
+        echo &"set fifo write ptr {fifoWritePointer.adr:08X}"
         setIdleByFifoSetup()
+of cpBreakPoint, 0x3C, 4:
+    read: swapHalves(uint32 fifoBreakPoint)
+    write:
+        fifoBreakPoint.adr = swapHalves(val)
+        echo &"set fifo breakpoint {fifoBreakPoint.adr:08X}"
+        setBreakPointByFifoSetup()
 
 proc cpNotifyFifoBurst*(data: openArray[uint32]): bool =
     if cr.gpLink:
@@ -100,6 +117,8 @@ proc cpNotifyFifoBurst*(data: openArray[uint32]): bool =
         fifoReadWriteDistance.adr = fifoReadWriteDistance.adr + uint32(data.len) * 4
         # TODO: check watermarks and generate interrupts
 
+        assert fifoReadWriteDistance.adr < fifoHighWatermark.adr, &"dist {fifoReadWriteDistance.adr:08X} watermark {fifoHighWatermark.adr}"
+
         true
     else:
         echo "fifo burst with gp link disabled"
@@ -112,10 +131,28 @@ proc cpRun*() =
             sr.commandIdle = true
             return
 
+        # check whether the read pointer will hit the break point
+        #[if cr.bpEnable:
+            sr.bpHit =
+                if fifoWritePointer.adr < fifoReadPointer.adr:
+                    # wrap around
+                    (fifoBreakPoint.adr >= fifoReadPointer.adr and
+                        fifoBreakPoint.adr <= fifoEnd.adr) or
+                    (fifoBreakPoint.adr >= fifoBase.adr and
+                        fifoBreakPoint.adr <= fifoWritePointer.adr)
+                else:
+                    fifoBreakPoint.adr >= fifoReadPointer.adr and
+                        fifoBreakPoint.adr <= fifoWritePointer.adr
+        else:
+            sr.bpHit = false
+        updateInt()
+
+        let lastAdr = if sr.bpHit: fifoBreakPoint.adr else: fifoWritePointer.adr
+        #echo &"cp run {fifoWritePointer.adr:08X} {fifoReadPointer.adr:08X} {lastAdr:08X} {sr.bpHit} {cr.bpEnable} {cr.cpMask}"]#
+
         if not cr.gpLink:
             sr.readIdle = false
             sr.commandIdle = false
-            echo "gp link disabled"
 
             if fifoWritePointer.adr < fifoReadPointer.adr:
                 # data wraps around
@@ -125,6 +162,8 @@ proc cpRun*() =
                 cmdlistParser.queueData(toOpenArray(mainRAM, fifoReadPointer.adr, fifoWritePointer.adr - 1))
 
         cmdlistParser.run()
+        #if not sr.bpHit:
+        #    cmdlistParser.run()
 
         if not cmdListParser.hasData():
             sr.readIdle = true

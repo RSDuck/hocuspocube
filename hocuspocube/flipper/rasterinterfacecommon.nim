@@ -1,5 +1,7 @@
 import
-    strformat
+    strformat,
+    
+    bpcommon
 
 # here goes everything to be used by the backend
 
@@ -66,36 +68,6 @@ type
         shaderStageFragment
         shaderStageGeometry
 
-    CompareFunction* = enum
-        compareNever
-        compareLess
-        compareEqual
-        compareLequal
-        compareGreater
-        compareNequal
-        compareGequal
-        compareAlways
-    
-    CullFace* = enum
-        cullNone
-        cullFront
-        cullBack
-        cullAll
-
-    BlendOp* = enum
-        blendAdd
-        blendSub
-
-    BlendFactor* = enum
-        blendFactorZero
-        blendFactorOne
-        blendFactorSrcColor
-        blendFactorInvSrcColor
-        blendFactorSrcAlpha
-        blendFactorInvSrcAlpha
-        blendFactorDstAlpha
-        blendFactorInvDstAlpha
-
     TextureFormat* = enum
         texfmtI8
         texfmtL8
@@ -108,24 +80,6 @@ type
     NativeTexture* = ref object of RootObj
         width*, height*, miplevels*: int
         fmt*: TextureFormat
-
-    TextureWrapMode* = enum
-        textureWrapClamp
-        textureWrapRepeat
-        textureWrapMirror
-        textureWrapUnused
-    TextureMagFilter* = enum
-        textureMagFilterNear
-        textureMagFilterLinear
-    TextureMinFilter* = enum
-        textureMinFilterNear
-        textureMinFilterNearMipNear
-        textureMinFilterNearMipLin
-        textureMinFilterReserved1
-        textureMinFilterLin
-        textureMinFilterLinMipNear
-        textureMinFilterLinMipLin
-        textureMinFilterReserved2
 
     NativeSampler* = ref object of RootObj
         wrapS*, wrapT*: TextureWrapMode

@@ -92,6 +92,9 @@ func writeProduct*(state; val: int64) {.inline.} =
     state.writeReg dspRegPs2, cast[uint16](val shr 32)
     state.writeReg dspRegPc1, 0
 
+# dsp address increment/decrement
+# figured out by kiesel-stein and minified by Mylek
+# https://forums.dolphin-emu.org/Thread-patch-dsp-lle-faster-masked-math?page=6
 func incAdr*(adr, wrap: uint16): uint16 =
     let
         adr = uint32 adr

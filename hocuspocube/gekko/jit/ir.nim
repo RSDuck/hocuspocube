@@ -99,7 +99,18 @@ type
         irInstrFSwizzleD00 = "swizzlefd00"
         irInstrFSwizzleD11 = "swizzlefd11"
 
-        irInstrFMergeD = "mergefd"
+        irInstrFSwizzleS00 = "swizzlefs00"
+        irInstrFSwizzleS11 = "swizzlefs11"
+
+        irInstrFMergeD00 = "mergefd00"
+        irInstrFMergeD01 = "mergefd01"
+        irInstrFMergeD10 = "mergefd10"
+        irInstrFMergeD11 = "mergefd11"
+
+        irInstrFMergeS00 = "mergefs00"
+        irInstrFMergeS01 = "mergefs01"
+        irInstrFMergeS10 = "mergefs10"
+        irInstrFMergeS11 = "mergefs11"
 
         irInstrCvtsd2ss = "cvtsd2ss"
         irInstrCvtss2sd = "cvtss2sd"
@@ -108,38 +119,71 @@ type
         irInstrCvtps2pd = "cvtps2pd"
 
         irInstrCvtsd2intTrunc = "cvtsd2intTrunc"
+        irInstrCvtss2intTrunc = "cvtss2intTrunc"
 
         irInstrFRessd = "fressd"
         irInstrFRsqrtsd = "frsqrtsd"
 
+        irInstrFResss = "fresss"
+        irInstrFRsqrtss = "frsqrtss"
+
         irInstrFRespd = "frespd"
         irInstrFRsqrtpd = "frsqrtpd"
 
-        irInstrFNegsd = "fnegsd"
-        irInstrFAbssd = "fnegsd"
+        irInstrFResps = "fresps"
+        irInstrFRsqrtps = "frsqrtps"
 
-        irInstrFNegpd = "fnegsd"
-        irInstrFAbspd = "fnegsd"
+        irInstrFNegsd = "fnegsd"
+        irInstrFAbssd = "fabssd"
+
+        irInstrFNegss = "fnegss"
+        irInstrFAbsss = "fabsss"
+
+        irInstrFNegpd = "fnegpd"
+        irInstrFAbspd = "fabspd"
+
+        irInstrFNegps = "fnegps"
+        irInstrFAbsps = "fabsps"
 
         irInstrFAddsd = "faddsd"
         irInstrFSubsd = "fsubsd"
         irInstrFMulsd = "fmulsd"
         irInstrFDivsd = "fdivsd"
 
+        irInstrFAddss = "faddss"
+        irInstrFSubss = "fsubss"
+        irInstrFMulss = "fmulss"
+        irInstrFDivss = "fdivss"
+
         irInstrFAddpd = "faddpd"
         irInstrFSubpd = "fsubpd"
         irInstrFMulpd = "fmulpd"
         irInstrFDivpd = "fdivpd"
+
+        irInstrFAddps = "faddpds"
+        irInstrFSubps = "fsubpds"
+        irInstrFMulps = "fmulpds"
+        irInstrFDivps = "fdivpds"
 
         irInstrFMaddsd = "fmaddsd"
         irInstrFMsubsd = "fmsubsd"
         irInstrFNmaddsd = "fnmaddsd"
         irInstrFNmsubsd = "fnmsubsd"
 
+        irInstrFMaddss = "fmaddss"
+        irInstrFMsubss = "fmsubss"
+        irInstrFNmaddss = "fnmaddss"
+        irInstrFNmsubss = "fnmsubss"
+
         irInstrFMaddpd = "fmaddpd"
         irInstrFMsubpd = "fmsubpd"
         irInstrFNmaddpd = "fnmaddpd"
         irInstrFNmsubpd = "fnmsubpd"
+
+        irInstrFMaddps = "fmaddps"
+        irInstrFMsubps = "fmsubps"
+        irInstrFNmaddps = "fnmaddps"
+        irInstrFNmsubps = "fnmsubps"
 
         irInstrCmpEqualFsd = "cmpfeq"
         irInstrCmpGreaterFsd = "cmpfgt"
@@ -173,16 +217,25 @@ const
         irInstrFSwizzleD00,
         irInstrFSwizzleD11,
 
+        irInstrFSwizzleS00,
+        irInstrFSwizzleS11,
+
         irInstrCvtsd2ss, irInstrCvtss2sd,
         irInstrCvtpd2ps, irInstrCvtps2pd,
 
         irInstrCvtsd2intTrunc,
-        
+        irInstrCvtss2intTrunc,
+
         irInstrFRessd, irInstrFRsqrtsd,
         irInstrFRespd, irInstrFRsqrtpd,
+        irInstrFResss, irInstrFRsqrtss,
+        irInstrFResps, irInstrFRsqrtps,
 
         irInstrFNegsd, irInstrFAbssd,
-        irInstrFNegpd, irInstrFAbspd}
+        irInstrFNegpd, irInstrFAbspd,
+
+        irInstrFNegss, irInstrFAbsss,
+        irInstrFNegps, irInstrFAbsps}
     BiOpInstrs* = {        
         irInstrIAdd, irInstrISub,
 
@@ -208,10 +261,13 @@ const
 
         irInstrLoadFsq, irInstrLoadFpq,
 
-        irInstrFMergeD,
+        irInstrFMergeD00, irInstrFMergeD01, irInstrFMergeD10, irInstrFMergeD11,
+        irInstrFMergeS00, irInstrFMergeS01, irInstrFMergeS10, irInstrFMergeS11,
 
         irInstrFAddsd, irInstrFSubsd, irInstrFMulsd, irInstrFDivsd,
         irInstrFAddpd, irInstrFSubpd, irInstrFMulpd, irInstrFDivpd,
+        irInstrFAddss, irInstrFSubss, irInstrFMulss, irInstrFDivss,
+        irInstrFAddps, irInstrFSubps, irInstrFMulps, irInstrFDivps,
 
         irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedsd}
     TriOpInstrs* = {
@@ -225,7 +281,10 @@ const
         irInstrBranch,
 
         irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
-        irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd}
+        irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd,
+
+        irInstrFMaddss, irInstrFMsubss, irInstrFNmaddss, irInstrFNmsubss,
+        irInstrFMaddps, irInstrFMsubps, irInstrFNmaddps, irInstrFNmsubps}
 
     ResultlessOps* = {
         irInstrStoreReg,
@@ -251,13 +310,22 @@ const
         irInstrBranch, irInstrSyscall, irInstrCallInterpreter}
 
     FpScalarOps = {
-        irInstrStoreFsd, irInstrCvtsd2ss, irInstrFRessd, irInstrFRsqrtsd,
-        irInstrFSwizzleD00, irInstrCvtsd2intTrunc, irInstrFNegsd, irInstrFAbssd,
+        irInstrStoreFsd, irInstrStoreFss,
+        irInstrFSwizzleD00, irInstrFMergeD00,
+        irInstrFSwizzleS00, irInstrFMergeS00,
+        irInstrFRessd, irInstrFRsqrtsd,
+        irInstrFResss, irInstrFRsqrtss,
+        irInstrCvtsd2ss, irInstrCvtss2sd,
+        irInstrCvtsd2intTrunc, irInstrCvtss2intTrunc,
+        irInstrFNegsd, irInstrFAbssd,
+        irInstrFNegss, irInstrFAbsss,
         irInstrFAddsd, irInstrFSubsd, irInstrFMulsd, irInstrFDivsd,
+        irInstrFAddss, irInstrFSubss, irInstrFMulss, irInstrFDivss,
         irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
+        irInstrFMaddss, irInstrFMsubss, irInstrFNmaddss, irInstrFNmsubss,
         irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedSd}
     FpPairOps = {
-        irInstrFSwizzleD11,
+        irInstrFSwizzleD11, irInstrFMergeD11,
         irInstrCvtpd2ps, irInstrCvtps2pd,
         irInstrFRespd, irInstrFRsqrtpd,
         irInstrFNegpd, irInstrFAbspd,
@@ -341,6 +409,8 @@ type
         irSprNumPmc3
 
         irSprNumWpar
+        irSprNumDmaL
+        irSprNumDmaU
 
         irSprNumGqr0
         irSprNumGqr1
@@ -509,6 +579,10 @@ proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)
     instr.kind == irInstrLoadImmB and instr.immValB == imm
 
+proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint32): bool =
+    let instr = blk.getInstr(iref)
+    instr.kind == irInstrLoadImmI and instr.immValI == imm
+
 proc isImmValI*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint32] =
     let instr = blk.getInstr(iref)
     if instr.kind == irInstrLoadImmI:
@@ -604,6 +678,9 @@ proc floatOpts*(blk: IrBasicBlock) =
 
                 If no instruction depends on the upper part at all the swizzle/merge will be
                 be removed by dead code elimination.
+
+            - if a value is stored as a pair and merged with the previous value in memory,
+                we can also just use a non-pair store
     ]#
     var
         pairLoads: seq[IrInstrRef]
@@ -613,17 +690,44 @@ proc floatOpts*(blk: IrBasicBlock) =
         case blk.getInstr(iref).kind
         of FpScalarOps:
             for source in msources blk.getInstr(iref):
-                while blk.getInstr(source).kind in {irInstrFSwizzleD00, irInstrFMergeD}:
-                    let instr = blk.getInstr(source)
-                    source = instr.source(if instr.kind == irInstrFSwizzleD00: 0 else: 1)
+                while blk.getInstr(source).kind in {irInstrFSwizzleD00, irInstrFMergeD00, irInstrFMergeD01}:
+                    source = blk.getInstr(source).source(0)
         of irInstrLoadFprPair:
             pairLoads.add iref
+        of irInstrStoreFprPair:
+            block replaced:
+                let
+                    instr = blk.getInstr(iref)
+                    srcInstr = blk.getInstr(instr.ctxStoreSrc) 
+                if srcInstr.kind == irInstrFMergeD01:
+                    let srcSrcInstr = blk.getInstr(srcInstr.source(1))
+                    if srcSrcInstr.kind == irInstrLoadFprPair and srcSrcInstr.ctxLoadIdx == instr.ctxStoreIdx:
+                        blk.getInstr(iref) = IrInstr(kind: irInstrStoreFpr, ctxStoreIdx: instr.ctxStoreIdx, ctxStoreSrc: instr.ctxStoreSrc)
+                        break replaced
+
+                pairLoadUpperUsed.setBit(int(instr.ctxStoreSrc))
         of FpPairOps:
             for source in sources blk.getInstr(iref):
                 pairLoadUpperUsed.setBit(int(source))
-        of irInstrFMergeD:
+        of irInstrFMergeD01:
+            pairLoadUpperUsed.setBit(int(blk.getInstr(iref).source(1)))
+        of irInstrFMergeD10:
             pairLoadUpperUsed.setBit(int(blk.getInstr(iref).source(0)))
         else: discard
+#[
+        let instr = blk.getInstr(iref)
+        if instr.kind in {irInstrCvtsd2ss, irInstrCvtps2pd}:
+            let
+                arithref = instr.source(0)
+                arithinstr = blk.getInstr(arithref)
+
+            block isNotSingle:
+                for src in sources arithinstr:
+                    let srcInstr = blk.getInstr(src)
+                    if srcInstr.kind notin {irInstrCvtss2sd, irInstrCvtps2pd}:
+                        break isNotSingle
+
+                # replace operation by a single operation]#
 
     for pairLoad in pairLoads:
         if not pairLoadUpperUsed[int(pairLoad)]:

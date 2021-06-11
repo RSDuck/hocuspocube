@@ -89,7 +89,14 @@ proc addzex*(state; d, a, oe, rc: uint32) =
     handleRc d
 
 proc divwx*(state; d, a, b, oe, rc: uint32) =
-    if r(b) == 0 or (r(a) == 0x8000_0000'u32 and r(b) == 0xFFFF_FFFF'u32):
+    if r(b) == 0:
+        r(d) = 0
+
+        if oe != 0:
+            state.updateOv true
+    elif r(a) == cast[uint32](low(int32)) and r(b) == cast[uint32](-1'i32):
+        r(d) = cast[uint32](low(int32))
+
         if oe != 0:
             state.updateOv true
     else:
@@ -100,6 +107,8 @@ proc divwx*(state; d, a, b, oe, rc: uint32) =
 
 proc divwux*(state; d, a, b, oe, rc: uint32) =
     if r(b) == 0:
+        r(d) = 0
+
         if oe != 0'u32:
             state.updateOv true
     else:

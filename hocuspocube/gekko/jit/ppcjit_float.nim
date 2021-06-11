@@ -513,7 +513,7 @@ proc ps_sum0*(builder; d, a, b, c, rc: uint32) =
             frc = builder.loadfreg(c)
 
             sumpart = builder.biop(irInstrFAddsd, fra, builder.unop(irInstrFSwizzleD11, frb))
-            merged = builder.biop(irInstrFMergeD, frc, sumpart)
+            merged = builder.biop(irInstrFMergeD01, sumpart, frc)
 
         builder.storefregp d, merged
     builder.regs.floatInstr = true
@@ -528,7 +528,7 @@ proc ps_sum1*(builder; d, a, b, c, rc: uint32) =
             frc = builder.loadfreg(c)
 
             sumpart = builder.biop(irInstrFAddpd, builder.unop(irInstrFSwizzleD00, fra), frb)
-            merged = builder.biop(irInstrFMergeD, sumpart, frc)
+            merged = builder.biop(irInstrFMergeD01, frc, sumpart)
 
         builder.storefregp d, merged
     builder.regs.floatInstr = true
@@ -611,9 +611,7 @@ proc ps_merge00*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD,
-                builder.unop(irInstrFSwizzleD00, frb),
-                fra)
+            val = builder.biop(irInstrFMergeD00, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -626,7 +624,7 @@ proc ps_merge01*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD, frb, fra)
+            val = builder.biop(irInstrFMergeD01, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -639,9 +637,7 @@ proc ps_merge10*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD,
-                builder.unop(irInstrFSwizzleD00, frb),
-                builder.unop(irInstrFSwizzleD11, fra))
+            val = builder.biop(irInstrFMergeD10, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -654,9 +650,7 @@ proc ps_merge11*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD,
-                frb,
-                builder.unop(irInstrFSwizzleD11, fra))
+            val = builder.biop(irInstrFMergeD11, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true

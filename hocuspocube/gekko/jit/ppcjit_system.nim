@@ -99,6 +99,10 @@ proc mfspr*(builder; d, spr: uint32) =
                 let n = n - 536
                 (if (n and 1) == 0: irSprNumDBatU0 else: irSprNumDBatL0).succ(int(n shr 1)).uint32
             of 912..919: irSprNumGqr0.succ(int n - 912).uint32
+            of 920: irSprNumHid2.uint32
+            of 921: irSprNumWpar.uint32
+            of 922: irSprNumDmaU.uint32
+            of 923: irSprNumDmaL.uint32
             of 936, 952: irSprNumMmcr0.uint32
             of 940, 956: irSprNumMmcr1.uint32
             of 953..954: irSprNumPmc0.succ(int n - 953).uint32
@@ -107,8 +111,6 @@ proc mfspr*(builder; d, spr: uint32) =
             of 941..942: irSprNumPmc2.succ(int n - 957).uint32
             of 1008: irSprNumHid0.uint32
             of 1009: irSprNumHid1.uint32
-            of 920: irSprNumHid2.uint32
-            of 921: irSprNumWpar.uint32
             of 1017: irSprNumL2cr.uint32
             else: raiseAssert(&"unimplemented {n}")))
 
@@ -177,14 +179,16 @@ proc mtspr*(builder; d, spr: uint32) =
             discard builder.storectx(irInstrStoreSpr,
                 (if (n and 1) == 0: irSprNumDBatU0 else: irSprNumDBatL0).succ(int(n shr 1)).uint32, rd)
         of 912..919: discard builder.storectx(irInstrStoreSpr, irSprNumGqr0.succ(int n - 912).uint32, rd)
+        of 920: discard builder.storectx(irInstrStoreSpr, irSprNumHid2.uint32, rd)
+        of 921: discard builder.storectx(irInstrStoreSpr, irSprNumWpar.uint32, rd)
+        of 922: discard builder.storectx(irInstrStoreSpr, irSprNumDmaU.uint32, rd)
+        of 923: discard builder.storectx(irInstrStoreSpr, irSprNumDmaL.uint32, rd)
         of 952: discard builder.storectx(irInstrStoreSpr, irSprNumMmcr0.uint32, rd)
         of 956: discard builder.storectx(irInstrStoreSpr, irSprNumMmcr1.uint32, rd)
         of 953..954: discard builder.storectx(irInstrStoreSpr, irSprNumPmc0.succ(int n - 953).uint32, rd)
         of 957..958: discard builder.storectx(irInstrStoreSpr, irSprNumPmc2.succ(int n - 957).uint32, rd)
         of 1008: discard builder.storectx(irInstrStoreSpr, irSprNumHid0.uint32, rd)
         of 1009: discard builder.storectx(irInstrStoreSpr, irSprNumHid1.uint32, rd)
-        of 920: discard builder.storectx(irInstrStoreSpr, irSprNumHid2.uint32, rd)
-        of 921: discard builder.storectx(irInstrStoreSpr, irSprNumWpar.uint32, rd)
         of 1017: discard builder.storectx(irInstrStoreSpr, irSprNumL2cr.uint32, rd)
         else: raiseAssert(&"unknown spr num {n}")
 

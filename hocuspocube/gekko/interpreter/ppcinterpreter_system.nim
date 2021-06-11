@@ -173,34 +173,8 @@ proc mtspr*(state; d, spr: uint32) =
         of 912..919: state.gqr[n - 912] = Gqr r(d)
         of 920: state.hid2.mutable = r(d)
         of 921: state.setWpar(r(d))
-        of 922:
-            state.dmaU = DmaU r(d)
-        of 923:
-            state.dmaL = DmaL r(d)
-
-            if state.hid2.lce:
-                if state.dmaL.flush:
-                    # nothing too flush, because we're soo fast
-                    state.dmaL.flush = false
-                if state.dmaL.trigger:
-                    # do DMA immediately!
-                    state.dmaL.trigger = false
-
-                    let cacheLines =
-                        if state.dmaL.lenLo == 0 and state.dmaU.lenHi == 0:
-                            128'u32
-                        else:
-                            state.dmaL.lenLo or (state.dmaU.lenHi shl 2)
-                    echo &"dma {state.dmaL.load} lc: {state.dmaL.lcAdr:08X} mem: {state.dmaU.memAdr:08X} {cacheLines} lines {gekkoState.pc:08X} {gekkoState.lr:08X}"
-
-                    # we currently don't check if lcAdr is really in locked cache
-                    # bad!
-                    if state.dmaL.load:
-                        for i in 0..<cacheLines*4:
-                            state.writeMemory[:uint64](state.dmaL.lcAdr + i * 8, state.readMemory[:uint64](state.dmaU.memAdr + i * 8))
-                    else:
-                        for i in 0..<cacheLines*4:
-                            state.writeMemory[:uint64](state.dmaU.memAdr + i * 8, state.readMemory[:uint64](state.dmaL.lcAdr + i * 8))
+        of 922: state.dmaU = DmaU r(d)
+        of 923: state.setDmaL(r(d))
         of 1017: state.l2cr = L2Cr r(d)
         of 952: state.mmcr0 = Mmcr0 r(d)
         of 956: state.mmcr1 = Mmcr1 r(d)

@@ -6,24 +6,16 @@ import
 using builder: var IrBlockBuilder[PpcIrRegState]
 
 proc calcAdrImm(builder; a, imm: uint32, update: bool): IrInstrRef =
-    result =
-        (if not update and a == 0:
-            builder.imm(signExtend(imm, 16))
-        else:
-            builder.biop(irInstrIAdd, builder.loadreg(a), builder.imm(signExtend(imm, 16))))
-
-    if update:
-        builder.storereg a, result
+    if not update and a == 0:
+        builder.imm(signExtend(imm, 16))
+    else:
+        builder.biop(irInstrIAdd, builder.loadreg(a), builder.imm(signExtend(imm, 16)))
 
 proc calcAdrImmQuant(builder; a, imm: uint32, update: bool): IrInstrRef =
-    result =
-        (if not update and a == 0:
-            builder.imm(signExtend(imm, 12))
-        else:
-            builder.biop(irInstrIAdd, builder.loadreg(a), builder.imm(signExtend(imm, 12))))
-
-    if update:
-        builder.storereg a, result
+    if not update and a == 0:
+        builder.imm(signExtend(imm, 12))
+    else:
+        builder.biop(irInstrIAdd, builder.loadreg(a), builder.imm(signExtend(imm, 12)))
 
 proc calcAdr(builder; a, b: uint32, update: bool): IrInstrRef =
     result = (if not update and a == 0:
@@ -31,8 +23,29 @@ proc calcAdr(builder; a, b: uint32, update: bool): IrInstrRef =
             else:
                 builder.biop(irInstrIAdd, builder.loadreg(a), builder.loadreg(b)))
 
+proc intload(builder; loadKind: IrInstrKind, d, a, b: uint32, update: bool) =
+    let adr = builder.calcAdr(a, b, update)
+    builder.storereg d, builder.unop(loadKind, adr)
     if update:
-        builder.storereg a, result
+        builder.storereg a, adr
+
+proc intloadImm(builder; loadKind: IrInstrKind, d, a, imm: uint32, update: bool) =
+    let adr = builder.calcAdrImm(a, imm, update)
+    builder.storereg d, builder.unop(loadKind, adr)
+    if update:
+        builder.storereg a, adr
+
+proc intstore(builder; storekind: IrInstrKind, s, a, b: uint32, update: bool) =
+    let adr = builder.calcAdr(a, b, update)
+    discard builder.biop(storekind, adr, builder.loadreg(s))
+    if update:
+        builder.storereg a, adr
+
+proc intstoreimm(builder; storekind: IrInstrKind, s, a, imm: uint32, update: bool) =
+    let adr = builder.calcAdrImm(a, imm, update)
+    discard builder.biop(storekind, adr, builder.loadreg(s))
+    if update:
+        builder.storereg a, adr
 
 const
     interpretLoadStore = false
@@ -52,169 +65,169 @@ proc lbz*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoads8:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lbz)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU8, builder.calcAdrImm(a, imm, false))
+        builder.intloadImm(irInstrLoadU8, d, a, imm, false)
 
 proc lbzu*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoads8 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lbzu)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU8, builder.calcAdrImm(a, imm, true))
+        builder.intloadImm(irInstrLoadU8, d, a, imm, true)
 
 proc lbzux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoads8 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lbzux)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU8, builder.calcAdr(a, b, true))
+        builder.intload(irInstrLoadU8, d, a, b, true)
 
 proc lbzx*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoads8:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lbzx)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU8, builder.calcAdr(a, b, false))
+        builder.intload(irInstrLoadU8, d, a, b, false)
 
 proc lha*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lha)
     else:
-        builder.storereg d, builder.unop(irInstrLoadS16, builder.calcAdrImm(a, imm, false))
+        builder.intloadImm(irInstrLoadS16, d, a, imm, false)
 
 proc lhau*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhau)
     else:
-        builder.storereg d, builder.unop(irInstrLoadS16, builder.calcAdrImm(a, imm, true))
+        builder.intloadImm(irInstrLoadS16, d, a, imm, true)
 
 proc lhaux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhaux)
     else:
-        builder.storereg d, builder.unop(irInstrLoadS16, builder.calcAdr(a, b, true))
+        builder.intload(irInstrLoadS16, d, a, b, true)
 
 proc lhax*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhax)
     else:
-        builder.storereg d, builder.unop(irInstrLoadS16, builder.calcAdr(a, b, false))
+        builder.intload(irInstrLoadS16, d, a, b, false)
 
 proc lhz*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsU16:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhz)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU16, builder.calcAdrImm(a, imm, false))
+        builder.intloadImm(irInstrLoadU16, d, a, imm, false)
 
 proc lhzu*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsU16 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhzu)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU16, builder.calcAdrImm(a, imm, true))
+        builder.intloadImm(irInstrLoadU16, d, a, imm, true)
 
 proc lhzux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsU16 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhzux)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU16, builder.calcAdr(a, b, true))
+        builder.intload(irInstrLoadU16, d, a, b, true)
 
 proc lhzx*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsU16:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhzx)
     else:
-        builder.storereg d, builder.unop(irInstrLoadU16, builder.calcAdr(a, b, false))
+        builder.intload(irInstrLoadU16, d, a, b, false)
 
 proc lwz*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lwz)
     else:
-        builder.storereg d, builder.unop(irInstrLoad32, builder.calcAdrImm(a, imm, false))
+        builder.intloadImm(irInstrLoad32, d, a, imm, false)
 
 proc lwzu*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lwzu)
     else:
-        builder.storereg d, builder.unop(irInstrLoad32, builder.calcAdrImm(a, imm, true))
+        builder.intloadImm(irInstrLoad32, d, a, imm, true)
 
 proc lwzux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lwzux)
     else:
-        builder.storereg d, builder.unop(irInstrLoad32, builder.calcAdr(a, b, true))
+        builder.intload(irInstrLoad32, d, a, b, true)
 
 proc lwzx*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lwzx)
     else:
-        builder.storereg d, builder.unop(irInstrLoad32, builder.calcAdr(a, b, false))
+        builder.intload(irInstrLoad32, d, a, b, false)
 
 proc stb*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretStores:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stb)
     else:
-        discard builder.biop(irInstrStore8, builder.calcAdrImm(a, imm, false), builder.loadreg(s))
+        builder.intstoreimm(irInstrStore8, s, a, imm, false)
 
 proc stbu*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretStores or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stbu)
     else:
-        discard builder.biop(irInstrStore8, builder.calcAdrImm(a, imm, true), builder.loadreg(s))
+        builder.intstoreimm(irInstrStore8, s, a, imm, true)
 
 proc stbux*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretStores or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stbux)
     else:
-        discard builder.biop(irInstrStore8, builder.calcAdr(a, b, true), builder.loadreg(s))
+        builder.intstore(irInstrStore8, s, a, b, true)
 
 proc stbx*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretStores:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stbx)
     else:
-        discard builder.biop(irInstrStore8, builder.calcAdr(a, b, false), builder.loadreg(s))
+        builder.intstore(irInstrStore8, s, a, b, false)
 
 proc sth*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretStores:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.sth)
     else:
-        discard builder.biop(irInstrStore16, builder.calcAdrImm(a, imm, false), builder.loadreg(s))
+        builder.intstoreimm(irInstrStore16, s, a, imm, false)
 
 proc sthu*(builder; s, a, imm: uint32) =
-    when interpretLoadStore or interpretStores:
+    when interpretLoadStore or interpretStores or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.sthu)
     else:
-        discard builder.biop(irInstrStore16, builder.calcAdrImm(a, imm, true), builder.loadreg(s))
+        builder.intstoreimm(irInstrStore16, s, a, imm, true)
 
 proc sthux*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretStores or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.sthux)
     else:
-        discard builder.biop(irInstrStore16, builder.calcAdr(a, b, true), builder.loadreg(s))
+        builder.intstore(irInstrStore16, s, a, b, true)
 
 proc sthx*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretStores:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.sthx)
     else:
-        discard builder.biop(irInstrStore16, builder.calcAdr(a, b, false), builder.loadreg(s))
+        builder.intstore(irInstrStore16, s, a, b, false)
 
 proc stw*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretStores:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stw)
     else:
-        discard builder.biop(irInstrStore32, builder.calcAdrImm(a, imm, false), builder.loadreg(s))
+        builder.intstoreimm(irInstrStore32, s, a, imm, false)
 
 proc stwu*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretStores or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stwu)
     else:
-        discard builder.biop(irInstrStore32, builder.calcAdrImm(a, imm, true), builder.loadreg(s))
+        builder.intstoreimm(irInstrStore32, s, a, imm, true)
 
 proc stwux*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretStores or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stwux)
     else:
-        discard builder.biop(irInstrStore32, builder.calcAdr(a, b, true), builder.loadreg(s))
+        builder.intstore(irInstrStore32, s, a, b, true)
 
 proc stwx*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretStores:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stwx)
     else:
-        discard builder.biop(irInstrStore32, builder.calcAdr(a, b, false), builder.loadreg(s))
+        builder.intstore(irInstrStore32, s, a, b, false)
 
 proc lhbrx*(builder; d, a, b: uint32) =
     raiseAssert("unimplemented instr lhbrx")
@@ -273,91 +286,110 @@ proc lfd*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfd)
     else:
-        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdrImm(a, imm, false))
+        let adr = builder.calcAdrImm(a, imm, false)
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, adr)
     builder.regs.floatInstr = true
 
 proc lfdu*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfdu)
     else:
-        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdrImm(a, imm, true))
+        let adr = builder.calcAdrImm(a, imm, true)
+        builder.storereg a, adr
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, adr)
     builder.regs.floatInstr = true
 
 proc lfdux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfdux)
     else:
-        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdr(a, b, true))
+        let adr = builder.calcAdr(a, b, true)
+        builder.storereg a, adr
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, adr)
     builder.regs.floatInstr = true
 
 proc lfdx*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfdx)
     else:
-        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, builder.calcAdr(a, b, false))
+        let adr = builder.calcAdr(a, b, false)
+        builder.storefregLowOnly d, builder.unop(irInstrLoadFsd, adr)
     builder.regs.floatInstr = true
 
 proc lfs*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfs)
     else:
-        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdrImm(a, imm, false)))
+        let adr = builder.calcAdrImm(a, imm, false)
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, adr))
     builder.regs.floatInstr = true
 
 proc lfsu*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfsu)
     else:
-        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdrImm(a, imm, true)))
+        let adr = builder.calcAdrImm(a, imm, true)
+        builder.storereg a, adr
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, adr))
     builder.regs.floatInstr = true
 
 proc lfsux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfsux)
     else:
-        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdr(a, b, true)))
+        let adr = builder.calcAdr(a, b, true)
+        builder.storereg a, adr
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, adr))
     builder.regs.floatInstr = true
 
 proc lfsx*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lfsx)
     else:
-        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, builder.calcAdr(a, b, false)))
+        let adr = builder.calcAdr(a, b, false)
+        builder.storefregReplicate d, builder.expand(builder.unop(irInstrLoadFss, adr))
     builder.regs.floatInstr = true
 
 proc stfd*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfd)
     else:
-        discard builder.biop(irInstrStoreFsd, builder.calcAdrImm(a, imm, false), builder.loadfreg(s))
+        let adr = builder.calcAdrImm(a, imm, false)
+        discard builder.biop(irInstrStoreFsd, adr, builder.loadfreg(s))
     builder.regs.floatInstr = true
 
 proc stfdu*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfdu)
     else:
-        discard builder.biop(irInstrStoreFsd, builder.calcAdrImm(a, imm, true), builder.loadfreg(s))
+        let adr = builder.calcAdrImm(a, imm, true)
+        builder.storereg a, adr
+        discard builder.biop(irInstrStoreFsd, adr, builder.loadfreg(s))
     builder.regs.floatInstr = true
 
 proc stfdux*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfdux)
     else:
-        discard builder.biop(irInstrStoreFsd, builder.calcAdr(a, b, true), builder.loadfreg(s))
+        let adr = builder.calcAdr(a, b, true)
+        builder.storereg a, adr
+        discard builder.biop(irInstrStoreFsd, adr, builder.loadfreg(s))
     builder.regs.floatInstr = true
 
 proc stfdx*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfdx)
     else:
-        discard builder.biop(irInstrStoreFsd, builder.calcAdr(a, b, false), builder.loadfreg(s))
+        let adr = builder.calcAdr(a, b, false)
+        discard builder.biop(irInstrStoreFsd, adr, builder.loadfreg(s))
     builder.regs.floatInstr = true
 
 proc stfiwx*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfiwx)
     else:
-        discard builder.biop(irInstrStoreFss, builder.calcAdr(a, b, false), builder.loadfreg(s))
+        let adr = builder.calcAdr(a, b, false)
+        discard builder.biop(irInstrStoreFss, adr, builder.loadfreg(s))
     builder.regs.floatInstr = true
 
 proc stfs*(builder; s, a, imm: uint32) =
@@ -371,21 +403,26 @@ proc stfsu*(builder; s, a, imm: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfsu)
     else:
-        discard builder.biop(irInstrStoreFss, builder.calcAdrImm(a, imm, true), builder.unop(irInstrCvtsd2ss, builder.loadfreg(s)))
+        let adr = builder.calcAdrImm(a, imm, true)
+        builder.storereg a, adr
+        discard builder.biop(irInstrStoreFss, adr, builder.unop(irInstrCvtsd2ss, builder.loadfreg(s)))
     builder.regs.floatInstr = true
 
 proc stfsux*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfsux)
     else:
-        discard builder.biop(irInstrStoreFss, builder.calcAdr(a, b, true), builder.unop(irInstrCvtsd2ss, builder.loadfreg(s)))
+        let adr = builder.calcAdr(a, b, true)
+        builder.storereg a, adr
+        discard builder.biop(irInstrStoreFss, adr, builder.unop(irInstrCvtsd2ss, builder.loadfreg(s)))
     builder.regs.floatInstr = true
 
 proc stfsx*(builder; s, a, b: uint32) =
     when interpretLoadStore or interpretRegularFloatMem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.stfsx)
     else:
-        discard builder.biop(irInstrStoreFss, builder.calcAdr(a, b, false), builder.unop(irInstrCvtsd2ss, builder.loadfreg(s)))
+        let adr = builder.calcAdr(a, b, false)
+        discard builder.biop(irInstrStoreFss, adr, builder.unop(irInstrCvtsd2ss, builder.loadfreg(s)))
     builder.regs.floatInstr = true
 
 proc quantload(builder; adr: IrInstrRef, d, w, i: uint32) =

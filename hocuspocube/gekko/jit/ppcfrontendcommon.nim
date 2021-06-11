@@ -19,7 +19,7 @@ proc loadfreg*(builder: var IrBlockBuilder[PpcIrRegState], a: uint32): IrInstrRe
     builder.loadctx(irInstrLoadFprPair, a)
 
 proc storefregLowOnly*(builder: var IrBlockBuilder[PpcIrRegState], d: uint32, val: IrInstrRef) =
-    discard builder.storectx(irInstrStoreFprPair, d, builder.biop(irInstrFMergeD, builder.loadfreg(d), val))
+    discard builder.storectx(irInstrStoreFprPair, d, builder.biop(irInstrFMergeD01, val, builder.loadfreg(d)))
 
 proc storefregReplicate*(builder: var IrBlockBuilder[PpcIrRegState], d: uint32, val: IrInstrRef) =
     discard builder.storectx(irInstrStoreFprPair, d, builder.unop(irInstrFSwizzleD00, val))

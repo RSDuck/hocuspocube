@@ -85,6 +85,9 @@ proc handleExceptions*() =
         #echo &"taking interrupt to {gekkoState.pc:08X} from {oldPc:08X} {gekkoState.lr:08X}"
         break
 
+proc systemCall*(state: var PpcState) =
+    state.pendingExceptions.incl exceptionSystemCall
+
 proc setWpar*(state: var PpcState, val: uint32) =
     state.gatherpipeOffset = 0
     state.wpar.gbAddr = val
@@ -98,6 +101,33 @@ proc setHid0*(state: var PpcState, val: uint32) =
     if state.hid0.dcfi:
         state.hid0.dcfi = false
 
+proc setDmaL*(state: var PpcState, val: uint32) =
+    state.dmaL = DmaL val
+
+    if state.hid2.lce:
+        if state.dmaL.flush:
+            # nothing too flush, because we're soo fast
+            state.dmaL.flush = false
+        if state.dmaL.trigger:
+            # do DMA immediately!
+            state.dmaL.trigger = false
+
+            let cacheLines =
+                if state.dmaL.lenLo == 0 and state.dmaU.lenHi == 0:
+                    128'u32
+                else:
+                    state.dmaL.lenLo or (state.dmaU.lenHi shl 2)
+            #echo &"dma {state.dmaL.load} lc: {state.dmaL.lcAdr:08X} mem: {state.dmaU.memAdr:08X} {cacheLines} lines {gekkoState.pc:08X} {gekkoState.lr:08X}"
+
+            # we currently don't check if lcAdr is really in locked cache
+            # bad!
+            if state.dmaL.load:
+                for i in 0..<cacheLines*4:
+                    state.writeMemory[:uint64](state.dmaL.lcAdr + i * 8, state.readMemory[:uint64](state.dmaU.memAdr + i * 8))
+            else:
+                for i in 0..<cacheLines*4:
+                    state.writeMemory[:uint64](state.dmaU.memAdr + i * 8, state.readMemory[:uint64](state.dmaL.lcAdr + i * 8))
+
 proc stateStr*(): string =
     for i in 0..<32:
         result &= &"r{i}: {gekkoState.r[i]:08X}\n"
@@ -110,3 +140,4 @@ proc handleFException*(state: var PpcState): uint32 =
         1
     else:
         0
+    

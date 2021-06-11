@@ -108,7 +108,7 @@ proc decodeTextureRGBA8(dst, src: ptr UncheckedArray[byte], width, height: int) 
             ra = uint32(src[srcIdx])
             bg = uint32(src[srcIdx+16])
 
-        dst[dstIdx] = (ra shr 8) or (bg shl 8) or ((ra and 0xFF00'u32) shl 16)
+        dst[dstIdx] = (ra shl 24) or (bg shl 8) or ((ra and 0xFF00'u32) shr 8)
 
 proc decodeTextureC4IA8RGB565(dst, src: ptr UncheckedArray[byte], width, height: int, palette: ptr UncheckedArray[uint16]) =
     let dst = cast[ptr UncheckedArray[uint16]](dst)

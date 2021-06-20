@@ -771,7 +771,7 @@ proc foldConstants*(blk: IrBasicBlock) =
                     case instr.kind
                     of irInstrRol: rotateLeftBits(a.get, b.get)
                     of irInstrShl: a.get shl b.get
-                    of irInstrShrArith: cast[uint32](cast[int32](a.get) shl b.get)
+                    of irInstrShrArith: cast[uint32](cast[int32](a.get) shr b.get)
                     of irInstrShrLogic: a.get shr b.get
                     else: raiseAssert("shouldn't happen")
                 blk.getInstr(iref) = makeImm(imm)

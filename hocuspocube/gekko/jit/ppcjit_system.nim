@@ -2,7 +2,7 @@ import
     strformat,
     ../../util/bitstruct,
     ../ppcstate, ../ppccommon,
-    ir, ppcfrontendcommon,
+    ../../util/jit/ir, ppcfrontendcommon,
     fallbacks
 
 using builder: var IrBlockBuilder[PpcIrRegState]
@@ -13,7 +13,7 @@ proc eieio*(builder) =
     raiseAssert "instr not implemented eieio"
 
 proc isync*(builder) =
-    discard builder.triop(irInstrBranch, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
+    discard builder.triop(irInstrBranchPpc, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
     builder.regs.branch = true
 
 proc lwarx*(builder; d, a, b: uint32) =
@@ -23,7 +23,7 @@ proc stwcxdot*(builder; s, a, b: uint32) =
     raiseAssert "instr not implemented stwcxdot"
 
 proc sync*(builder) =
-    discard builder.triop(irInstrBranch, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
+    discard builder.triop(irInstrBranchPpc, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
     builder.regs.branch = true
 
 const
@@ -44,14 +44,14 @@ proc rfi*(builder) =
                 builder.biop(irInstrBitAnd, srr1, builder.imm(exceptionSavedMask)))
 
         discard builder.storectx(irInstrStoreSpr, irSprNumMsr.uint32, newMsr)
-        discard builder.triop(irInstrBranch, builder.imm(true), srr0, builder.imm(0))
+        discard builder.triop(irInstrBranchPpc, builder.imm(true), srr0, builder.imm(0))
     builder.regs.branch = true
 
 proc sc*(builder) =
     when interpretSystem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.sc)
     else:
-        discard builder.unop(irInstrSyscall, builder.imm(builder.regs.pc + 4))
+        discard builder.unop(irInstrSyscallPpc, builder.imm(builder.regs.pc + 4))
     builder.regs.branch = true
 
 proc tw*(builder; to, a, b: uint32) =

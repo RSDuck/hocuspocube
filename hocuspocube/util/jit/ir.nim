@@ -92,9 +92,8 @@ type
         irInstrStoreFsq = "strfsq"
         irInstrStoreFpq = "strfpq"
 
-        irInstrBranch = "b"
-
-        irInstrSyscall = "sc"
+        irInstrBranchPpc = "bppc"
+        irInstrSyscallPpc = "scppc"
 
         irInstrFSwizzleD00 = "swizzlefd00"
         irInstrFSwizzleD11 = "swizzlefd11"
@@ -190,7 +189,8 @@ type
         irInstrCmpLessFsd = "cmpflt"
         irInstrCmpUnorderedSd = "cmpfunord"
 
-        irInstrCallInterpreter = "interpreter"
+        irInstrCallInterpreterPpc = "interpretppc"
+        irInstrCallInterpreterDsp = "interpretdsp"
 
 const
     LoadImmInstrs* = {
@@ -212,7 +212,7 @@ const
         irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
         irInstrLoadFss, irInstrLoadFsd,
 
-        irInstrSyscall,
+        irInstrSyscallPpc,
 
         irInstrFSwizzleD00,
         irInstrFSwizzleD11,
@@ -278,7 +278,7 @@ const
 
         irInstrStoreFsq, irInstrStoreFpq,
 
-        irInstrBranch,
+        irInstrBranchPpc,
 
         irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
         irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd,
@@ -293,10 +293,11 @@ const
         irInstrStore8, irInstrStore16, irInstrStore32,
         irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
 
-        irInstrBranch,
-        irInstrSyscall,
+        irInstrBranchPpc,
+        irInstrSyscallPpc,
         
-        irInstrCallInterpreter}
+        irInstrCallInterpreterPpc,
+        irInstrCallInterpreterDsp}
     SideEffectOps = {
         irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer,
         irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
@@ -307,7 +308,8 @@ const
         irInstrStore8, irInstrStore16, irInstrStore32,
         irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
 
-        irInstrBranch, irInstrSyscall, irInstrCallInterpreter}
+        irInstrBranchPpc, irInstrSyscallPpc,
+        irInstrCallInterpreterPpc, irInstrCallInterpreterDsp}
 
     FpScalarOps = {
         irInstrStoreFsd, irInstrStoreFss,
@@ -341,16 +343,16 @@ type
             immValI*: uint32
         of irInstrLoadImmB:
             immValB*: bool
-        of irInstrCallInterpreter:
+        of irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
             instr*, pc*: uint32
             target*: pointer
         of CtxLoadInstrs:
             ctxLoadIdx*: uint32
         of CtxStoreInstrs:
             ctxStoreIdx*: uint32
-            ctxStoreSrc*: IrInstrRef
-        else:
-            srcRegular: array[3, IrInstrRef]
+        else: discard
+
+        srcRegular: array[3, IrInstrRef]
 
         lastRead*, numUses*: int32
 
@@ -443,7 +445,7 @@ const
 
 proc numSources*(instr: IrInstr): int =
     case instr.kind
-    of LoadImmInstrs, CtxLoadInstrs, irInstrCallInterpreter:
+    of LoadImmInstrs, CtxLoadInstrs, irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
         0
     of CtxStoreInstrs, UnopInstrs:
         1
@@ -454,24 +456,16 @@ proc numSources*(instr: IrInstr): int =
 
 proc source*(instr: var IrInstr, i: int): var IrInstrRef =
     assert i < instr.numSources
-    if instr.kind in CtxStoreInstrs:
-        return instr.ctxStoreSrc
-    else:
-        return instr.srcRegular[i]
+    return instr.srcRegular[i]
 
 proc source*(instr: IrInstr, i: int): IrInstrRef =
     assert i < instr.numSources
-    if instr.kind in CtxStoreInstrs:
-        return instr.ctxStoreSrc
-    else:
-        return instr.srcRegular[i]
+    return instr.srcRegular[i]
 
 iterator sources*(instr: IrInstr): IrInstrRef =
     case instr.kind
     of CtxLoadInstrs, LoadImmInstrs:
         discard
-    of CtxStoreInstrs:
-        yield instr.ctxStoreSrc
     else:
         var i = 0
         while i < instr.numSources:
@@ -482,8 +476,6 @@ iterator msources*(instr: var IrInstr): var IrInstrRef =
     case instr.kind
     of CtxLoadInstrs, LoadImmInstrs:
         discard
-    of CtxStoreInstrs:
-        yield instr.ctxStoreSrc
     else:
         var i = 0
         while i < instr.numSources:
@@ -539,7 +531,7 @@ proc storectx*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, idx: uint32
     of CtxStoreInstrs:
         result = builder.blk.allocInstr()
         builder.blk.instrs.add result
-        builder.blk.getInstr(result) = IrInstr(kind: kind, ctxStoreIdx: idx, ctxStoreSrc: val)
+        builder.blk.getInstr(result) = IrInstr(kind: kind, ctxStoreIdx: idx, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
     else:
         raiseAssert(&"{kind} is not a context store")
 
@@ -570,10 +562,20 @@ proc triop*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, a, b, c: IrIns
     else:
         raiseAssert("{kind} is not an unop")
 
-proc interpreter*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
+proc interpreter*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, instrcode, pc: uint32, target: pointer) =
     let instr = builder.blk.allocInstr()
     builder.blk.instrs.add instr
-    builder.blk.getInstr(instr) = IrInstr(kind: irInstrCallInterpreter, target: target, instr: instrcode, pc: pc)
+    case kind
+    of irInstrCallInterpreterDsp, irInstrCallInterpreterPpc:
+        builder.blk.getInstr(instr) = IrInstr(kind: kind, target: target, instr: instrcode, pc: pc)
+    else:
+        raiseAssert("undefined instr kind")
+
+proc interpreter*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
+    builder.interpreter(irInstrCallInterpreterPpc, instrcode, pc, target)
+
+proc interpretdsp*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
+    builder.interpreter(irInstrCallInterpreterDsp, instrcode, pc, target)
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)
@@ -632,7 +634,7 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
             iref = blk.instrs[i]
             instr = blk.getInstr(iref)
         case instr.kind
-        of irInstrCallInterpreter:
+        of irInstrCallInterpreterPpc:
             for i in 0..<32:
                 regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
                 crs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
@@ -644,11 +646,11 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
         of irInstrLoadFprPair:
             doLoad(fprs, blk, iref, instr.ctxLoadIdx)
         of irInstrStoreReg:
-            doStore(regs, blk, iref, instr.ctxStoreSrc, instr.ctxStoreIdx)
+            doStore(regs, blk, iref, instr.source(0), instr.ctxStoreIdx)
         of irInstrStoreCrBit:
-            doStore(crs, blk, iref, instr.ctxStoreSrc, instr.ctxStoreIdx)
+            doStore(crs, blk, iref, instr.source(0), instr.ctxStoreIdx)
         of irInstrStoreFprPair:
-            doStore(fprs, blk, iref, instr.ctxStoreSrc, instr.ctxStoreIdx)
+            doStore(fprs, blk, iref, instr.source(0), instr.ctxStoreIdx)
         of irInstrLoadSpr:
             if instr.ctxLoadIdx == irSprNumCr.uint32:
                 for i in 0..<32:
@@ -698,14 +700,14 @@ proc floatOpts*(blk: IrBasicBlock) =
             block replaced:
                 let
                     instr = blk.getInstr(iref)
-                    srcInstr = blk.getInstr(instr.ctxStoreSrc) 
+                    srcInstr = blk.getInstr(instr.source(0)) 
                 if srcInstr.kind == irInstrFMergeD01:
                     let srcSrcInstr = blk.getInstr(srcInstr.source(1))
                     if srcSrcInstr.kind == irInstrLoadFprPair and srcSrcInstr.ctxLoadIdx == instr.ctxStoreIdx:
-                        blk.getInstr(iref) = IrInstr(kind: irInstrStoreFpr, ctxStoreIdx: instr.ctxStoreIdx, ctxStoreSrc: instr.ctxStoreSrc)
+                        blk.getInstr(iref) = IrInstr(kind: irInstrStoreFpr, ctxStoreIdx: instr.ctxStoreIdx, srcRegular: instr.srcRegular)
                         break replaced
 
-                pairLoadUpperUsed.setBit(int(instr.ctxStoreSrc))
+                pairLoadUpperUsed.setBit(int(instr.source(0)))
         of FpPairOps:
             for source in sources blk.getInstr(iref):
                 pairLoadUpperUsed.setBit(int(source))
@@ -922,11 +924,11 @@ proc verify*(blk: IrBasicBlock) =
             #assert source in blk.instrs
 
         if i == blk.instrs.len - 1:
-            assert instr.kind in {irInstrBranch, irInstrSyscall, irInstrCallInterpreter}
+            assert instr.kind in {irInstrBranchPpc, irInstrSyscallPpc, irInstrCallInterpreterPpc}
 
 proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAdr: uint32): bool =
     let lastInstr = blk.getInstr(blk.instrs[^1])
-    if lastInstr.kind == irInstrBranch and
+    if lastInstr.kind == irInstrBranchPpc and
         (let target = blk.isImmValI(lastInstr.source(1));
         target.isSome and target.get >= startAdr and target.get < endAdr):
 
@@ -935,9 +937,9 @@ proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAd
         for i in instrIndexes[(target.get - startAdr) div 4]..<blk.instrs.len:
             let instr = blk.getInstr(blk.instrs[i])
             case instr.kind
-            of irInstrSyscall, irInstrStore8, irInstrStore16, irInstrStore32,
+            of irInstrSyscallPpc, irInstrStore8, irInstrStore16, irInstrStore32,
                 irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
-                irInstrLoadSpr, irInstrStoreSpr, irInstrCallInterpreter:
+                irInstrLoadSpr, irInstrStoreSpr, irInstrCallInterpreterPpc:
                 return false
             of irInstrLoadReg:
                 regsRead.incl instr.ctxLoadIdx
@@ -981,7 +983,9 @@ proc `$`*(blk: IrBasicBlock): string =
         of CtxLoadInstrs:
             result &= &"{instr.ctxLoadIdx}"
         of CtxStoreInstrs:
-            result &= &"{instr.ctxStoreIdx}, ${int(instr.ctxStoreSrc)}"
+            result &= &"{instr.ctxStoreIdx}, ${int(instr.source(0))}"
+        of irInstrCallInterpreterDsp, irInstrCallInterpreterPpc:
+            result &= &"{instr.instr:08X}"
         else:
             for i in 0..<instr.numSources:
                 if i > 0:

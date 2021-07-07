@@ -1,10 +1,9 @@
 import
     macros, tables,
-    ../util/instrdecoding,
-    dspstate
+    ../util/instrdecoding
 
 const
-    DspPatterns = @[
+    DspPatterns* = @[
         ("jmp",     "000000101001cccc"),
         ("jmpr",    "000101110rr0cccc"),
 
@@ -160,8 +159,8 @@ const
         ("ldd", "________11ddmnrr")
     ]
 
-macro dspSecondaryDispatch*(instr: uint16, state: var DspState, undefinedInstr: proc(state: var DspState, instr: uint16)) =
+macro dspSecondaryDispatch*[T](instr: uint16, state: var T, undefinedInstr: proc(state: var T, instr: uint16)) =
     generateShortDecoder[4..7](DspSecondaryPatterns, 16, instr, state, undefinedInstr)
 
-macro dspMainDispatch*(instr: uint16, state: var DspState, undefinedInstr: proc(state: var DspState, instr: uint16)): untyped =
+macro dspMainDispatch*[T](instr: uint16, state: var T, undefinedInstr: proc(state: var T, instr: uint16)): untyped =
     generateDecoder[7..15, 0..6](DspPatterns, DspExcludeList, 16, instr, state, undefinedInstr)

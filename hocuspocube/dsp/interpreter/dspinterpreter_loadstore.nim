@@ -1,7 +1,6 @@
 import
-    ../dspstate, ../dsp, ../../util/aluhelper,
-    dspinterpreter_aux,
-    strformat
+    ../dspstate, ../dsp,
+    dspinterpreter_aux
 
 using state: var DspState
 

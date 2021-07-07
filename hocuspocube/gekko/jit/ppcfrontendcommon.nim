@@ -1,13 +1,11 @@
 import
     ../ppcstate,
-    ir
+    ../../util/jit/ir
 
 type
     PpcIrRegState* = object
         pc*, instr*: uint32
         branch*, floatInstr*: bool
-
-    BlockEntryFunc* = proc(ppcstate: ptr PpcState): int32 {.cdecl.}
 
 proc loadreg*(builder: var IrBlockBuilder[PpcIrRegState], a: uint32): IrInstrRef =
     builder.loadctx(irInstrLoadReg, a)

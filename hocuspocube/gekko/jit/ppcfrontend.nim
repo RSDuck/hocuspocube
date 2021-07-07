@@ -1,10 +1,9 @@
 
 import
     options, stew/endians2, strformat,
-    ../gekko, ../ppcdef, ../ppcstate, ../memory,
-    ir, ppcfrontendcommon, ../ppccommon,
-    codegenx64,
-    blockcache,
+    ".."/[gekko, ppcdef, memory, ppccommon],
+    ../../util/jit/[ir, codegenx64],
+    ppcfrontendcommon, gekkoblockcache,
 
     ppcjit_int,
     ppcjit_loadstore,
@@ -39,7 +38,7 @@ proc compileBlock(): BlockEntryFunc =
         cycles += 1
 
         if cycles >= 64 and not builder.regs.branch:
-            discard builder.triop(irInstrBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
+            discard builder.triop(irInstrBranchPpc, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
     let isIdleLoop = builder.blk.checkIdleLoop(instrIndexes, gekkoState.pc, builder.regs.pc)
@@ -58,7 +57,7 @@ proc compileBlock(): BlockEntryFunc =
 
     #echo "postopt\n", builder.blk
 
-    result = genCode(builder.blk, cycles, builder.regs.floatInstr, isIdleLoop)
+    result = cast[BlockEntryFunc](genCode(builder.blk, cycles, builder.regs.floatInstr, isIdleLoop))
 
     blockEntries[mapBlockEntryAdr(blockAdr)] = result
 

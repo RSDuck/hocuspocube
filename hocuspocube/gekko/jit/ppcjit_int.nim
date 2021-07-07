@@ -2,7 +2,7 @@ import
     bitops,
     ../ppccommon,
     ../../util/aluhelper,
-    ir, ppcfrontendcommon,
+    ../../util/jit/ir, ppcfrontendcommon,
     fallbacks
 
 using builder: var IrBlockBuilder[PpcIrRegState]

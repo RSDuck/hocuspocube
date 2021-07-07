@@ -1,4 +1,7 @@
-import ppcfrontendcommon
+import
+    ../ppcstate
+
+type BlockEntryFunc* = proc(ppcstate: ptr PpcState): int32 {.cdecl.}
 
 var
     blockEntries*: array[(0x1800000 + 0x900) div 4, BlockEntryFunc]

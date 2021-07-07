@@ -1,5 +1,5 @@
 import
-    ir, ppcfrontendcommon,
+    ../../util/jit/ir, ppcfrontendcommon,
     fallbacks
 
 using builder: var IrBlockBuilder[PpcIrRegState]

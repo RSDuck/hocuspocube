@@ -1,12 +1,11 @@
 import
-    ../dsp, ../dspdef, ../dspstate,
+    ".."/[dsp, dspdef, dspstate, dspcommon],
 
     ../../cycletiming,
 
     dspinterpreter_alu,
     dspinterpreter_branch,
     dspinterpreter_loadstore,
-    dspinterpreter_system,
 
     strformat, stew/endians2
 
@@ -15,37 +14,9 @@ proc undefinedInstr(state: var DspState, instr: uint16) =
 
 var logstuff = false
 
-proc handleExceptions() =
-    if mDspState.status.et:
-        if mDspState.status.te3:
-            if dspCsr.piint:
-                mDspState.callStack.push(mDspState.pc)
-                mDspState.statusStack.push(uint16 mDspState.status)
-                mDspState.pc = 0x000E'u16
-
-                #echo "piint!"
-
-                dspCsr.piint = false
-                dspCsr.halt = false
-
-            # put accelerator overflow etc. here
-
 proc dspRun*(timestamp: var int64, target: int64) =
     runPeripherals()
-
-    # is reset affected by global interrupt enable?
-    # also does a reset reset any registers (including the stack)?
-    # apparently it does, otherwise the stack overflows (because there's still stuff on it)
-    if dspCsr.reset:
-        dspCsr.reset = false
-        echo "resetting to rom init vector"
-        mDspState = default(DspState)
-        # necessary for the for the AX ucode to work
-        # Dolphin does this too, needs to be tested
-        for i in 0..<4:
-            mDspState.r[dspRegWrap0.succ(i)] = 0xFFFF'u16
-        mDspState.pc = IRomStartAdr
-
+    handleReset()
     handleExceptions()
 
     if dspCsr.halt or dspCsr.busyCopying:
@@ -74,17 +45,7 @@ proc dspRun*(timestamp: var int64, target: int64) =
 
         dspMainDispatch instr, mDspState, undefinedInstr
 
-        while mDspState.loopAddrStack.sp > 0 and
-            mDspState.loopAddrStack.peek() == mDspState.pc:
-
-            mDspState.loopCountStack.peek() -= 1
-
-            if mDspState.loopCountStack.peek() == 0:
-                discard mDspState.callStack.pop()
-                discard mDspState.loopAddrStack.pop()
-                discard mDspState.loopCountStack.pop()
-            else:
-                mDspState.pc = mDspState.callStack.peek() - 1
+        handleLoopStack()
 
         mDspState.pc += 1
         timestamp += gekkoCyclesPerDspCycle

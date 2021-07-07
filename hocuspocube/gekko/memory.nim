@@ -11,7 +11,7 @@ import
     ../flipper/[cp, pe, texturesetup],
     ../di,
 
-    jit/blockcache
+    jit/gekkoblockcache
 
 proc writeBus*[T](adr: uint32, val: T) =
     if adr < uint32 mainRAM.len:
@@ -32,7 +32,11 @@ proc writeBus*[T](adr: uint32, val: T) =
         of 0x6400: siWrite[T](adr, val)
         of 0x6800: exiWrite[T](adr, val)
         of 0x6C00: aiWrite[T](adr, val)
-        else: (let pc = gekkoState.pc; echo &"unknown io register write {adr:X} {fromBE(val):X} {pc:08X}")
+        else:
+            let
+                pc = gekkoState.pc
+                val = fromBE(val)
+            echo &"unknown io register write {adr:X} {val:X} {pc:08X}"
     else:
         let
             pc = gekkoState.pc

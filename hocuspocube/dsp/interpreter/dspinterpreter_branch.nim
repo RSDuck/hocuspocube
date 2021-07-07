@@ -1,5 +1,5 @@
 import
-    ../dspstate, ../dsp,
+    ".."/[dspstate, dsp],
     dspinterpreter_aux,
     strformat
 
@@ -86,3 +86,11 @@ proc rep*(state; r: uint16) =
         state.setupLoop count, state.pc + 1
     else:
         state.pc += 1
+
+# those two don't belong here 100%
+# but it's not worth to have an entire module just for them
+proc trap*(state) =
+    raiseAssert "unimplemented dsp instr"
+
+proc wait*(state) =
+    dspCsr.halt = true

@@ -1,9 +1,10 @@
 import
-    ../util/bitstruct, ../util/ioregs,
-    dspstate,
-    ../gekko/gekko, ../cycletiming,
+    strformat, stew/endians2, streams,
 
-    strformat, stew/endians2, streams
+    ../util/[bitstruct, ioregs],
+    dspstate, jit/dspblockcache,
+    ../gekko/gekko, ../cycletiming
+
 
 template dspLog(msg: string): untyped =
     discard
@@ -198,6 +199,8 @@ proc runPeripherals*() =
     if dspCsr.busyCopying:
         # copy 1kb payload
         dspLog "transfering inital dsp payload"
+        for i in 0'u16..511:
+            invalidateByAdr(i)
         copySwapBytes16(toOpenArray(iram, 0, 511), toOpenArray(cast[ptr UncheckedArray[uint16]](addr mainRAM[0x1000000]), 0, 511))
         dspCsr.busyCopying = false
 
@@ -233,12 +236,13 @@ proc dataRead*(adr: uint16): uint16 =
         of 0xFFCF: dsma.lo
 
         of 0xFFD3: 0'u16
+        of 0xFFDD: 0'u16
 
         of 0xFFFC: dmb.hi
         of 0xFFFD: dmb.lo
         of 0xFFFE: cmb.hi
         of 0xFFFF: dspLog &"dsp: reading cmb lo status {cmb.status} {uint32(cmb):X}"; cmb.status = false; cmb.lo
-        else: echo &"unknown dsp data read {adr:X} from {mDspState.pc:04X}"; 0'u16
+        else: dspLog &"unknown dsp data read {adr:X} from {mDspState.pc:04X}"; 0'u16
 
 proc dataWrite*(adr, val: uint16) =
     case adr:
@@ -256,6 +260,7 @@ proc dataWrite*(adr, val: uint16) =
             #for i in 0..<mDspState.callStack.sp:
             #    dspLog &"dspstack: {mDspState.callstack[i]:02X}"
 
+            let words = dsbl.len div 2
             var
                 src = cast[ptr UncheckedArray[uint16]](addr mainRAM[dsma.adr])
                 dst = cast[ptr UncheckedArray[uint16]](case dsCr.dspMem
@@ -264,13 +269,14 @@ proc dataWrite*(adr, val: uint16) =
 
             if dsCr.direction == dspDmaToMainRam:
                 swap src, dst
+            elif dsCr.dspMem == dspMemIMem:
+                for i in 0'u16..<words: invalidateByAdr(dspa.adr + i)
 
-            if dsCr.direction == dspDmaFromMain and dsCr.dspMem == dspMemIMem:
+            #[if dsCr.direction == dspDmaFromMain and dsCr.dspMem == dspMemIMem:
                 let file = newFileStream("ucode.bin", fmWrite)
                 file.writeData(src, int dsbl.len)
-                file.close()
-
-            copySwapBytes16(toOpenArray(dst, 0, int(dsbl.len div 2) - 1), toOpenArray(src, 0, int(dsbl.len div 2) - 1))
+                file.close()]#
+            copySwapBytes16(toOpenArray(dst, 0, int(words) - 1), toOpenArray(src, 0, int(words) - 1))
         of 0xFFCD: dspa.adr = val
         of 0xFFCE: dsma.hi = val
         of 0xFFCF: dsma.loWrite = val
@@ -285,7 +291,7 @@ proc dataWrite*(adr, val: uint16) =
 
         of 0xFFFC: dspLog &"dsp: writing dmb hi {val:02X}"; dmb.hiWrite = val
         of 0xFFFD: dspLog &"dsp: writing dmb lo status {dmb.status} {val:02X}"; dmb.status = true; dmb.lo = val
-        else: echo &"unknown dsp data write {adr:04X} {`val`:X} from {mDspState.pc:04X}"
+        else: dspLog &"unknown dsp data write {adr:04X} {`val`:X} from {mDspState.pc:04X}"
 
 proc curAiSCnt(): uint32 =
     if aiCr.pstat:

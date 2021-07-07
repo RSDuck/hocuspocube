@@ -2,7 +2,7 @@ import
     streams, strformat,
     gekko/[interpreter/ppcinterpreter, gekko, ppcstate],
     gekko/jit/ppcfrontend,
-    dsp/interpreter/dspinterpreter,
+    dsp/[interpreter/dspinterpreter, jit/dspfrontend],
     flipper/[rasterinterface, cp],
     util/dolfile,
     cycletiming
@@ -30,7 +30,7 @@ proc run*() =
     while true:
         gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
         ppcfrontend.gekkoRun gekkoTimestamp, gekkoTarget
-        dspRun dspTimestamp, gekkoTimestamp
+        dspfrontend.dspRun dspTimestamp, gekkoTimestamp
 
         cpRun()
 

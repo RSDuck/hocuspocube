@@ -1,7 +1,8 @@
 import
     ../../util/aluhelper, stew/bitops2,
-    ir, ppcfrontendcommon,
+    ../../util/jit/ir, ppcfrontendcommon,
     fallbacks
+
 
 using builder: var IrBlockBuilder[PpcIrRegState]
 
@@ -20,7 +21,7 @@ proc bx*(builder; li, aa, lk: uint32) =
             else:
                 builder.regs.pc + (signExtend(li, 24) shl 2))
 
-        discard builder.triop(irInstrBranch, builder.imm(true), builder.imm(target), builder.imm(0))
+        discard builder.triop(irInstrBranchPpc, builder.imm(true), builder.imm(target), builder.imm(0))
 
     builder.regs.branch = true
 
@@ -66,7 +67,7 @@ proc bcx*(builder; bo, bi, bd, aa, lk: uint32) =
             discard builder.storectx(irInstrStoreSpr, irSprNumLr.uint32, 
                 builder.triop(irInstrCsel, prevNia, builder.loadctx(irInstrLoadSpr, irSprNumLr.uint32), cond))
 
-        discard builder.triop(irInstrBranch, cond, builder.imm(target), prevNia)
+        discard builder.triop(irInstrBranchPpc, cond, builder.imm(target), prevNia)
 
     builder.regs.branch = true
 
@@ -82,7 +83,7 @@ proc bcctrx*(builder; bo, bi, lk: uint32) =
             discard builder.storectx(irInstrStoreSpr, irSprNumLr.uint32,
                 builder.triop(irInstrCsel, prevNia, builder.loadctx(irInstrLoadSpr, irSprNumLr.uint32), cond))
 
-        discard builder.triop(irInstrBranch, cond, builder.loadctx(irInstrLoadSpr, irSprNumCtr.uint32), prevNia)
+        discard builder.triop(irInstrBranchPpc, cond, builder.loadctx(irInstrLoadSpr, irSprNumCtr.uint32), prevNia)
 
     builder.regs.branch = true
 
@@ -99,6 +100,6 @@ proc bclrx*(builder; bo, bi, lk: uint32) =
             discard builder.storectx(irInstrStoreSpr, irSprNumLr.uint32,
                 builder.triop(irInstrCsel, prevNia, lr, cond))
 
-        discard builder.triop(irInstrBranch, cond, lr, prevNia)
+        discard builder.triop(irInstrBranchPpc, cond, lr, prevNia)
 
     builder.regs.branch = true

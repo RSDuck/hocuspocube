@@ -537,7 +537,6 @@ proc run(data: openArray[byte],
                         if draw.vertexFormat in vertexFormatDirty or
                             vcdLo != vertexFormats[draw.vertexFormat].vcdLo or
                             vcdHi != vertexFormats[draw.vertexFormat].vcdHi:
-                            echo "format dirty"
                             vertexFormatDirty.excl draw.vertexFormat
 
                             vertexFormats[draw.vertexFormat].vcdLo = vcdLo

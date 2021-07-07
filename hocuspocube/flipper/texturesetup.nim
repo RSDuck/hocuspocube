@@ -7,12 +7,28 @@ import
 
     rasterinterfacecommon,
     opengl/rasterogl,
-    bpcommon, bp,
+    bpcommon,
     ../gekko/gekko
+
+var palHashCache: Table[(uint32, uint32), uint64]
+
+proc clearPalHashCache*() =
+    palHashCache.clear()
+
+import bp
 
 proc calcTexPalHash(adr, size: uint32): uint64 =
     assert adr + size <= uint32(sizeof(tmem))
-    XXH3_64bits(cast[ptr UncheckedArray[byte]](addr tmem[adr]), csize_t(size))
+    if size <= 32:
+        # for small sizes the overhead of always just rehashing is probably similar
+        # compared to the table operations and the associated clears
+        result = XXH3_64bits(cast[ptr UncheckedArray[byte]](addr tmem[adr]), csize_t(size))
+    else:
+        palHashCache.withValue((adr, size), value) do:
+            result = value[]
+        do:
+            result = XXH3_64bits(cast[ptr UncheckedArray[byte]](addr tmem[adr]), csize_t(size))
+            palHashCache[(adr, size)] = result
 
 proc calculateTexSize(fmt: TxTextureFmt, width, height, levels: uint32): (uint32, uint32, uint32) =        
     let (tileW, tileH, lineBytes) = case fmt
@@ -253,8 +269,8 @@ proc setupTexture*(n: int) =
         key.palFmt = texmap.setLut.fmt
         key.palHash = calcTexPalHash(texpalAdr,
             (case key.fmt
-            of txTexfmtC4: 4'u32
-            of txTexfmtC8: 8'u32
+            of txTexfmtC4: 16'u32
+            of txTexfmtC8: 256'u32
             of txTexfmtC14X2: (1'u32 shl 14)
             else: raiseAssert("reserved value")) * 2)
 

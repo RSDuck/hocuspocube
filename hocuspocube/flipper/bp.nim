@@ -103,7 +103,7 @@ proc getScissorOffset*(): (int32, int32) =
     result[1] = int32(scissorOffset.y) * 2 - 342
 
 import
-    rasterinterface
+    rasterinterface, texturesetup
 
 proc maskedWrite[T](register: var T, val: uint32): bool {.discardable.} =
     let prevValue = register
@@ -117,6 +117,9 @@ proc bpWrite*(adr, val: uint32) =
             rasterStateDirty = true
     of 0x01..0x04:
         # copy filter stuff
+        discard
+    of 0x06..0x1F:
+        # indirect stuff
         discard
     of 0x20:
         if scissorTL.maskedWrite val:
@@ -228,6 +231,7 @@ proc bpWrite*(adr, val: uint32) =
         #echo &"uploading tlut {src:08X} {dst:X} {count}"
         copyMem(addr tmem[dst], addr mainRAM[src], count)
         samplerStateDirty.incl {range[0..7](0)..7}
+        clearPalHashCache()
     of 0x80..0x83:
         let idx = adr - 0x80
         if texMaps[idx].setMode0.maskedWrite val:
@@ -299,6 +303,8 @@ proc bpWrite*(adr, val: uint32) =
         else:
             dirty = tevRegister[adr - 0xE0].maskedWrite uint32(val)
         registerUniformDirty = registerUniformDirty or dirty
+    of 0xE8..0xEF:
+        discard # fog stuff
     of 0xF3:
         let val = AlphaCompare val
         if alphaCompare.ref0 != val.ref0 or alphaCompare.ref1 != val.ref1:

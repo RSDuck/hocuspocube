@@ -41,6 +41,8 @@ makeBitStruct uint32, FifoPtr:
 
 makeBitStruct uint32, *HwPtr:
     _[5..25] {.adr.}: uint32
+makeBitStruct uint32, *UnalignedHwPtr:
+    _[0..25] {.adr.}: uint32
 
 type
     MemoryTag* = enum

@@ -173,7 +173,7 @@ type
         vatB: VatB
         vatC: VatC
     VertexArray = object
-        base: HwPtr
+        base: UnalignedHwPtr
         stride: ArrayStride
 
 proc read[T](arr: VertexArray, idx: uint32, offset = 0'u32): T =
@@ -258,8 +258,8 @@ proc cpWrite*(adr, val: uint32) =
         modifyFmt 0x80, VatB, vertexFormats[fmtIdx].vatB
     of 0x90..0x97:
         modifyFmt 0x90, VatC, vertexFormats[fmtIdx].vatC
-    of 0xA0..0xAF: vertexArrays[VertexArrayKind(adr - 0xA0)].base = HwPtr val
-    of 0xB0..0xBF: vertexArrays[VertexArrayKind(adr - 0xB0)].stride = ArrayStride val
+    of 0xA0..0xAF: vertexArrays[VertexArrayKind(adr - 0xA0)].base.adr = val
+    of 0xB0..0xBF: vertexArrays[VertexArrayKind(adr - 0xB0)].stride.stride = val
     else: echo &"unknown cp write {adr:04X} {val:08X}"
 
 makeBitStruct uint32, CmdLoadXfParam:
@@ -313,7 +313,9 @@ proc processVertices(data: openArray[byte], offset: int, draw: DrawCallDesc, ver
 
         template readIdx(typ): uint32 =
             if typ == vtxAttrIndexed8:
-                uint32(read8()) else: uint32(read16())
+                uint32(read8())
+            else:
+                uint32(read16())
 
         template numElementsPosition(cnt): int =
             case cnt
@@ -578,6 +580,8 @@ proc run(data: openArray[byte],
                             doCoord(fmt.vcdHi.tex7, fmt.vatC.tex7cnt, vtxAttrTexCoord7, vtxTexcoordST, vtxAttrTexCoord6ST)
 
                             dynamicVertexFmts[draw.vertexFormat] = genDynamicVtxFmt(enabledSet, sizesSet)
+
+                            cpLog &"format dirty {fmt} {vertexFormatSizes[draw.vertexFormat]}"
                         cpLog &"draw {draw.primitiveKind} {result} ({draw.vertexFormat}) {draw.verticesCount} vertices vtx size: {vertexFormatSizes[draw.vertexFormat]}"
                         curVertexBuffer.curFmt = dynamicVertexFmts[draw.vertexFormat]
                         verticesRemaining = draw.verticesCount

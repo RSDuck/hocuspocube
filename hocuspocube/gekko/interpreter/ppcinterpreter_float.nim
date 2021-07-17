@@ -115,7 +115,13 @@ proc fsubsx*(state; d, a, b, rc: uint32) =
         handleRc
 
 proc fselx*(state; d, a, b, c, rc: uint32) =
-    raiseAssert "instr not implemented fselx"
+    handleFloatException:
+        fr(d).ps0 =
+            if fr(a).ps0 >= 0.0:
+                fr(c).ps0
+            else:
+                fr(b).ps0
+        handleRc
 
 proc fmaddx*(state; d, a, b, c, rc: uint32) =
     handleFloatException:
@@ -291,7 +297,17 @@ proc ps_add*(state; d, a, b, rc: uint32) =
         handleRc
 
 proc ps_sel*(state; d, a, b, c, rc: uint32) =
-    raiseAssert "instr not implemented ps_sel"
+    handleFloatException:
+        fr(d).ps0 =
+            if fr(a).ps0 >= 0.0:
+                fr(c).ps0
+            else:
+                fr(b).ps0
+        fr(d).ps1 =
+            if fr(a).ps1 >= 0.0:
+                fr(c).ps1
+            else:
+                fr(b).ps1
 
 proc ps_res*(state; d, b, rc: uint32) =
     handleFloatException:

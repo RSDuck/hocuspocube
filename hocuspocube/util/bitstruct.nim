@@ -1,5 +1,5 @@
 import
-    macros, bitops, tables, typetraits
+    macros, bitops, tables, typetraits, strutils
 
 proc exportifyIdent(node: NimNode, `export`: bool): NimNode =
     if `export`:
@@ -21,6 +21,8 @@ macro makeBitStruct*(baseTyp: typedesc, name, body: untyped): untyped =
 
     result.add((quote("@") do:
         proc `==`*(a, b: @name): bool {.borrow.}))
+    result.add(quote("@") do:
+        proc `$`*(val: @name): string = toHex(@baseTyp(val)))
 
     var
         tagMasks: Table[string, uint64]

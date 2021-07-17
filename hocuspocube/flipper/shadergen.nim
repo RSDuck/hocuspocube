@@ -216,6 +216,8 @@ proc genVertexShader*(key: VertexShaderKey): string =
         line """vec3 transformedNormal = normalize(vec3(dot(inNormal, NrmMats[pnmatIdx].xyz),
                                             dot(inNormal, NrmMats[pnmatIdx + 1U].xyz),
                                             dot(inNormal, NrmMats[pnmatIdx + 2U].xyz)));"""
+    else:
+        line """vec3 transformedNormal = vec3(0);"""
 
     for i in 0..<key.numColors:
         line "{"
@@ -507,8 +509,8 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
         case colorEnv.bias
         of tevBiasZero: discard
-        of tevBiasHalf: line "colorVal += vec3(0x8000);"
-        of tevBiasMinusHalf: line "colorVal -= vec3(0x8000);"
+        of tevBiasHalf: line "colorVal += ivec3(0x8000);"
+        of tevBiasMinusHalf: line "colorVal -= ivec3(0x8000);"
         of tevBiasCompareOp: raiseAssert("compare op!")
 
         case alphaEnv.bias

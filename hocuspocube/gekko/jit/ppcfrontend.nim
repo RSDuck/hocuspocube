@@ -2,7 +2,7 @@
 import
     options, stew/endians2, strformat,
     ".."/[gekko, ppcdef, memory, ppccommon],
-    ../../util/jit/[ir, codegenx64],
+    ../../util/jit/[ir, codegenx64, iropt],
     ppcfrontendcommon, gekkoblockcache,
 
     ppcjit_int,

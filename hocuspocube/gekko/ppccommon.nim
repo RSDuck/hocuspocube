@@ -140,4 +140,3 @@ proc handleFException*(state: var PpcState): uint32 =
         1
     else:
         0
-    

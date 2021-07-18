@@ -1,6 +1,5 @@
 import
-    bitops, strutils, strformat, options, algorithm,
-    stew/bitseqs
+    strutils, strformat, options
 
 type
     IrInstrKind* = enum
@@ -9,6 +8,7 @@ type
         irInstrLoadImmI = "loadi"
         irInstrLoadImmB = "loadb"
 
+        # PowerPC reg load/store instructions
         irInstrLoadReg = "ldrreg"
         irInstrStoreReg = "strreg"
         irInstrLoadCrBit = "ldrcr"
@@ -94,6 +94,8 @@ type
 
         irInstrBranchPpc = "bppc"
         irInstrSyscallPpc = "scppc"
+
+        irInstrBranchDsp = "bdsp"
 
         irInstrFSwizzleD00 = "swizzlefd00"
         irInstrFSwizzleD11 = "swizzlefd11"
@@ -236,7 +238,7 @@ const
 
         irInstrFNegss, irInstrFAbsss,
         irInstrFNegps, irInstrFAbsps}
-    BiOpInstrs* = {        
+    BiOpInstrs* = {
         irInstrIAdd, irInstrISub,
 
         irInstrMul, irInstrMulhS, irInstrMulhU,
@@ -278,7 +280,7 @@ const
 
         irInstrStoreFsq, irInstrStoreFpq,
 
-        irInstrBranchPpc,
+        irInstrBranchPpc, irInstrBranchDsp,
 
         irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
         irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd,
@@ -295,10 +297,12 @@ const
 
         irInstrBranchPpc,
         irInstrSyscallPpc,
+
+        irInstrBranchDsp,
         
         irInstrCallInterpreterPpc,
         irInstrCallInterpreterDsp}
-    SideEffectOps = {
+    SideEffectOps* = {
         irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer,
         irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
 
@@ -309,9 +313,10 @@ const
         irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
 
         irInstrBranchPpc, irInstrSyscallPpc,
+        irInstrBranchDsp,
         irInstrCallInterpreterPpc, irInstrCallInterpreterDsp}
 
-    FpScalarOps = {
+    FpScalarOps* = {
         irInstrStoreFsd, irInstrStoreFss,
         irInstrFSwizzleD00, irInstrFMergeD00,
         irInstrFSwizzleS00, irInstrFMergeS00,
@@ -326,7 +331,7 @@ const
         irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
         irInstrFMaddss, irInstrFMsubss, irInstrFNmaddss, irInstrFNmsubss,
         irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedSd}
-    FpPairOps = {
+    FpPairOps* = {
         irInstrFSwizzleD11, irInstrFMergeD11,
         irInstrCvtpd2ps, irInstrCvtps2pd,
         irInstrFRespd, irInstrFRsqrtpd,
@@ -359,8 +364,8 @@ type
     IrBasicBlock* = ref object
         instrs*: seq[IrInstrRef]
 
-        instrPool: seq[IrInstr]
-        freeInstrs: seq[IrInstrRef]
+        instrPool*: seq[IrInstr]
+        freeInstrs*: seq[IrInstrRef]
 
     IrBlockBuilder*[T] = object
         blk*: IrBasicBlock
@@ -491,91 +496,133 @@ proc allocInstr(blk: IrBasicBlock): IrInstrRef =
     if blk.freeInstrs.len > 0:
         blk.freeInstrs.pop()
     else:
-        let instr = IrInstrRef blk.instrs.len
+        let instr = IrInstrRef blk.instrPool.len
         blk.instrPool.setLen(blk.instrPool.len + 1)
         instr
 
 proc getInstr*(blk: IrBasicBlock, iref: IrInstrRef): var IrInstr =
     blk.instrPool[int iref]
 
-proc makeImm(val: uint32): IrInstr =
+proc makeImm*(val: uint32): IrInstr {.inline.} =
     IrInstr(kind: irInstrLoadImmI, immValI: val)
 
-proc makeImm(val: bool): IrInstr =
+proc makeImm*(val: bool): IrInstr {.inline.} =
     IrInstr(kind: irInstrLoadImmB, immValB: val)
 
-proc makeIdentity(iref: IrInstrRef): IrInstr =
-    IrInstr(kind: irInstrIdentity, srcRegular: [iref, InvalidIrInstrRef, InvalidIrInstrRef])
-
-proc imm*[T](builder: var IrBlockBuilder[T], val: uint32): IrInstrRef =
-    result = builder.blk.allocInstr()
-    builder.blk.instrs.add result
-    builder.blk.getInstr(result) = makeImm(val)
-
-proc imm*[T](builder: var IrBlockBuilder[T], val: bool): IrInstrRef =
-    result = builder.blk.allocInstr()
-    builder.blk.instrs.add result
-    builder.blk.getInstr(result) = makeImm(val)
-
-proc loadctx*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, idx: uint32): IrInstrRef =
+proc makeLoadctx*(kind: IrInstrKind, idx: uint32): IrInstr {.inline.} =
     case kind
     of CtxLoadInstrs:
-        result = builder.blk.allocInstr()
-        builder.blk.instrs.add result
-        builder.blk.getInstr(result) = IrInstr(kind: kind, ctxLoadIdx: idx)
+        IrInstr(kind: kind, ctxLoadIdx: idx)
     else:
-        raiseAssert(&"{kind} is not a context load")
+        raiseAssert(&"invalid context load kind {kind}")
 
-proc storectx*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
+proc makeStorectx*(kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstr {.inline.} =
     case kind
     of CtxStoreInstrs:
-        result = builder.blk.allocInstr()
-        builder.blk.instrs.add result
-        builder.blk.getInstr(result) = IrInstr(kind: kind, ctxStoreIdx: idx, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
+        IrInstr(kind: kind, ctxStoreIdx: idx, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
     else:
-        raiseAssert(&"{kind} is not a context store")
+        raiseAssert(&"invalid context store kind {kind}")
 
-proc biop*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
-    case kind
-    of BiOpInstrs:
-        result = builder.blk.allocInstr()
-        builder.blk.instrs.add result
-        builder.blk.getInstr(result) = IrInstr(kind: kind, srcRegular: [a, b, InvalidIrInstrRef])
-    else:
-        raiseAssert(&"{kind} is not a biop")
-
-proc unop*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
+proc makeUnop*(kind: IrInstrKind, operand: IrInstrRef): IrInstr {.inline.} =
     case kind
     of UnOpInstrs:
-        result = builder.blk.allocInstr()
-        builder.blk.instrs.add result
-        builder.blk.getInstr(result) = IrInstr(kind: kind, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
+        IrInstr(kind: kind, srcRegular: [operand, InvalidIrInstrRef, InvalidIrInstrRef])
     else:
-        raiseAssert("{kind} is not an unop")
+        raiseAssert(&"invalid unop kind {kind}")
 
-proc triop*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
+proc makeBiop*(kind: IrInstrKind, a, b: IrInstrRef): IrInstr {.inline.} =
+    case kind
+    of BiOpInstrs:
+        IrInstr(kind: kind, srcRegular: [a, b, InvalidIrInstrRef])
+    else:
+        raiseAssert(&"invalid biop kind {kind}")
+
+proc makeTriop*(kind: IrInstrKind, a, b, c: IrInstrRef): IrInstr {.inline.} =
     case kind
     of TriOpInstrs:
-        result = builder.blk.allocInstr()
-        builder.blk.instrs.add result
-        builder.blk.getInstr(result) = IrInstr(kind: kind, srcRegular: [a, b, c])
+        IrInstr(kind: kind, srcRegular: [a, b, c])
     else:
-        raiseAssert("{kind} is not an unop")
+        raiseAssert(&"invalid triop kind {kind}")
 
-proc interpreter*[T](builder: var IrBlockBuilder[T], kind: IrInstrKind, instrcode, pc: uint32, target: pointer) =
-    let instr = builder.blk.allocInstr()
-    builder.blk.instrs.add instr
+proc makeIdentity*(iref: IrInstrRef): IrInstr {.inline.} =
+    makeUnop(irInstrIdentity, iref)
+
+proc imm*(blk: IrBasicBlock, val: uint32): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeImm(val)
+
+proc imm*(blk: IrBasicBlock, val: bool): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeImm(val)
+
+proc loadctx*(blk: IrBasicBlock, kind: IrInstrKind, idx: uint32): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeLoadctx(kind, idx)
+
+proc storectx*(blk: IrBasicBlock, kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeStorectx(kind, idx, val)
+
+proc unop*(blk: IrBasicBlock, kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeUnop(kind, val)
+
+proc biop*(blk: IrBasicBlock, kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeBiop(kind, a, b)
+
+proc triop*(blk: IrBasicBlock, kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeTriop(kind, a, b, c)
+
+proc interpreter*(blk: IrBasicBlock, kind: IrInstrKind, instrcode, pc: uint32, target: pointer): IrInstrRef =
     case kind
     of irInstrCallInterpreterDsp, irInstrCallInterpreterPpc:
-        builder.blk.getInstr(instr) = IrInstr(kind: kind, target: target, instr: instrcode, pc: pc)
+        result = blk.allocInstr()
+        blk.getInstr(result) = IrInstr(kind: kind, target: target, instr: instrcode, pc: pc)
     else:
-        raiseAssert("undefined instr kind")
+        raiseAssert(&"{kind} is not an interpreter instr")
 
-proc interpreter*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
-    builder.interpreter(irInstrCallInterpreterPpc, instrcode, pc, target)
+proc interpreter*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
+    blk.interpreter(irInstrCallInterpreterPpc, instrcode, pc, target)
 
-proc interpretdsp*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
-    builder.interpreter(irInstrCallInterpreterDsp, instrcode, pc, target)
+proc interpretdsp*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
+    blk.interpreter(irInstrCallInterpreterDsp, instrcode, pc, target)
+
+# block building helpers
+proc imm*[T](builder: IrBlockBuilder[T], val: uint32): IrInstrRef =
+    result = builder.blk.imm(val)
+    add(builder.blk.instrs, result)
+
+proc imm*[T](builder: IrBlockBuilder[T], val: bool): IrInstrRef =
+    result = builder.blk.imm(val)
+    add(builder.blk.instrs, result)
+
+proc loadctx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32): IrInstrRef =
+    result = builder.blk.loadctx(kind, idx)
+    add(builder.blk.instrs, result)
+
+proc storectx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
+    result = builder.blk.storectx(kind, idx, val)
+    add(builder.blk.instrs, result)
+
+proc unop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
+    result = builder.blk.unop(kind, val)
+    add(builder.blk.instrs, result)
+
+proc biop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
+    result = builder.blk.biop(kind, a, b)
+    add(builder.blk.instrs, result)
+
+proc triop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
+    result = builder.blk.triop(kind, a, b, c)
+    add(builder.blk.instrs, result)
+
+proc interpreter*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
+    add(builder.blk.instrs, builder.blk.interpreter(instrcode, pc, target))
+
+proc interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint16, target: pointer) =
+    add(builder.blk.instrs, builder.blk.interpretdsp(instrcode, pc, target))
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)
@@ -606,357 +653,6 @@ proc isEitherImmI*(blk: IrBasicBlock, a, b: IrInstrRef): Option[(IrInstrRef, uin
         some((a, instr.immValI))
     else:
         none((IrInstrRef, uint32))
-
-proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
-    type RegState = object
-        curVal, lastStore: IrInstrRef
-    var
-        regs: array[32, RegState]
-        crs: array[32, RegState]
-        fprs: array[32, RegState]
-    for i in 0..<32:
-        regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-        crs[i] = regs[i]
-        fprs[i] = regs[i]
-
-    proc doLoad(states: var openArray[RegState], blk: IrBasicBlock, iref: IrInstrRef, regIdx: uint32) =
-        if states[regIdx].curVal == InvalidIrInstrRef:
-            states[regIdx].curVal = iref
-        else:
-            blk.getInstr(iref) = makeIdentity(states[regIdx].curVal)
-    proc doStore(states: var openArray[RegState], blk: IrBasicBlock, iref, val: IrInstrRef, regIdx: uint32) =
-        if states[regIdx].lastStore != InvalidIrInstrRef:
-            blk.getInstr(states[regIdx].lastStore) = makeIdentity(InvalidIrInstrRef)
-        states[regIdx] = RegState(curVal: val, lastStore: iref)
-
-    for i in 0..<blk.instrs.len:
-        let
-            iref = blk.instrs[i]
-            instr = blk.getInstr(iref)
-        case instr.kind
-        of irInstrCallInterpreterPpc:
-            for i in 0..<32:
-                regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-                crs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-                fprs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-        of irInstrLoadReg:
-            doLoad(regs, blk, iref, instr.ctxLoadIdx)
-        of irInstrLoadCrBit:
-            doLoad(crs, blk, iref, instr.ctxLoadIdx)
-        of irInstrLoadFprPair:
-            doLoad(fprs, blk, iref, instr.ctxLoadIdx)
-        of irInstrStoreReg:
-            doStore(regs, blk, iref, instr.source(0), instr.ctxStoreIdx)
-        of irInstrStoreCrBit:
-            doStore(crs, blk, iref, instr.source(0), instr.ctxStoreIdx)
-        of irInstrStoreFprPair:
-            doStore(fprs, blk, iref, instr.source(0), instr.ctxStoreIdx)
-        of irInstrLoadSpr:
-            if instr.ctxLoadIdx == irSprNumCr.uint32:
-                for i in 0..<32:
-                    crs[i].lastStore = InvalidIrInstrRef
-        of irInstrStoreSpr:
-            if instr.ctxStoreIdx == irSprNumCr.uint32:
-                for i in 0..<32:
-                    if crs[i].lastStore != InvalidIrInstrRef:
-                        blk.getInstr(crs[i].lastStore) = makeIdentity(InvalidIrInstrRef)
-                        crs[i].lastStore = InvalidIrInstrRef
-                    crs[i].curVal = InvalidIrInstrRef
-        else: discard
-
-proc floatOpts*(blk: IrBasicBlock) =
-    #[
-        currently performs the following optimisations:
-            - if only ever the lower part of a irInstrLoadFprPair is used
-                it's replaced by an irInstrLoadFpr instruction
-
-            - PPC scalar instructions either replicate the result
-                across the pair (floats) or merge in the previous register value (doubles).
-                But if the following instructions only use the lower part of the instruction
-                anyway this operation in unecessary.
-
-                Thus for cases like this we change the source of scalar operations to directly
-                use the unreplicated/unmerged scalar value.
-
-                If no instruction depends on the upper part at all the swizzle/merge will be
-                be removed by dead code elimination.
-
-            - if a value is stored as a pair and merged with the previous value in memory,
-                we can also just use a non-pair store
-    ]#
-    var
-        pairLoads: seq[IrInstrRef]
-        pairLoadUpperUsed = init(BitSeq, blk.instrPool.len)
-    for i in 0..<blk.instrs.len:
-        let iref = blk.instrs[i]
-        case blk.getInstr(iref).kind
-        of FpScalarOps:
-            for source in msources blk.getInstr(iref):
-                while blk.getInstr(source).kind in {irInstrFSwizzleD00, irInstrFMergeD00, irInstrFMergeD01}:
-                    source = blk.getInstr(source).source(0)
-        of irInstrLoadFprPair:
-            pairLoads.add iref
-        of irInstrStoreFprPair:
-            block replaced:
-                let
-                    instr = blk.getInstr(iref)
-                    srcInstr = blk.getInstr(instr.source(0)) 
-                if srcInstr.kind == irInstrFMergeD01:
-                    let srcSrcInstr = blk.getInstr(srcInstr.source(1))
-                    if srcSrcInstr.kind == irInstrLoadFprPair and srcSrcInstr.ctxLoadIdx == instr.ctxStoreIdx:
-                        blk.getInstr(iref) = IrInstr(kind: irInstrStoreFpr, ctxStoreIdx: instr.ctxStoreIdx, srcRegular: instr.srcRegular)
-                        break replaced
-
-                pairLoadUpperUsed.setBit(int(instr.source(0)))
-        of FpPairOps:
-            for source in sources blk.getInstr(iref):
-                pairLoadUpperUsed.setBit(int(source))
-        of irInstrFMergeD01:
-            pairLoadUpperUsed.setBit(int(blk.getInstr(iref).source(1)))
-        of irInstrFMergeD10:
-            pairLoadUpperUsed.setBit(int(blk.getInstr(iref).source(0)))
-        else: discard
-#[
-        let instr = blk.getInstr(iref)
-        if instr.kind in {irInstrCvtsd2ss, irInstrCvtps2pd}:
-            let
-                arithref = instr.source(0)
-                arithinstr = blk.getInstr(arithref)
-
-            block isNotSingle:
-                for src in sources arithinstr:
-                    let srcInstr = blk.getInstr(src)
-                    if srcInstr.kind notin {irInstrCvtss2sd, irInstrCvtps2pd}:
-                        break isNotSingle
-
-                # replace operation by a single operation]#
-
-    for pairLoad in pairLoads:
-        if not pairLoadUpperUsed[int(pairLoad)]:
-            blk.getInstr(pairLoad) = IrInstr(kind: irInstrLoadFpr, ctxLoadIdx: blk.getInstr(pairLoad).ctxLoadIdx)
-
-proc foldConstants*(blk: IrBasicBlock) =
-    for i in 0..<blk.instrs.len:
-        let
-            iref = blk.instrs[i]
-            instr = blk.getInstr(iref)
-        case instr.kind
-        of irInstrIAdd:
-            let
-                a = blk.isImmValI(instr.source(0))
-                b = blk.isImmValI(instr.source(1))
-            if a.isSome and b.isSome:
-                blk.getInstr(iref) = makeImm(a.get + b.get)
-            elif a.isSome and a.get == 0:
-                blk.getInstr(iref) = makeIdentity(instr.source(1))
-            elif b.isSome and b.get == 0:
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
-        of irInstrISub:
-            if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeImm(0)
-            else:
-                let
-                    a = blk.isImmValI(instr.source(0))
-                    b = blk.isImmValI(instr.source(1))
-                if a.isSome and b.isSome:
-                    blk.getInstr(iref) = makeImm(a.get - b.get)
-                elif b.isSome and b.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
-        of irInstrRol, irInstrShl, irInstrShrArith, irInstrShrLogic:
-            let b = blk.isImmValI(instr.source(1))
-            if b.isSome and (b.get and 0x3F'u32) == 0:
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
-            elif b.isSome and instr.kind == irInstrShl and (b.get and 0x3F'u32) >= 32:
-                blk.getInstr(iref) = makeImm(0'u32)
-            elif (let a = blk.isImmValI(instr.source(0)); a.isSome and b.isSome):
-                let imm =
-                    case instr.kind
-                    of irInstrRol: rotateLeftBits(a.get, b.get)
-                    of irInstrShl: a.get shl b.get
-                    of irInstrShrArith: cast[uint32](cast[int32](a.get) shr b.get)
-                    of irInstrShrLogic: a.get shr b.get
-                    else: raiseAssert("shouldn't happen")
-                blk.getInstr(iref) = makeImm(imm)
-        of irInstrBitOr:
-            if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
-            else:
-                let
-                    a = blk.isImmValI(instr.source(0))
-                    b = blk.isImmValI(instr.source(1))
-                if a.isSome and b.isSome:
-                    blk.getInstr(iref) = makeImm(a.get or b.get)
-                elif (a.isSome and a.get == 0xFFFF_FFFF'u32) or
-                    (b.isSome and b.get == 0xFFFF_FFFF'u32):
-                    blk.getInstr(iref) = makeImm(0xFFFF_FFFF'u32)
-                elif a.isSome and a.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
-                elif b.isSome and b.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
-        of irInstrBitAnd:
-            if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
-            else:
-                let
-                    a = blk.isImmValI(instr.source(0))
-                    b = blk.isImmValI(instr.source(1))
-                if a.isSome and b.isSome:
-                    blk.getInstr(iref) = makeImm(a.get and b.get)
-                elif (a.isSome and a.get == 0'u32) or
-                    (b.isSome and b.get == 0'u32):
-                    blk.getInstr(iref) = makeImm(0'u32)
-                elif a.isSome and a.get == 0xFFFF_FFFF'u32:
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
-                elif b.isSome and b.get == 0xFFFF_FFFF'u32:
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
-        of irInstrBitXor:
-            if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeImm(0)
-            else:
-                let
-                    a = blk.isImmValI(instr.source(0))
-                    b = blk.isImmValI(instr.source(1))
-                if a.isSome and b.isSome:
-                    blk.getInstr(iref) = makeImm(a.get xor b.get)
-                elif a.isSome and a.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
-                elif b.isSome and b.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
-        of irInstrBitNot:
-            if (let a = blk.isImmValI(instr.source(0)); a.isSome):
-                blk.getInstr(iref) = makeImm(not a.get)
-        of irInstrCondXor:
-            if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeImm(0)
-            else:
-                let
-                    a = blk.isImmValB(instr.source(0))
-                    b = blk.isImmValB(instr.source(1))
-                if a.isSome and b.isSome:
-                    blk.getInstr(iref) = makeImm(a.get xor b.get)
-        of irInstrCondOr:
-            if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
-            else:
-                let
-                    a = blk.isImmValB(instr.source(0))
-                    b = blk.isImmValB(instr.source(1))
-                if a.isSome and b.isSome:
-                    blk.getInstr(iref) = makeImm(a.get or b.get)
-                elif (a.isSome and a.get) or (b.isSome and b.get):
-                    blk.getInstr(iref) = makeImm(true)
-                elif (a.isSome and not a.get):
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
-                elif (b.isSome and not b.get):
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
-        of irInstrCondAnd:
-            if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
-            else:
-                let
-                    a = blk.isImmValB(instr.source(0))
-                    b = blk.isImmValB(instr.source(1))
-                if a.isSome and b.isSome:
-                    blk.getInstr(iref) = makeImm(a.get and b.get)
-                elif (a.isSome and not a.get) or (b.isSome and not b.get):
-                    blk.getInstr(iref) = makeImm(false)
-                elif (a.isSome and a.get):
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
-                elif (b.isSome and b.get):
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
-        of irInstrCondNot:
-            if (let a = blk.isImmValB(instr.source(0)); a.isSome):
-                blk.getInstr(iref) = makeImm(not a.get)
-        of irInstrCsel:
-            let c = blk.isImmValB(instr.source(2))
-            if c.isSome:
-                blk.getInstr(iref) = makeIdentity(if c.get: instr.source(0) else: instr.source(1))
-        else: discard # no optimisations for you :(
-
-proc removeIdentities*(blk: IrBasicBlock) =
-    var newInstrs: seq[IrInstrRef]
-    for i in 0..<blk.instrs.len:
-        let iref = blk.instrs[i]
-        if blk.getInstr(iref).kind != irInstrIdentity:
-            for source in msources blk.getInstr(iref):
-                while blk.getInstr(source).kind == irInstrIdentity:
-                    source = blk.getInstr(source).source(0)
-
-            newInstrs.add iref
-        else:
-            blk.freeInstrs.add iref
-    blk.instrs = newInstrs
-
-proc removeDeadCode*(blk: IrBasicBlock) =
-    # calculate initial uses
-    for i in 0..<blk.instrs.len:
-        let iref = blk.instrs[i]
-        for source in msources blk.getInstr(iref):
-            blk.getInstr(source).numUses += 1
-
-    var newInstrs: seq[IrInstrRef]
-    for i in countdown(blk.instrs.len-1, 0):
-        let
-            iref = blk.instrs[i]
-            instr = blk.getInstr(iref)
-        if instr.numUses == 0 and instr.kind notin SideEffectOps:
-            for source in sources instr:
-                blk.getInstr(source).numUses -= 1
-
-            blk.freeInstrs.add iref
-        else:
-            newInstrs.add iref
-
-    assert newInstrs.len <= blk.instrs.len
-
-    newInstrs.reverse()
-    blk.instrs = newInstrs
-
-proc verify*(blk: IrBasicBlock) =
-    for i in 0..<blk.instrs.len:
-        let
-            iref = blk.instrs[i]
-            instr = blk.getInstr(iref)
-
-        for source in sources instr:
-            assert blk.getInstr(source).kind notin ResultlessOps
-            # that one is slow
-            #assert source in blk.instrs
-
-        if i == blk.instrs.len - 1:
-            assert instr.kind in {irInstrBranchPpc, irInstrSyscallPpc, irInstrCallInterpreterPpc}
-
-proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAdr: uint32): bool =
-    let lastInstr = blk.getInstr(blk.instrs[^1])
-    if lastInstr.kind == irInstrBranchPpc and
-        (let target = blk.isImmValI(lastInstr.source(1));
-        target.isSome and target.get >= startAdr and target.get < endAdr):
-
-        var
-            regsWritten, regsRead: set[0..31]
-        for i in instrIndexes[(target.get - startAdr) div 4]..<blk.instrs.len:
-            let instr = blk.getInstr(blk.instrs[i])
-            case instr.kind
-            of irInstrSyscallPpc, irInstrStore8, irInstrStore16, irInstrStore32,
-                irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
-                irInstrLoadSpr, irInstrStoreSpr, irInstrCallInterpreterPpc:
-                return false
-            of irInstrLoadReg:
-                regsRead.incl instr.ctxLoadIdx
-            of irInstrStoreReg:
-                if instr.ctxStoreIdx in regsRead:
-                    return false
-                regsWritten.incl instr.ctxStoreIdx
-            else: discard
-
-        return true
-    return false
-
-proc calcLiveIntervals*(blk: IrBasicBlock) =
-    for i in 0..<blk.instrs.len:
-        let instr = blk.getInstr(blk.instrs[i])
-        for src in instr.sources:
-            blk.getInstr(src).lastRead = int32 i
 
 proc `$`*(blk: IrBasicBlock): string =
     for i, iref in pairs blk.instrs:

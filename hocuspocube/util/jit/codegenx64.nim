@@ -8,11 +8,20 @@ import
 
 when defined(windows):
     const
-        registersToUse = [regEdi, regEsi, regEbx, regR12d, regR13d, regR14d, regR15d]
-        xmmsToUse = [regXmm6, regXmm7, regXmm8, regXmm9, regXmm10, regXmm11, regXmm12, regXmm13, regXmm14, regXmm15]
+        registersToUse = [regEdi, regEsi, regEbx, regR12d, regR13d, regR14d, regR15d,
+            regR10d, regR11d]
+        xmmsToUse = [regXmm6, regXmm7, regXmm8, regXmm9, regXmm10, regXmm11, regXmm12, regXmm13, regXmm14, regXmm15,
+            regXmm4, regXmm5]
+        calleeSavedRegsNum = 7
+        calleeSavedXmmsNum = 10
 else:
     const
-        registersToUse = [regEbx, regR12d, regR13d, regR14d, regR15d]
+        registersToUse = [regEbx, regR12d, regR13d, regR14d, regR15d,
+            regR8d, regR9d, regR10d, regR11d]
+        xmmsToUse = [regXmm4, regXmm5,
+            regXmm6, regXmm7, regXmm8, regXmm9, regXmm10, regXmm11, regXmm12, regXmm13, regXmm14, regXmm15]
+        calleeSavedRegsNum = 5
+        calleeSavedXmmsNum = 0
 
 const
     maxSpill = 32
@@ -67,6 +76,34 @@ proc getSpillLoc(num: int32): Rm32 =
 proc getSpillLocXmm(num: int32): RmXmm =
     memXmm(regRsp, stackShadow + num*16)
 
+proc spillRegister[T](regalloc: var RegAlloc[T], s: var AssemblerX64, regIdx: int) =
+    assert regalloc.activeRegs[regIdx].location == regLocHostGprReg
+    assert regalloc.freeSpillLocs[] != {}, &"no spill locations left {regalloc}"
+
+    let reg = regalloc.activeRegs[regIdx].idx
+    regalloc.activeRegs[regIdx].location = regLocHostSpill
+    regalloc.activeRegs[regIdx].idx = regalloc.freeSpillLocs[].popMin()
+    when T is HostIRegRange:
+        s.mov(getSpillLoc(regalloc.activeRegs[regIdx].idx), reg.toReg())
+    else:
+        s.movapd(getSpillLocXmm(regalloc.activeRegs[regIdx].idx), reg.toXmm())
+
+proc prepareCall[T](regalloc: var RegAlloc[T], s: var AssemblerX64, writeVal: IrInstrRef) =
+    var i = 0
+    while i < regalloc.activeRegs.len:
+        block deleted:
+            if regalloc.activeRegs[i].location in {regLocHostGprReg, regLocHostGprRegImm} and
+                regalloc.activeRegs[i].val != writeVal:
+                if regalloc.activeRegs[i].idx >= (when T is HostIRegRange: calleeSavedRegsNum else: calleeSavedXmmsNum):
+                    regalloc.freeRegs.incl regalloc.activeRegs[i].idx
+                    if regalloc.activeRegs[i].location == regLocHostGprReg:
+                        regalloc.spillRegister(s, i)
+                    elif regalloc.activeRegs[i].location == regLocHostGprRegImm:
+                        regalloc.activeRegs.del i
+                        break deleted
+            i += 1
+
+
 proc allocHostReg[T](regalloc: var RegAlloc[T], s: var AssemblerX64, lockedRegs: set[T]): int32 =
     if regalloc.freeRegs == {}:
         # spill a register
@@ -82,15 +119,9 @@ proc allocHostReg[T](regalloc: var RegAlloc[T], s: var AssemblerX64, lockedRegs:
             if regalloc.activeRegs[i].location == regLocHostGprReg and
                 regalloc.activeRegs[i].idx notin lockedRegs:
 
-                assert regalloc.freeSpillLocs[] != {}, &"no spill locations left {regalloc}"
-
                 let reg = regalloc.activeRegs[i].idx
-                regalloc.activeRegs[i].location = regLocHostSpill
-                regalloc.activeRegs[i].idx = regalloc.freeSpillLocs[].popMin()
-                when T is HostIRegRange:
-                    s.mov(getSpillLoc(regalloc.activeRegs[i].idx), reg.toReg())
-                else:
-                    s.movapd(getSpillLocXmm(regalloc.activeRegs[i].idx), reg.toXmm())
+                regalloc.spillRegister(s, i)
+
                 return reg
 
         raiseAssert(&"too many register for one operation at once! {regalloc} {lockedRegs}")
@@ -302,18 +333,15 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
 
     result = s.getFuncStart[:pointer]()
 
-    s.push(reg(regRdi))
-    s.push(reg(regRsi))
-    s.push(reg(regRbx))
-    s.push(reg(regR12))
-    s.push(reg(regR13))
-    s.push(reg(regR14))
-    s.push(reg(regR15))
+    for i in 0..<calleeSavedRegsNum:
+        s.push(reg(Register64(registersToUse[i].ord)))
     s.push(reg(regRbp))
-    let stackOffset = int32(8 + (if fexception: xmmsToUse.len*16 else: 0) + stackFrameSize)
+    let
+        stackAlignAdjustment = if ((calleeSavedRegsNum + 1) mod 2) == 0: 8 else: 0
+        stackOffset = int32(stackAlignAdjustment + (if fexception: calleeSavedXmmsNum*16 else: 0) + stackFrameSize)
     s.sub(reg(regRsp), stackOffset)
     if fexception:
-        for i in 0..<xmmsToUse.len:
+        for i in 0..<calleeSavedXmmsNum:
             s.movaps(memXmm(regRsp, int32(stackFrameSize + i*16)), xmmsToUse[i])
 
     s.mov(reg(regRbp), param1)
@@ -329,11 +357,15 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             iref = blk.instrs[i]
             instr = blk.getInstr(iref)
 
+        template beforeCall =
+            regalloc.prepareCall(s(), iref)
+            xmmRegAlloc.prepareCall(s(), iref)
+
         #echo &"processing instr {i} {regalloc}"
 
         case instr.kind
-        of irInstrIdentity:
-            raiseAssert("should have been lowered")
+        of irInstrIdentity, irInstrLoadCrBit, irInstrStoreCrBit:
+            raiseAssert(&"should have been lowered {instr.kind}")
         of irInstrLoadImmI:
             discard
         of irInstrLoadImmB:
@@ -342,12 +374,14 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.mov(mem32(rcpu, int32(offsetof(PpcState, pc))), cast[int32](instr.pc))
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), cast[int32](instr.instr))
+            beforeCall()
             s.call(instr.target)
             setFlagUnk()
         of irInstrCallInterpreterDsp:
             s.mov(mem16(rcpu, int32(offsetof(DspState, pc))), cast[int16](instr.pc))
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), cast[int32](instr.instr))
+            beforeCall()
             s.call(instr.target)
             setFlagUnk()
         of irInstrLoadReg:
@@ -362,7 +396,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             else:
                 let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
                 s.mov(mem32(rcpu, int32(offset)), src.toReg)
-        of irInstrLoadCrBit:
+        #[of irInstrLoadCrBit:
             let dst = regalloc.allocOpW1R0(s, iref, blk)
             s.test(mem32(rcpu, int32 offsetof(PpcState, cr)), cast[int32](1'u32 shl (31'u32-instr.ctxLoadIdx)))
             s.setcc(reg(Register8(dst.toReg.ord)), condNotZero)
@@ -376,7 +410,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.sshl(reg(regEcx), int8(31'u32-instr.ctxStoreIdx))
             s.oor(reg(regEax), regEcx)
             s.mov(mem32(rcpu, int32 offsetof(PpcState, cr)), regEax)
-            setFlagUnk()
+            setFlagUnk()]#
         of irInstrLoadXer:
             let
                 dst = regalloc.allocOpW1R0(s, iref, blk)
@@ -406,12 +440,14 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             let dst = regalloc.allocOpW1R0(s, iref, blk)
             if IrSprNum(instr.ctxLoadIdx) in {irSprNumTbL, irSprNumTbU}:
                 s.mov(reg(param1), rcpu)
+                beforeCall()
                 s.call(currentTb)
                 if IrSprNum(instr.ctxLoadIdx) == irSprNumTbU:
                     s.sshr(reg(regRax), 32)
                 s.mov(reg(dst.toReg), regEax)
             elif IrSprNum(instr.ctxLoadIdx) == irSprNumDec:
                 s.mov(reg(param1), rcpu)
+                beforeCall()
                 s.call(getDecrementer)
                 s.mov(reg(dst.toReg), regEax)
             else:
@@ -423,6 +459,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             if num in {irSprNumTbL, irSprNumTbU, irSprNumDec, irSprNumWpar, irSprNumHid0, irSprNumDmaL}:
                 s.mov(reg(param1), rcpu)
                 s.mov(reg(Register32(param2.ord)), regalloc.allocOpW0R1(s, instr.source(0), blk).toReg)
+                beforeCall()
                 case num
                 of irSprNumDec: s.call(setupDecrementer)
                 of irSprNumTbL: s.call(setTbl)
@@ -707,6 +744,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             let (dst, adr) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), adr.toReg)
+            beforeCall()
             case instr.kind
             of irInstrLoad32:
                 s.call(jitReadMemory[uint32])
@@ -730,12 +768,15 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             case instr.kind
             of irInstrStore32:
                 s.mov(reg(Register32(param3.ord)), val.toReg)
+                beforeCall()
                 s.call(jitWriteMemory[uint32])
             of irInstrStore16:
                 s.movzx(Register32(param3.ord), reg(Register16(val.toReg.ord)))
+                beforeCall()
                 s.call(jitWriteMemory[uint16])
             of irInstrStore8:
                 s.movzx(Register32(param3.ord), reg(Register8(val.toReg.ord)))
+                beforeCall()
                 s.call(jitWriteMemory[uint8])
             else: raiseAssert("welp")
             setFlagUnk()
@@ -745,6 +786,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 adr = regalloc.allocOpW0R1(s, instr.source(0), blk)
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), adr.toReg)
+            beforeCall()
             case instr.kind
             of irInstrLoadFss:
                 s.call(jitReadMemory[uint32])
@@ -760,6 +802,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 val = xmmRegalloc.allocOpW0R1(s, instr.source(1), blk)
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), adr.toReg)
+            beforeCall()
             case instr.kind
             of irInstrStoreFss:
                 s.movd(reg(Register32(param3.ord)), val.toXmm)
@@ -776,6 +819,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 (adr, _) = regalloc.allocOpW0R2(s, instr.source(0), instr.source(1), blk)
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), adr.toReg)
+            beforeCall()
             case instr.kind
             of irInstrLoadFsq:
                 s.call(jitReadMemory[uint32])
@@ -794,6 +838,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 (adr, _) = regalloc.allocOpW0R2(s, instr.source(0), instr.source(2), blk)
             s.mov(reg(param1), rcpu)
             s.mov(reg(Register32(param2.ord)), adr.toReg)
+            beforeCall()
             case instr.kind
             of irInstrStoreFsq:
                 s.movd(reg(Register32(param3.ord)), src.toXmm)
@@ -804,14 +849,20 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 s.call(jitWriteMemory[uint64])
             else: raiseAssert("welp")
             setFlagUnk()
-        of irInstrBranchPpc:
+        of irInstrBranchPpc, irInstrBranchDsp:
             #assert blk.isImmVal(instr.source(0), false), "should have been lowered before"
             if blk.isImmVal(instr.source(0), true):
                 if (let immTarget = blk.isImmValI(instr.source(1)); immTarget.isSome()):
-                    s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), cast[int32](immTarget.get()))
+                    if instr.kind == irInstrBranchPpc:
+                        s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), cast[int32](immTarget.get()))
+                    else:
+                        s.mov(mem16(rcpu, int32 offsetof(DspState, pc)), cast[int16](immTarget.get()))
                 else:
                     let target = regalloc.allocOpW0R1(s, instr.source(1), blk)
-                    s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), target.toReg)
+                    if instr.kind == irInstrBranchPpc:
+                        s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), target.toReg)
+                    else:
+                        s.mov(mem16(rcpu, int32 offsetof(DspState, pc)), Register16(target.toReg.ord))
 
                 if idleLoop:
                     s.mov(reg(regEax), -1)
@@ -821,7 +872,10 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 s.mov(reg(regEcx), target.toReg)
                 s.test(reg(cond.toReg), cond.toReg)
                 s.cmov(regEax, reg(regEcx), condNotZero)
-                s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), regEax)
+                if instr.kind == irInstrBranchPpc:
+                    s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), regEax)
+                else:
+                    s.mov(mem16(rcpu, int32 offsetof(PpcState, pc)), regAx)
 
                 if idleLoop:
                     s.mov(reg(regEax), -1)
@@ -830,6 +884,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
         of irInstrSyscallPpc:
             s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), cast[int32](blk.isImmValI(instr.source(0)).get))
             s.mov(reg(param1), rcpu)
+            beforeCall()
             s.call(systemCall)
             setFlagUnk()
         of irInstrLoadFpr:
@@ -1108,17 +1163,12 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
     if fexception: s.label(floatExceptionBranch)
 
     if fexception:
-        for i in 0..<xmmsToUse.len:
+        for i in 0..<calleeSavedXmmsNum:
             s.movaps(xmmsToUse[i], memXmm(regRsp, int32(stackFrameSize + i*16)))
     s.add(reg(regRsp), stackOffset)
     s.pop(reg(regRbp))
-    s.pop(reg(regR15))
-    s.pop(reg(regR14))
-    s.pop(reg(regR13))
-    s.pop(reg(regR12))
-    s.pop(reg(regRbx))
-    s.pop(reg(regRsi))
-    s.pop(reg(regRdi))
+    for i in countdown(calleeSavedRegsNum-1, 0):
+        s.pop(reg(Register64(registersToUse[i].ord)))
     s.ret()
 
     assert s.offset < sizeof(codeMemory)

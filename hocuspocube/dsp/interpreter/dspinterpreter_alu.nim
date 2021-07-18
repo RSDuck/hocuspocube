@@ -12,10 +12,10 @@ proc mr*(state; m, r: uint16) =
     let r = int r
     case range[0..7](m)
     of 0: discard # mr with m=0 is also known as nop
-    of 1: state.writeReg dspRegAdr0.succ(r), decAdr(adrReg(r), wrapReg(r))
-    of 2: state.writeReg dspRegAdr0.succ(r), incAdr(adrReg(r), wrapReg(r))
-    of 3: state.writeReg dspRegAdr0.succ(r), decAdr(adrReg(r), wrapReg(r), cast[int16](incReg(r)))
-    of 4..7: state.writeReg dspRegAdr0.succ(r), incAdr(adrReg(r), wrapReg(r), cast[int16](incReg(int m - 4)))
+    of 1: state.adrReg[r] = decAdr(state.adrReg[r], state.wrapReg[r])
+    of 2: state.adrReg[r] = incAdr(state.adrReg[r], state.wrapReg[r])
+    of 3: state.adrReg[r] = decAdr(state.adrReg[r], state.wrapReg[r], cast[int16](state.incReg[r]))
+    of 4..7: state.adrReg[r] = incAdr(state.adrReg[r], state.wrapReg[r], cast[int16](state.incReg[m - 4]))
 
 template addAccumOp(accumReg, addend: untyped, parallel: untyped): untyped =
     let
@@ -131,22 +131,22 @@ proc orli*(state; d: uint16) =
         discard
 
 proc norm*(state; d, r: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr norm"
 
 proc ddiv*(state; d, s: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr ddiv"
 
 proc addc*(state; d, s: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr addc"
 
 proc subc*(state; d, s: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr subc"
 
 proc negc*(state; d: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr negc"
 
 proc max*(state; d, s: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr max"
 
 proc lsfn*(state; d, s: uint16) =
     shiftOp(true, -cast[int16](state.readReg(dspRegX1.succ(int s)))):
@@ -292,7 +292,17 @@ proc dec*(state; d, x: uint16) =
     state.writeAccum(int(d.getBit(0)), diff)
 
 proc abs*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let absVal = abs(state.readAccum(int(d)))
+
+    state.dispatchSecondary(x)
+
+    state.status.ca = false
+    state.setV5(cast[uint64](absVal))
+    state.setZ1(cast[uint64](absVal))
+    state.setN1(cast[uint64](absVal))
+    state.setE1(cast[uint64](absVal))
+    state.setU1(cast[uint64](absVal))
+    state.writeAccum(int(d), absVal)
 
 proc neg*(state; d, x: uint16) =
     let
@@ -310,7 +320,7 @@ proc neg*(state; d, x: uint16) =
     state.writeAccum(int d, diff)
 
 proc negp*(state; d, x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr negp"
 
 proc clra*(state; d, x: uint16) =
     state.dispatchSecondary(x)
@@ -326,7 +336,8 @@ proc clra*(state; d, x: uint16) =
 proc clrp*(state; x: uint16) =
     state.dispatchSecondary(x)
 
-    state.writeProduct(0)
+    state.prod = 0xFFFF_FFFF_FFF0_0000'u64
+    state.prodcarry = 0x0010
 
 proc round(x: int64): int64 =
     result = x
@@ -377,7 +388,7 @@ proc tst2*(state; s, x: uint16) =
     state.setU1(cast[uint64](accum))
 
 proc tstp*(state; x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr tstp"
 
 proc lsl16*(state; d, x: uint16) =
     shiftOp(true, 16):
@@ -461,7 +472,13 @@ proc mpy*(state; s, x: uint16) =
     state.writeProduct(prod)
 
 proc mpy2*(state; x: uint16) =
-    raiseAssert "unimplemented dsp instr"
+    let
+        factor = int64(cast[int16](state.readReg(dspRegX1)))
+        prod = factor * (if state.status.im: factor * 2 else: factor)
+
+    state.dispatchSecondary(x)
+
+    state.writeProduct(prod)
 
 template macOp(a, b: untyped, negate: bool): untyped =
     let

@@ -5,15 +5,15 @@ import
 using state: var DspState
 
 proc pld*(state; d, m, r: uint16) =
-    state.loadAccum int d, instrRead(adrReg(int r))
+    state.loadAccum int d, instrRead(state.adrReg[r])
     state.loadStoreAdrInc(m, int r)
 
 proc ld*(state; m, r, d: uint16) =
-    state.writeReg(DspReg d, dataRead(adrReg(int r)))
+    state.writeReg(DspReg d, dataRead(state.adrReg[r]))
     state.loadStoreAdrInc(m, int r)
 
 proc st*(state; m, r, s: uint16) =
-    dataWrite(adrReg(int r), state.readReg(DspReg s))
+    dataWrite(state.adrReg[r], state.readReg(DspReg s))
     state.loadStoreAdrInc(m, int r)
 
 proc ldsa*(state; d, a: uint16) =
@@ -42,4 +42,3 @@ proc stla*(state; s: uint16) =
 proc stli*(state; a: uint16) =
     let imm = fetchFollowingImm
     dataWrite(a or 0xFF00'u16, imm)
-

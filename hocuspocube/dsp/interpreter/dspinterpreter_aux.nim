@@ -1,7 +1,7 @@
 import
+    stew/bitops2, bitops,
     ../../util/aluhelper,
     ../dspstate,
-    stew/bitops2,
     strformat
 
 using state: var DspState
@@ -12,6 +12,9 @@ template fetchFollowingImm*: uint16 {.dirty.} =
 
 func writeReg*(state; n: DspReg, val: uint16) {.inline.} =
     case n
+    of dspRegAdr0..dspRegAdr3: state.adrReg[ord(n) - ord(dspRegAdr0)] = val
+    of dspRegInc0..dspRegInc3: state.incReg[ord(n) - ord(dspRegInc0)] = val
+    of dspRegWrap0..dspRegWrap3: state.wrapReg[ord(n) - ord(dspRegWrap0)] = val
     of dspRegCallStack: state.callStack.push(val)
     of dspRegStatusStack: state.statusStack.push(val)
     of dspRegLoopAdrStack:
@@ -20,11 +23,43 @@ func writeReg*(state; n: DspReg, val: uint16) {.inline.} =
     of dspRegLoopCountStack:
         state.loopAddrStack.sp += 1
         state.loopCountStack.push(val)
-    of dspRegA2, dspRegB2, dspRegPs2: state.r[n] = signExtend[uint16](val, 8)
-    else: state.r[n] = val
+    of dspRegA0, dspRegB0:
+        state.mainAccum[ord(n) - ord(dspRegA0)].clearMask 0xFFFF'u64
+        state.mainAccum[ord(n) - ord(dspRegA0)].setMask uint64(val)
+    of dspRegA1, dspRegB1:
+        state.mainAccum[ord(n) - ord(dspRegA1)].clearMask 0xFFFF_0000'u64
+        state.mainAccum[ord(n) - ord(dspRegA1)].setMask uint64(val) shl 16
+    of dspRegA2, dspRegB2:
+        state.mainAccum[ord(n) - ord(dspRegA2)].clearMask 0xFFFF_FFFF_0000_0000'u64
+        state.mainAccum[ord(n) - ord(dspRegA2)].setMask signExtend[uint64](val, 8) shl 32
+    of dspRegX0, dspRegY0:
+        state.auxAccum[ord(n) - ord(dspRegX0)].clearMask 0xFFFF'u32
+        state.auxAccum[ord(n) - ord(dspRegX0)].setMask uint32(val)
+    of dspRegX1, dspRegY1:
+        state.auxAccum[ord(n) - ord(dspRegX1)].clearMask 0xFFFF_0000'u32
+        state.auxAccum[ord(n) - ord(dspRegX1)].setMask uint32(val) shl 16
+    of dspRegDpp: state.dpp = val
+    of dspRegStatus:
+        # TODO: check this, I've done a test about this before, but forgot how it went
+        # but not all bits can be changed
+        state.status = Status(val)
+    of dspRegPs0:
+        state.prod.clearMask 0xFFFF'u64
+        state.prod.setMask uint64(val)
+    of dspRegPs1:
+        state.prod.clearMask 0xFFFF_0000'u64
+        state.prod.setMask uint64(val) shl 16
+    of dspRegPs2:
+        state.prod.clearMask 0xFFFF_FFFF_0000_0000'u64
+        state.prod.setMask signExtend[uint64](val, 8) shl 32
+    of dspRegPc1:
+        state.prodcarry = val
 
 func readReg*(state; n: DspReg): uint16 {.inline.} =
     case n
+    of dspRegAdr0..dspRegAdr3: state.adrReg[ord(n) - ord(dspRegAdr0)]
+    of dspRegInc0..dspRegInc3: state.incReg[ord(n) - ord(dspRegInc0)]
+    of dspRegWrap0..dspRegWrap3: state.wrapReg[ord(n) - ord(dspRegWrap0)]
     of dspRegCallStack: state.callStack.pop()
     of dspRegStatusStack: state.statusStack.pop()
     of dspRegLoopAdrStack:
@@ -33,64 +68,59 @@ func readReg*(state; n: DspReg): uint16 {.inline.} =
     of dspRegLoopCountStack:
         state.loopAddrStack.sp -= 1
         state.loopCountStack.pop()
-    else: state.r[n]
-
-template adrReg*(n: int): uint16 {.dirty.} =
-    state.r[dspRegAdr0.succ(n)]
-
-template incReg*(n: int): uint16 {.dirty.} =
-    state.r[dspRegInc0.succ(n)]
-
-template wrapReg*(n: int): uint16 {.dirty.} =
-    state.r[dspRegWrap0.succ(n)]
+    of dspRegA0, dspRegB0:
+        uint16(state.mainAccum[ord(n) - ord(dspRegA0)])
+    of dspRegA1, dspRegB1:
+        uint16(state.mainAccum[ord(n) - ord(dspRegA1)] shr 16)
+    of dspRegA2, dspRegB2:
+        uint16(state.mainAccum[ord(n) - ord(dspRegA2)] shr 32)
+    of dspRegX0, dspRegY0:
+        uint16(state.auxAccum[ord(n) - ord(dspRegX0)])
+    of dspRegX1, dspRegY1:
+        uint16(state.auxAccum[ord(n) - ord(dspRegX1)] shr 16)
+    of dspRegDpp: state.dpp
+    of dspRegStatus: uint16(state.status)
+    of dspRegPs0: uint16(state.prod)
+    of dspRegPs1: uint16(state.prod shr 16)
+    of dspRegPs2: uint16(state.prod shr 32)
+    of dspRegPc1: uint16(state.prodcarry)
 
 func readAccum*(state; n: int): int64 {.inline.} =
-    int64(state.readReg(dspRegA0.succ(n))) or
-        (int64(state.readReg(dspRegA1.succ(n))) shl 16) or
-        (int64(state.readReg(dspRegA2.succ(n))) shl 32)
+    cast[int64](state.mainAccum[n])
 
 func writeAccum*(state; n: int, val: int64) {.inline.} =
-    state.writeReg dspRegA0.succ(n), uint16(val)
-    state.writeReg dspRegA1.succ(n), uint16(val shr 16)
-    state.writeReg dspRegA2.succ(n), uint16(val shr 32)
+    state.mainAccum[n] = cast[uint64](val)
 
 func loadAccum*(state; n: int, val: uint16) {.inline.} =
-    state.writeReg dspRegA1.succ(n), val
     if state.status.xl:
-        state.writeReg dspRegA0.succ(n), 0
-        state.writeReg dspRegA2.succ(n), if getBit(val, 15): 0xFFFF else: 0    
+        state.mainAccum[n] = signExtend(uint64(val) shl 16, 32)
+    else: 
+        state.writeReg dspRegA1.succ(n), val
 
 func storeAccum*(state; n: int): uint16 {.inline.} =
     if state.status.xl and (state.status.ov or state.status.ext):
-        if cast[int16](state.r[dspRegA2.succ(n)]) > 0:
+        if cast[int64](state.mainAccum[n]) > 0xFFFF_FFFF'i64:
             0x8000'u16
-        elif cast[int16](state.r[dspRegA2.succ(n)]) < 0:
-            0x7fff'u16
+        elif cast[int64](state.mainAccum[n]) < -0x1_0000_0000'i64:
+            0x7FFF'u16
         else:
-            state.r[dspRegA1.succ(n)]
+            uint16(state.mainAccum[n] shr 16)
     else:
-        state.r[dspRegA1.succ(n)]
+        uint16(state.mainAccum[n] shr 16)
 
 func readAuxAccum*(state; n: int): int64 {.inline.} =
-    int64(cast[int32]((uint32(state.readReg(dspRegX0.succ(n))) or
-        (uint32(state.readReg(dspRegX1.succ(n))) shl 16))))
+    cast[int32](state.auxAccum[n])
 
 func writeAuxAccum*(state; n: int, val: int64) {.inline.} =
-    state.writeReg(dspRegX0.succ(n), cast[uint16](val))
-    state.writeReg(dspRegX1.succ(n), cast[uint16](val shr 16))
+    state.auxAccum[n] = uint32(cast[uint64](val))
 
 # very inaccutare
 func readProduct*(state): int64 {.inline.} =
-    result = int64(state.readReg(dspRegPs0))
-    result += int64(state.readReg(dspRegPs1)) shl 16
-    result += int64(state.readReg(dspRegPc1)) shl 16
-    result += int64(state.readReg(dspRegPs2)) shl 32
+    cast[int64](signExtend(state.prod + (uint64(state.prodcarry) shl 16), 40))
 
 func writeProduct*(state; val: int64) {.inline.} =
-    state.writeReg dspRegPs0, cast[uint16](val)
-    state.writeReg dspRegPs1, cast[uint16](val shr 16)
-    state.writeReg dspRegPs2, cast[uint16](val shr 32)
-    state.writeReg dspRegPc1, 0
+    state.prod = cast[uint64](val)
+    state.prodcarry = 0
 
 # dsp address increment/decrement
 # figured out by kiesel-stein and minified by Mylek
@@ -158,16 +188,16 @@ func decAdr*(adr, wrap: uint16, inc: int16): uint16 =
 func loadStoreAdrInc*(state; m: range[0..3], rn: int) =
     case m
     of 0: discard
-    of 1: state.writeReg dspRegAdr0.succ(rn), decAdr(adrReg(rn), wrapReg(rn))
-    of 2: state.writeReg dspRegAdr0.succ(rn), incAdr(adrReg(rn), wrapReg(rn))
-    of 3: state.writeReg dspRegAdr0.succ(rn), incAdr(adrReg(rn), wrapReg(rn), cast[int16](incReg(rn)))
+    of 1: state.adrReg[rn] = decAdr(state.adrReg[rn], state.wrapReg[rn])
+    of 2: state.adrReg[rn] = incAdr(state.adrReg[rn], state.wrapReg[rn])
+    of 3: state.adrReg[rn] = incAdr(state.adrReg[rn], state.wrapReg[rn], cast[int16](state.incReg[rn]))
 
 func setC1*(state; ds, s: uint64) =
-    state.status.ca = (0xFF_FFFF_FFFF'u64 - (ds and 0xFF_FFFF_FFFF'u64)) < (s and 0xFF_FFFF_FFFF'u64)
+    state.status.ca = (0xFFFF_FFFF_FFFF_FFFF'u64 - ds) < s
     let dd = ds + s
     assert state.status.ca == ((ds.getBit(39) and s.getBit(39)) or (not(dd.getBit(39)) and (ds.getBit(39) or s.getBit(39)))), &"wrong carry? {dd:08X}"
 func setC2*(state; ds, s: uint64) =
-    state.status.ca = (ds and 0xFF_FFFF_FFFF'u64) >= (s and 0xFF_FFFF_FFFF'u64)
+    state.status.ca = ds >= s
     let dd = ds - s
     assert state.status.ca == ((ds.getBit(39) and not(s.getBit(39))) or (not(dd.getBit(39)) and (ds.getBit(39) or not(s.getBit(39))))), &"wrong carry? {state.status.ca} {dd:X} {ds:X} {s:X}"
     #state.status.ca = (dd.getBit(39) and not(s.getBit(39))) or (not(dd.getBit(39)) and (ds.getBit(39) or not(s.getBit(39))))
@@ -178,6 +208,8 @@ func setV1*(state; dd, ds, s: uint64) =
     state.status.ov = ds.getBit(39) == s.getBit(39) and dd.getBit(39) != ds.getBit(39)
 func setV2*(state; dd, ds, s: uint64) =
     state.status.ov = ds.getBit(39) != s.getBit(39) and dd.getBit(39) != ds.getBit(39)
+func setV5*(state; dd: uint64) =
+    state.status.ov = dd.getBit(39)
 func setV6*(state; p, d: uint64) =
     state.status.ov = not(p.getBit(39)) and d.getBit(39)
 

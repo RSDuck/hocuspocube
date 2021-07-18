@@ -28,7 +28,7 @@ proc handleReset*() =
         # necessary for the for the AX ucode to work
         # Dolphin does this too, needs to be tested
         for i in 0..<4:
-            mDspState.r[dspRegWrap0.succ(i)] = 0xFFFF'u16
+            mDspState.wrapReg[i] = 0xFFFF'u16
         mDspState.pc = IRomStartAdr
 
 proc handleLoopStack*(offset: uint16 = 0) =

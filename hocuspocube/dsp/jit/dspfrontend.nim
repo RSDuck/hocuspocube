@@ -26,12 +26,12 @@ proc compileBlock(): BlockEntryFunc =
     builder.regs.pc = blockAdr
     builder.blk = IrBasicBlock()
 
-    echo &"compiling dsp block {blockAdr:04X}"
+    #echo &"compiling dsp block {blockAdr:04X}"
 
     while not builder.regs.branch:
         builder.regs.instr = instrRead(builder.regs.pc)
 
-        echo &"adding instr {builder.regs.instr:04X}"
+        #echo &"adding instr {builder.regs.instr:04X}"
 
         dspMainDispatch(builder.regs.instr, builder, undefinedInstr)
 

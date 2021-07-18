@@ -11,15 +11,15 @@ proc undefinedSecondary(state; instr: uint16) =
 proc mr(state; m, r: uint16) =
     case range[0..3](m)
     of 0: discard # parallel nop
-    of 1: state.writeReg dspRegAdr0.succ(int r), incAdr(adrReg(int r), wrapReg(int r))
-    of 2: state.writeReg dspRegAdr0.succ(int r), decAdr(adrReg(int r), wrapReg(int r))
-    of 3: state.writeReg dspRegAdr0.succ(int r), incAdr(adrReg(int r), wrapReg(int r), cast[int16](incReg(int r)))
+    of 1: state.adrReg[r] = incAdr(state.adrReg[r], state.wrapReg[r])
+    of 2: state.adrReg[r] = decAdr(state.adrReg[r], state.wrapReg[r])
+    of 3: state.adrReg[r] = incAdr(state.adrReg[r], state.wrapReg[r], cast[int16](state.incReg[r]))
 
 proc incAdrReg(state; reg, m: int) =
     if m == 0:
-        state.writeReg dspRegAdr0.succ(reg), incAdr(adrReg(reg), wrapReg(reg))
+        state.adrReg[reg] = incAdr(state.adrReg[reg], state.wrapReg[reg])
     else:
-        state.writeReg dspRegAdr0.succ(reg), incAdr(adrReg(reg), wrapReg(reg), cast[int16](incReg(reg)))
+        state.adrReg[reg] = incAdr(state.adrReg[reg], state.wrapReg[reg], cast[int16](state.incReg[reg]))
 
 proc mv(state; d, s: uint16) =
     state.writeReg dspRegX0.succ(int d),
@@ -32,13 +32,12 @@ proc st(state; s, m, r: uint16) =
         val = case range[0..3](s)
             of 0..1: state.readReg(dspRegA0.succ(int s))
             of 2..3: state.storeAccum(int s - 2)
-        adr = adrReg(int r)
-    dataWrite(adr, val)
+    dataWrite(state.adrReg[r], val)
 
     state.incAdrReg(int r, int m)
 
 proc ld(state; d, m, r: uint16) =
-    let val = dataRead(adrReg(int r))
+    let val = dataRead(state.adrReg[r])
 
     state.incAdrReg(int r, int m)
 
@@ -51,8 +50,8 @@ proc ls(state; d, m, n, k, s: uint16) =
         (loadReg, storeReg) = if k == 0: (0, 3) else: (3, 0)
         storeVal = state.storeAccum(int s)
 
-    state.writeReg(dspRegX0.succ(int d), dataRead(adrReg(loadReg)))
-    dataWrite(adrReg(storeReg), storeVal)
+    state.writeReg(dspRegX0.succ(int d), dataRead(state.adrReg[loadReg]))
+    dataWrite(state.adrReg[storeReg], storeVal)
 
     state.incAdrReg(0, int n)
     state.incAdrReg(3, int m)
@@ -69,8 +68,8 @@ proc ldd(state; d, m, n, r: uint16) =
             else:
                 (dspRegX0.succ(int(d shr 1) * 2), dspRegY0.succ(int(d and 1) * 2), int(r))
 
-    state.writeReg(d1, dataRead(adrReg(adr)))
-    state.writeReg(d2, dataRead(adrReg(3)))
+    state.writeReg(d1, dataRead(state.adrReg[adr]))
+    state.writeReg(d2, dataRead(state.adrReg[3]))
 
     state.incAdrReg(int adr, int n)
     state.incAdrReg(3, int m)

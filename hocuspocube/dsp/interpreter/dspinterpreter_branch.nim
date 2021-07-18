@@ -21,7 +21,7 @@ proc jmp*(state; cc: uint16) =
 proc jmpr*(state; r, cc: uint16) =
     if state.conditionHolds(cc):
         #echo &"jump by address to {adrReg(int r):04X}"
-        state.pc = adrReg(int r) - 1
+        state.pc = state.adrReg[r] - 1
 
 proc call*(state; cc: uint16) =
     let dst = fetchFollowingImm
@@ -34,11 +34,10 @@ proc call*(state; cc: uint16) =
         #echo &"call skipped {state.pc:04X}"
 
 proc callr*(state; r, cc: uint16) =
-    let dst = adrReg(int r)
     if state.conditionHolds(cc):
         #echo &"calling (indirectly) {dst:04X} {state.pc:04X}"
         state.callStack.push(state.pc + 1)
-        state.pc = dst - 1
+        state.pc = state.adrReg[r] - 1
 
 proc rets*(state; cc: uint16) =
     if state.conditionHolds(cc):
@@ -90,7 +89,7 @@ proc rep*(state; r: uint16) =
 # those two don't belong here 100%
 # but it's not worth to have an entire module just for them
 proc trap*(state) =
-    raiseAssert "unimplemented dsp instr"
+    raiseAssert "unimplemented dsp instr trap"
 
 proc wait*(state) =
     dspCsr.halt = true

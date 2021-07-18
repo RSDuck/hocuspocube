@@ -39,8 +39,10 @@ proc exec*(builder; cc: uint16) =
 
 proc loopi*(builder; c: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.loopi)
-    loopEnds.incl builder.fetchFollowingImm
-    builder.regs.branch = true
+    if c > 0:
+        loopEnds.incl builder.fetchFollowingImm
+    else:
+        builder.regs.branch = true
 
 proc loop*(builder; r: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.loop)
@@ -49,8 +51,10 @@ proc loop*(builder; r: uint16) =
 
 proc repi*(builder; c: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.repi)
-    loopEnds.incl builder.regs.pc + 1
-    builder.regs.branch = true
+    if c > 0:
+        loopEnds.incl builder.regs.pc + 1
+    else:
+        builder.regs.branch = true
 
 proc rep*(builder; r: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rep)

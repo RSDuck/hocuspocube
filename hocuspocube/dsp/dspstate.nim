@@ -38,7 +38,7 @@ type
         dspRegWrap0
         dspRegWrap1
         dspRegWrap2
-        dspRegWrap3,
+        dspRegWrap3
         dspRegCallStack
         dspRegStatusStack
         dspRegLoopAdrStack
@@ -65,9 +65,16 @@ type
         values: array[Size, uint16]
 
     DspState* = object
-        r*: array[DspReg, uint16]
+        mainAccum*: array[2, uint64]
+        auxAccum*: array[2, uint32]
+        prod*: uint64
+        prodcarry*: uint16
+        adrReg*: array[4, uint16]
+        incReg*: array[4, uint16]
+        wrapReg*: array[4, uint16]
+        dpp*: uint16
+        pc*: uint16
 
-        config*, pc*: uint16
         status*: Status
 
         callStack*: Stack[8]

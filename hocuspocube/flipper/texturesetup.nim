@@ -174,6 +174,7 @@ proc decodeTextureCmpr(dst, src: ptr UncheckedArray[byte], width, height: int) =
     let
         dst = cast[ptr UncheckedArray[uint32]](dst)
         src = cast[ptr UncheckedArray[uint64]](src)
+        roundedWidth = (width + 7) and not(7)
     for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 8, 4, 4):
         let
             cmprBlock = CmprBlock fromBE(src[srcIdx])
@@ -197,10 +198,7 @@ proc decodeTextureCmpr(dst, src: ptr UncheckedArray[byte], width, height: int) =
         for j in 0..<4:
             for i in 0..<4:
                 let idx = cmprBlock.indices((3 - i) + (3 - j) * 4)
-
-                # for compressed textures the width has to be a multiple of the block size
-                # so it's ok that we use width instead of the rounded width here
-                dst[dstIdx + j * width + i] = colors[idx]
+                dst[dstIdx + j * roundedWidth + i] = colors[idx]
 
 type
     TextureKey* = object
@@ -294,7 +292,7 @@ proc setupTexture*(n: int) =
         textures[key] = texture
         texture.invalid = true
 
-        echo "creating texture"
+        echo &"creating texture {n} {key.width}x{key.height} {key.adr:08X} {key.fmt} {texpalAdr:X} {key.palHash:016X} {key.palFmt}"
 
     if texture.invalid:
         type DecodingFunc = proc(dst, src: ptr UncheckedArray[byte], width, height: int) {.nimcall.}

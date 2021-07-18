@@ -153,7 +153,7 @@ proc startVertex*(vtxbuffer) =
     vtxbuffer.data.setLen(vtxbuffer.data.len + vtxbuffer.curFmt.vertexSize)
 
 proc define*[T](vtxbuffer; attr: VertexAttrKind, data: openArray[T], offset = 0) =
-    when #[not defined(release)]#true:
+    when not defined(release):
         assert attr in vtxbuffer.curFmt.enabledAttrs, &"{attr} not in {vtxbuffer.curFmt.enabledAttrs}"
         let endOffset = data.len + offset
         case attr

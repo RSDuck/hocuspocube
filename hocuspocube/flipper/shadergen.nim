@@ -219,6 +219,7 @@ proc genVertexShader*(key: VertexShaderKey): string =
     else:
         line """vec3 transformedNormal = vec3(0);"""
 
+    line "vec4 finalColor0 = vec4(0), finalColor1 = vec4(0);"
     for i in 0..<key.numColors:
         line "{"
 
@@ -243,16 +244,15 @@ proc genVertexShader*(key: VertexShaderKey): string =
             colorLightCtrl.matSrc, alphaLightCtrl.matSrc} and vtxAttrColor0.succ(int i) notin key.enabledAttrs:
             line &"vec4 inColor{i} = vec4(0);"
 
-        line &"vec4 finalColor;"
         if colorLightCtrl.enableLighting:
-            line &"finalColor.rgb = {ambientColor};"
+            line &"finalColor{i}.rgb = {ambientColor};"
         else:
-            line &"finalColor.rgb = {materialColor};"
+            line &"finalColor{i}.rgb = {materialColor};"
 
         if alphaLightCtrl.enableLighting:
-            line &"finalColor.a = {ambientAlpha};"
+            line &"finalColor{i}.a = {ambientAlpha};"
         else:
-            line &"finalColor.a = {materialAlpha};"
+            line &"finalColor{i}.a = {materialAlpha};"
 
         proc calculateAtten(result: var string, light: int, ctrl: LightCtrl) =
             line &"vec3 lightPos = LightPositionA1[{light}].xyz;"
@@ -300,75 +300,80 @@ proc genVertexShader*(key: VertexShaderKey): string =
                 if enableColor:
                     line "{"
                     calculateAtten(result, j, colorLightCtrl)
-                    line "finalColor.rgb += atten * lightColor.rgb;"
+                    line &"finalColor{i}.rgb += atten * lightColor.rgb;"
                     line "}"
                 if enableAlpha:
                     line "{"
                     calculateAtten(result, j, alphaLightCtrl)
-                    line "finalColor.a += atten * lightColor.a;"
+                    line &"finalColor{i}.a += atten * lightColor.a;"
                     line "}"
                 line "}"
 
         if colorLightCtrl.enableLighting:
-            line &"finalColor.rgb = clamp(finalColor.rgb * {materialColor}, 0, 1);"
+            line &"finalColor{i}.rgb = clamp(finalColor{i}.rgb * {materialColor}, 0, 1);"
         if alphaLightCtrl.enableLighting:
-            line &"finalColor.a = clamp(finalColor.a * {materialAlpha}, 0, 1);"
+            line &"finalColor{i}.a = clamp(finalColor{i}.a * {materialAlpha}, 0, 1);"
 
-        line &"outColor{i} = finalColor;"
+        line &"outColor{i} = finalColor{i} * 255.0;"
 
         line "}"
 
     for i in 0..<key.numTexcoordGen:
-        doAssert key.texcoordGen[i].kind == texcoordGenKindRegular, "only regular texcoords implemented"
-
         line "{"
-        let src =
-            case key.texcoordGen[i].src
-            of texcoordGenSrcGeom: "vec4(inPosition, 1.0)"
-            of texcoordGenSrcNrm: "vec4(inNormal, 1.0)"
-            of texcoordGenSrcTex0..texcoordGenSrcTex7:
-                let n = ord(texcoordGen[i].src) - ord(texcoordGenSrcTex0)
-                if vtxAttrTexCoord0.succ(n) in key.enabledAttrs:
-                    &"vec4(inTexcoord{n}, 1.0, 1.0)"
-                else:
-                    "vec4(0.0, 0.0, 0.0, 1.0)" # what happens then?
-            else: raiseAssert(&"texcoord source {key.texcoordGen[i].src} not implemented yet")
 
-        line &"vec4 texcoordSrc = {src};"
-        if vtxAttrTexMat0.succ(int i) in key.enabledAttrs:
-            line &"uint matIdx = inTexMatIdx{i};"
-        else:
-            let
-                matVar = if i >= 4: 1 else: 0
-                matShift = if i >= 4: (i-4)*6 else: i*6+6
-            line &"uint matIdx = bitfieldExtract(MatIndices{matVar}, {matShift}, 6);"
+        case key.texcoordGen[i].kind
+        of texcoordGenKindRegular:
+            let src =
+                case key.texcoordGen[i].src
+                of texcoordGenSrcGeom: "vec4(inPosition, 1.0)"
+                of texcoordGenSrcNrm: "vec4(inNormal, 1.0)"
+                of texcoordGenSrcTex0..texcoordGenSrcTex7:
+                    let n = ord(texcoordGen[i].src) - ord(texcoordGenSrcTex0)
+                    if vtxAttrTexCoord0.succ(n) in key.enabledAttrs:
+                        &"vec4(inTexcoord{n}, 1.0, 1.0)"
+                    else:
+                        "vec4(0.0, 0.0, 0.0, 1.0)" # what happens then?
+                else: raiseAssert(&"texcoord source {key.texcoordGen[i].src} not implemented yet")
 
-        # not pretty, but it works
-        if key.texcoordGen[i].inputForm == texcoordInputFormAB11:
-            line "texcoordSrc.z = 1.0;"
+            line &"vec4 texcoordSrc = {src};"
+            if vtxAttrTexMat0.succ(int i) in key.enabledAttrs:
+                line &"uint matIdx = inTexMatIdx{i};"
+            else:
+                let
+                    matVar = if i >= 4: 1 else: 0
+                    matShift = if i >= 4: (i-4)*6 else: i*6+6
+                line &"uint matIdx = bitfieldExtract(MatIndices{matVar}, {matShift}, 6);"
 
-        case key.texcoordGen[i].proj
-        of texcoordProjSt:
-            line """vec3 transformedTexcoord = vec3(dot(texcoordSrc, PosTexMats[matIdx]),
-                                        dot(texcoordSrc, PosTexMats[matIdx+1U]),
-                                        1.0);"""
-        of texcoordProjStq:
-            line """vec3 transformedTexcoord = vec3(dot(texcoordSrc, PosTexMats[matIdx]),
-                                                    dot(texcoordSrc, PosTexMats[matIdx+1U]),
-                                                    dot(texcoordSrc, PosTexMats[matIdx+2U]));"""
+            # not pretty, but it works
+            if key.texcoordGen[i].inputForm == texcoordInputFormAB11:
+                line "texcoordSrc.z = 1.0;"
 
-        if key.enableDualTex:
-            if i in key.normaliseDualTex:
-                line "transformedTexcoord = normalize(transformedTexcoord);"
+            case key.texcoordGen[i].proj
+            of texcoordProjSt:
+                line """vec3 transformedTexcoord = vec3(dot(texcoordSrc, PosTexMats[matIdx]),
+                                            dot(texcoordSrc, PosTexMats[matIdx+1U]),
+                                            1.0);"""
+            of texcoordProjStq:
+                line """vec3 transformedTexcoord = vec3(dot(texcoordSrc, PosTexMats[matIdx]),
+                                                        dot(texcoordSrc, PosTexMats[matIdx+1U]),
+                                                        dot(texcoordSrc, PosTexMats[matIdx+2U]));"""
 
-            line &"uint postMatIdx = bitfieldExtract(DualTexMatIdx{i div 4}, {(i mod 4)*8}, 8);"
-            line """transformedTexcoord = vec3(dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx]),
-                                    dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 1U]),
-                                    dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 2U]));"""
+            if key.enableDualTex:
+                if i in key.normaliseDualTex:
+                    line "transformedTexcoord = normalize(transformedTexcoord);"
+
+                line &"uint postMatIdx = bitfieldExtract(DualTexMatIdx{i div 4}, {(i mod 4)*8}, 8);"
+                line """transformedTexcoord = vec3(dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx]),
+                                        dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 1U]),
+                                        dot(vec4(transformedTexcoord, 1.0), DualTexMats[postMatIdx + 2U]));"""
+        of texcoordGenKindColorStrgbc0, texcoordGenKindColorStrgbc1:
+            let idx = ord(key.texcoordGen[i].kind)-ord(texcoordGenKindColorStrgbc0)
+            line &"vec3 transformedTexcoord = vec3(finalColor{idx}.rg, 1.0);"
+        of texcoordGenKindEmbossMap:
+            raiseAssert("emboss texture coord gen not implemented")
 
         let (scaleIdx, scaleSwizzle) = mapPackedArray2(i)
-        line &"outTexcoord{i} = transformedTexcoord * vec3(TexcoordScale[{scaleIdx}].{scaleSwizzle} * 128.0, 1.0);"
-
+        line &"outTexcoord{i} = transformedTexcoord * vec3(TexcoordScale[{scaleIdx}].{scaleSwizzle}, 1.0);"
         line "}"
 
     line "}"
@@ -427,7 +432,7 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
             mapColorOperand: array[TevColorEnvSel, string] =
                 ["reg0.rgb", "reg0.aaa", "reg1.rgb", "reg1.aaa", "reg2.rgb", "reg2.aaa", "reg3.rgb", "reg3.aaa",
                     "texcolor.rgb", "texcolor.aaa", "rascolor.rgb", "rascolor.aaa",
-                    "ivec3(255, 255, 255)", "ivec3(128, 128, 128)", "konstant.rgb", "ivec3(0, 0, 0)"]
+                    "ivec3(255)", "ivec3(128)", "konstant.rgb", "ivec3(0)"]
             mapAlphaOperand: array[TevAlphaEnvSel, string] =
                 ["reg0.a", "reg1.a", "reg2.a", "reg3.a", "texcolor.a", "rascolor.a", "konstant.a", "0"]
 
@@ -481,65 +486,97 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
                 else: "unimplemented"
 
         let colorSwizzle = swizzleFromSwapTable(alphaEnv.rswap, key.ksel)
-        line &"ivec4 rascolor = ivec4({rascolor} * 255.0).{colorSwizzle};"
+        line &"ivec4 rascolor = ivec4({rascolor}).{colorSwizzle};"
 
         line &"ivec4 konstant = ivec4({colorKonstant}, {alphaKonstant});"
 
         if texmapEnable:
             let textureSwizzle = swizzleFromSwapTable(alphaEnv.tswap, key.ksel)
-            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw / 128.0) * 255.0).{textureSwizzle};"
+            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw) * 255.0).{textureSwizzle};"
         else:
             # welp what happens here?
-            line &"ivec4 texcolor = ivec4(255, 255, 255, 255);"
+            line &"ivec4 texcolor = ivec4(0xFFU);"
 
         if key.zenv1.op != zenvOpDisable:
             # does swizzle affect z textures?
             line "lastTexColor = texcolor;"
 
-        line &"uvec3 colorA8 = uvec3({colorA}) & uvec3(0xFF);"
-        line &"uvec3 colorB8 = uvec3({colorB}) & uvec3(0xFF);"
-        line &"uvec3 colorC8 = uvec3({colorC}) & uvec3(0xFF);"
+        line &"uvec3 colorA8 = uvec3({colorA}) & 0xFFU;"
+        line &"uvec3 colorB8 = uvec3({colorB}) & 0xFFU;"
+        line &"uvec3 colorC8 = uvec3({colorC}) & 0xFFU;"
 
-        line &"uint alphaA8 = uint({alphaA}) & 0xFF;"
-        line &"uint alphaB8 = uint({alphaB}) & 0xFF;"
-        line &"uint alphaC8 = uint({alphaC}) & 0xFF;"
+        line &"uint alphaA8 = uint({alphaA}) & 0xFFU;"
+        line &"uint alphaB8 = uint({alphaB}) & 0xFFU;"
+        line &"uint alphaC8 = uint({alphaC}) & 0xFFU;"
 
-        line &"""ivec3 colorVal = ({colorD} << 8) {colorOp} ivec3((255 - colorC8) * colorA8 + colorC8 * colorB8);"""
-        line &"""int alphaVal = ({alphaD} << 8) {alphaOp} int((255 - alphaC8) * alphaA8 + alphaC8 * alphaB8);"""
+        const
+            compOpOperandsLeft: array[TevCompOperand, string] = [
+                "colorA8.r",
+                "bitfieldInsert(colorA8.r, colorA8.g, 8, 8)",
+                "bitfieldInsert(colorA8.r, bitfieldInsert(colorA8.g, colorA8.b, 8, 8), 8, 16)",
+                "alphaA8"]
+            compOpOperandsRight: array[TevCompOperand, string] = [
+                "colorB8.r",
+                "bitfieldInsert(colorB8.r, colorB8.g, 8, 8)",
+                "bitfieldInsert(colorB8.r, bitfieldInsert(colorB8.g, colorB8.b, 8, 8), 8, 16)",
+                "alphaB8"]
+            compOpOperator: array[bool, string] = ["==", ">"]
 
-        case colorEnv.bias
-        of tevBiasZero: discard
-        of tevBiasHalf: line "colorVal += ivec3(0x8000);"
-        of tevBiasMinusHalf: line "colorVal -= ivec3(0x8000);"
-        of tevBiasCompareOp: raiseAssert("compare op!")
+        if colorEnv.bias == tevBiasCompareOp:
+            line &"ivec3 colorVal = {colorD};"
+            if colorEnv.compOp == tevCompOperandRGB8:
+                let compOp = if colorEnv.equal: "equal" else: "greaterThan"
+                line &"colorVal = mix(colorVal, colorVal + ivec3(colorC8), {compOp}(colorA8, colorB8));"
+            else:
+                line &"if ({compOpOperandsLeft[colorEnv.compOp]} {compOpOperator[colorEnv.equal]} {compOpOperandsRight[colorEnv.compOp]})"
+                line "colorVal += ivec3(colorC8);"
+        else:
+            line &"ivec3 colorVal = ({colorD} << 8) {colorOp} ivec3((255 - colorC8) * colorA8 + colorC8 * colorB8);"
 
-        case alphaEnv.bias
-        of tevBiasZero: discard
-        of tevBiasHalf: line "alphaVal += 0x8000;"
-        of tevBiasMinusHalf: line "alphaVal -= 0x8000;"
-        of tevBiasCompareOp: raiseAssert("compare op!")
+            case colorEnv.bias
+            of tevBiasZero: discard
+            of tevBiasHalf: line "colorVal += 0x8000;"
+            of tevBiasMinusHalf: line "colorVal -= 0x8000;"
+            of tevBiasCompareOp: discard
 
-        case colorEnv.scale
-        of tevScale1: discard
-        of tevScale2: line "colorVal <<= 1;"
-        of tevScale4: line "colorVal <<= 2;"
-        of tevScaleHalf: line "colorVal >>= 1;"
+            case colorEnv.scale
+            of tevScale1: discard
+            of tevScale2: line "colorVal <<= 1;"
+            of tevScale4: line "colorVal <<= 2;"
+            of tevScaleHalf: line "colorVal >>= 1;"
 
-        case alphaEnv.scale
-        of tevScale1: discard
-        of tevScale2: line "alphaVal <<= 1;"
-        of tevScale4: line "alphaVal <<= 2;"
-        of tevScaleHalf: line "alphaVal >>= 1;"
+            line "colorVal >>= 8;"
 
         if colorEnv.clamp:
-            line &"{colorDst} = clamp(colorVal >> 8, 0, 255);"
+            line &"{colorDst} = clamp(colorVal, 0, 255);"
         else:
-            line &"{colorDst} = clamp(colorVal >> 8, -1024, 1023);"
+            line &"{colorDst} = clamp(colorVal, -1024, 1023);"
+
+        if alphaEnv.bias == tevBiasCompareOp:
+            line &"int alphaVal = {alphaD};"
+            line &"if ({compOpOperandsLeft[alphaEnv.compOp]} {compOpOperator[alphaEnv.equal]} {compOpOperandsRight[alphaEnv.compOp]})"
+            line "alphaVal += int(alphaC8);"
+        else:
+            line &"int alphaVal = ({alphaD} << 8) {alphaOp} int((255 - alphaC8) * alphaA8 + alphaC8 * alphaB8);"
+
+            case alphaEnv.bias
+            of tevBiasZero: discard
+            of tevBiasHalf: line "alphaVal += 0x8000;"
+            of tevBiasMinusHalf: line "alphaVal -= 0x8000;"
+            of tevBiasCompareOp: discard
+
+            case alphaEnv.scale
+            of tevScale1: discard
+            of tevScale2: line "alphaVal <<= 1;"
+            of tevScale4: line "alphaVal <<= 2;"
+            of tevScaleHalf: line "alphaVal >>= 1;"
+
+            line "alphaVal >>= 8;"
 
         if alphaEnv.clamp:
-            line &"{alphaDst} = clamp(alphaVal >> 8, 0, 255);"
+            line &"{alphaDst} = clamp(alphaVal, 0, 255);"
         else:
-            line &"{alphaDst} = clamp(alphaVal >> 8, -1024, 1023);"
+            line &"{alphaDst} = clamp(alphaVal, -1024, 1023);"
 
         line "}"
 

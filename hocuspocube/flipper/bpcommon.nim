@@ -113,6 +113,12 @@ type
         # not actually a bias. It's just the way they squeezed the other operations in here
         tevBiasCompareOp
 
+    TevCompOperand* = enum
+        tevCompOperandR8
+        tevCompOperandGR16
+        tevCompOperandBGR24
+        tevCompOperandRGB8
+
     TevScale* = enum
         tevScale1
         tevScale2
@@ -276,9 +282,16 @@ makeBitStruct uint32, *TevColorEnv:
     selb[8..11]: TevColorEnvSel
     sela[12..15]: TevColorEnvSel
     bias[16..17]: TevBias
+
+    # for normal ops
     sub[18]: bool
-    clamp[19]: bool
     scale[20..21]: TevScale
+
+    # for comparison ops
+    equal[18]: bool
+    compOp[20..21]: TevCompOperand
+
+    clamp[19]: bool
     dst[22..23]: uint32
 
 makeBitStruct uint32, *TevAlphaEnv:
@@ -289,9 +302,16 @@ makeBitStruct uint32, *TevAlphaEnv:
     selb[10..12]: TevAlphaEnvSel
     sela[13..15]: TevAlphaEnvSel
     bias[16..17]: TevBias
+
+    # for normal ops
     sub[18]: bool
-    clamp[19]: bool
     scale[20..21]: TevScale
+
+    # for comparison ops
+    equal[18]: bool
+    compOp[20..21]: TevCompOperand
+
+    clamp[19]: bool
     dst[22..23]: uint32
 
 makeBitStruct uint32, *TevRegister:

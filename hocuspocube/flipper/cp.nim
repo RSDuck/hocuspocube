@@ -121,7 +121,7 @@ proc cpNotifyFifoBurst*(data: openArray[uint32]): bool =
 
         true
     else:
-        echo "fifo burst with gp link disabled"
+        #echo "fifo burst with gp link disabled"
         false
 
 proc cpRun*() =

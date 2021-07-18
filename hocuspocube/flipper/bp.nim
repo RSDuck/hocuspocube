@@ -183,32 +183,30 @@ proc bpWrite*(adr, val: uint32) =
 
         echo &"copy execute {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
 
-        doAssert copyExecute.mode == copyXfb
+        if copyExecute.mode == copyXfb:
+            var efbContent = newSeq[uint32](width * height)
+            retrieveFrame(efbContent, srcX, srcY, width, height)
 
-        var efbContent = newSeq[uint32](width * height)
-        retrieveFrame(efbContent, srcX, srcY, width, height)
-
-        var
-            adr = HwPtr(efbCopyDst shl 5).adr
-            uniqueAdr = adr
-            line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
-            copied = 0
-        for i in 0..<height:
-            uniqueAdr = adr
-            convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
-                toOpenArray(efbContent, int (height-i-1)*width, int (height-i-1+1)*width-1),
-                int width)
-            adr += stride
-            line += efbCopyStepY
-            copied += 1
-
-            while (line shr 8) == i:
-                copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], width*2)
-                line += efbCopyStepY
+            var
+                adr = HwPtr(efbCopyDst shl 5).adr
+                uniqueAdr = adr
+                line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
+                copied = 0
+            for i in 0..<height:
+                uniqueAdr = adr
+                convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
+                    toOpenArray(efbContent, int (height-i-1)*width, int (height-i-1+1)*width-1),
+                    int width)
                 adr += stride
+                line += efbCopyStepY
                 copied += 1
 
-        #echo &"actually copied {copied} lines"
+                while (line shr 8) == i:
+                    copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], width*2)
+                    line += efbCopyStepY
+                    adr += stride
+                    copied += 1
+            #echo &"actually copied {copied} lines"
 
         if copyExecute.clear:
             rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ, peCMode0.colorUpdate, peCMode0.alphaUpdate, zmode.update)
@@ -232,6 +230,9 @@ proc bpWrite*(adr, val: uint32) =
         copyMem(addr tmem[dst], addr mainRAM[src], count)
         samplerStateDirty.incl {range[0..7](0)..7}
         clearPalHashCache()
+    of 0x66:
+        # invalidate tex cache
+        discard
     of 0x80..0x83:
         let idx = adr - 0x80
         if texMaps[idx].setMode0.maskedWrite val:

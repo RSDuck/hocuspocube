@@ -89,7 +89,7 @@ func readAccum*(state; n: int): int64 {.inline.} =
     cast[int64](state.mainAccum[n])
 
 func writeAccum*(state; n: int, val: int64) {.inline.} =
-    state.mainAccum[n] = cast[uint64](val)
+    state.mainAccum[n] = signExtend(cast[uint64](val), 40)
 
 func loadAccum*(state; n: int, val: uint16) {.inline.} =
     if state.status.xl:
@@ -195,7 +195,7 @@ func loadStoreAdrInc*(state; m: range[0..3], rn: int) =
 func setC1*(state; ds, s: uint64) =
     state.status.ca = (0xFFFF_FFFF_FFFF_FFFF'u64 - ds) < s
     let dd = ds + s
-    assert state.status.ca == ((ds.getBit(39) and s.getBit(39)) or (not(dd.getBit(39)) and (ds.getBit(39) or s.getBit(39)))), &"wrong carry? {dd:08X}"
+    assert state.status.ca == ((ds.getBit(39) and s.getBit(39)) or (not(dd.getBit(39)) and (ds.getBit(39) or s.getBit(39)))), &"wrong carry? {state.status.ca} {dd:X} {ds:X} {s:X}"
 func setC2*(state; ds, s: uint64) =
     state.status.ca = ds >= s
     let dd = ds - s

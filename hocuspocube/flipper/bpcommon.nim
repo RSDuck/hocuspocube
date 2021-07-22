@@ -50,9 +50,77 @@ type
         blendFactorDstAlpha
         blendFactorInvDstAlpha
 
+    PeFmt* = enum
+        peFmtRGB8Z24
+        peFmtRGBA6Z24
+        peFmtRGB565Z16
+        peFmtZ24
+        peFmtI8
+        peFmtYUV420
+
+    CmprZFmt* = enum
+        cmprZLinear
+        cmprZNear
+        cmprZMid
+        cmprZFar
+
     CopyMode* = enum
         copyTexture
         copyXfb
+
+    CopyTexFmt* = enum
+        copyTexfmtR4
+        copyTexfmtReservedC0x1
+        copyTexfmtRA4
+        copyTexfmtRA8
+        copyTexfmtRGB565
+        copyTexfmtRGB5A3
+        copyTexfmtRGBA8
+        copyTexfmtA8
+        copyTexfmtR8
+        copyTexfmtG8
+        copyTexfmtB8
+        copyTexfmtRG8
+        copyTexfmtGB8
+        copyTexfmtReservedC0xD
+        copyTexfmtReservedC0xE
+        copyTexfmtReservedC0xF
+
+    CopyTexIFmt* = enum
+        copyTexfmtI4
+        copyTexfmtI8
+        copyTexfmtIA4
+        copyTexfmtIA8
+        copyTexfmtReservedI0x4
+        copyTexfmtReservedI0x5
+        copyTexfmtYUVA8
+        copyTexfmtReservedI0x7
+        copyTexfmtReservedI0x8
+        copyTexfmtReservedI0x9
+        copyTexfmtReservedI0xA
+        copyTexfmtReservedI0xB
+        copyTexfmtReservedI0xC
+        copyTexfmtReservedI0xD
+        copyTexfmtReservedI0xE
+        copyTexfmtReservedI0xF
+
+    CopyTexZFmt* = enum
+        copyTexfmtZ4
+        copyTexfmtZ8
+        copyTexfmtZReserved0x2
+        copyTexfmtZReserved0x3
+        copyTexfmtZReserved0x4
+        copyTexfmtZReserved0x5
+        copyTexfmtZ24X8
+        copyTexfmtZReserved0x7
+        copyTexfmtZReserved0x8
+        copyTexfmtZ8M
+        copyTexfmtZ8L
+        copyTexfmtZReserved0xB
+        copyTexfmtZ16L
+        copyTexfmtZReserved0xD
+        copyTexfmtZReserved0xE
+        copyTexfmtZReserved0xF
 
     TxTextureFmt* = enum
         txTexfmtI4
@@ -233,8 +301,15 @@ makeBitStruct uint32, *GenMode:
     zfreeze[19]: bool
 
 makeBitStruct uint32, *CopyExecute:
-    mode[14]: CopyMode
+    fmtHi[3]: uint32
+    fmtLo[4..6]: uint32
+    mipmap[9]: bool
     clear[11]: bool
+    mode[14]: CopyMode
+    intensity[15]: bool
+
+proc fmt*(copyExecute: CopyExecute): uint32 =
+    copyExecute.fmtLo or (copyExecute.fmtHi shl 3)
 
 makeBitStruct uint32, *EfbCoordPair:
     x[0..9]: uint32
@@ -255,6 +330,11 @@ makeBitStruct uint32, *ZMode:
     enable[0]: bool
     fun[1..3]: CompareFunction
     update[4]: bool
+
+makeBitStruct uint32, *PeCntrl:
+    fmt[0..2]: PeFmt
+    zfmt[3..4]: CmprZFmt
+    zcompLoc[6]: bool
 
 makeBitStruct uint32, *PeCMode0:
     # still misses all the logicop stuff

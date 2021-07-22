@@ -64,6 +64,7 @@ var
     tevKSel*: array[8, TevKSel]
 
     genMode*: GenMode
+    peCntrl*: PeCntrl
 
     alphaCompare*: AlphaCompare
 
@@ -143,10 +144,7 @@ proc bpWrite*(adr, val: uint32) =
         if peCMode0.maskedWrite val:
             rasterStateDirty = true
     of 0x43:
-        # pe_control
-        # we should handle atleast z comp loc
-        # this is bad
-        discard
+        peCntrl.maskedWrite val
     of 0x49:
         efbCopySrcPos.maskedWrite val
     of 0x4A:
@@ -183,10 +181,13 @@ proc bpWrite*(adr, val: uint32) =
 
         echo &"copy execute {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
 
-        if copyExecute.mode == copyXfb:
-            var efbContent = newSeq[uint32](width * height)
-            retrieveFrame(efbContent, srcX, srcY, width, height)
+        assert peCntrl.fmt != peFmtZ24, "depth copies are not supported"
+        assert not copyExecute.intensity, "intensity copies are not supported"
 
+        var efbContent = newSeq[uint32](width * height)
+        retrieveFrame(efbContent, srcX, srcY, width, height)
+
+        if copyExecute.mode == copyXfb:
             var
                 adr = HwPtr(efbCopyDst shl 5).adr
                 uniqueAdr = adr
@@ -207,7 +208,8 @@ proc bpWrite*(adr, val: uint32) =
                     adr += stride
                     copied += 1
             #echo &"actually copied {copied} lines"
-
+        else:
+            discard
         if copyExecute.clear:
             rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ, peCMode0.colorUpdate, peCMode0.alphaUpdate, zmode.update)
     of 0x53, 0x54:

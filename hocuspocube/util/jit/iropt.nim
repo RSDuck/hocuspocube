@@ -1,5 +1,6 @@
 import
     options, bitops, algorithm, strformat,
+    tables,
     stew/bitseqs,
     ir
 
@@ -362,6 +363,24 @@ proc removeDeadCode*(blk: IrBasicBlock) =
 
     newInstrs.reverse()
     blk.instrs = newInstrs
+
+proc globalValueEnumeration*(blk: IrBasicBlock) =
+    var
+        knownValues: Table[IrInstr, IrInstrRef]
+        replacedValues = newSeq[IrInstrRef](blk.instrPool.len)
+
+    for i in 0..<blk.instrs.len:
+        let iref = blk.instrs[i]
+        if blk.getInstr(iref).kind notin StrictSideEffectOps:
+            for source in msources blk.getInstr(iref):
+                let replacedVal = IrInstrRef(int(replacedValues[int(source)]) - 1)
+                if replacedVal != InvalidIrInstrRef:
+                    source = replacedVal
+
+            knownValues.withValue(blk.getInstr(iref), knownValue) do:
+                replacedValues[int(iref)] = IrInstrRef(int(knownValue[]) + 1)
+            do:
+                knownValues[blk.getInstr(iref)] = iref
 
 proc verify*(blk: IrBasicBlock) =
     var instrsEncountered = init(BitSeq, blk.instrPool.len)

@@ -219,6 +219,15 @@ proc allocOpW1R2[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
             result[2] = regalloc.allocOpW0R1(s, src1, blk, lockedRegs + {result[0]})
         else:
             result[2] = result[1]
+    elif commutative and blk.getInstr(src1).lastRead == instrIdx:
+        # recycle register
+        let src1Loc = prepareHostRead(regalloc, s, src1, blk, lockedRegs)
+        regalloc.activeRegs[src1Loc].location = regLocHostGprReg
+        regalloc.activeRegs[src1Loc].val = dst
+        assert src0 != src1
+        result[0] = T(regalloc.activeRegs[src1Loc].idx)
+        result[1] = regalloc.allocOpW0R1(s, src0, blk, lockedRegs + {result[0]})
+        result[2] = result[0]
     else:
         result[0] = allocOpW1R0(regalloc, s, dst, blk, lockedRegs)
         result[1] = allocOpW0R1(regalloc, s, src0, blk, lockedRegs + {result[0]})
@@ -396,21 +405,6 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             else:
                 let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
                 s.mov(mem32(rcpu, int32(offset)), src.toReg)
-        #[of irInstrLoadCrBit:
-            let dst = regalloc.allocOpW1R0(s, iref, blk)
-            s.test(mem32(rcpu, int32 offsetof(PpcState, cr)), cast[int32](1'u32 shl (31'u32-instr.ctxLoadIdx)))
-            s.setcc(reg(Register8(dst.toReg.ord)), condNotZero)
-            s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
-            setFlagUnk()
-        of irInstrStoreCrBit:
-            let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
-            s.mov(regEax, mem32(rcpu, int32 offsetof(PpcState, cr)))
-            s.aand(reg(regEax), cast[int32](not(1'u32 shl (31'u32-instr.ctxStoreIdx))))
-            s.mov(reg(regEcx), src.toReg)
-            s.sshl(reg(regEcx), int8(31'u32-instr.ctxStoreIdx))
-            s.oor(reg(regEax), regEcx)
-            s.mov(mem32(rcpu, int32 offsetof(PpcState, cr)), regEax)
-            setFlagUnk()]#
         of irInstrLoadXer:
             let
                 dst = regalloc.allocOpW1R0(s, iref, blk)

@@ -511,9 +511,14 @@ proc rlwinmx*(builder; s, a, sh, mb, me, rc: uint32) =
         let
             rs = builder.loadreg(s)
             val =
-                builder.biop(irInstrBitAnd,
-                        builder.biop(irInstrRol, rs, builder.imm(sh)),
-                        builder.imm(ppcmask(mb, me)))
+                if mb == 0 and sh == 31-me:
+                    builder.biop(irInstrShl, rs, builder.imm(sh))
+                elif sh == 32-mb and me == 31:
+                    builder.biop(irInstrShrLogic, rs, builder.imm(mb))
+                else:
+                    builder.biop(irInstrBitAnd,
+                            builder.biop(irInstrRol, rs, builder.imm(sh)),
+                            builder.imm(ppcmask(mb, me)))
 
         builder.handleRc(val, rc)
 

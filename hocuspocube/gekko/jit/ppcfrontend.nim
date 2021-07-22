@@ -51,6 +51,7 @@ proc compileBlock(): BlockEntryFunc =
     builder.blk.floatOpts()
     builder.blk.foldConstants()
     builder.blk.removeIdentities()
+    #builder.blk.globalValueEnumeration()
     builder.blk.removeDeadCode()
     builder.blk.calcLiveIntervals()
     builder.blk.verify()

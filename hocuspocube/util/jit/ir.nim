@@ -1,5 +1,5 @@
 import
-    strutils, strformat, options
+    strutils, strformat, options, hashes
 
 type
     IrInstrKind* = enum
@@ -302,6 +302,7 @@ const
         
         irInstrCallInterpreterPpc,
         irInstrCallInterpreterDsp}
+
     SideEffectOps* = {
         irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer,
         irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
@@ -315,6 +316,9 @@ const
         irInstrBranchPpc, irInstrSyscallPpc,
         irInstrBranchDsp,
         irInstrCallInterpreterPpc, irInstrCallInterpreterDsp}
+    StrictSideEffectOps* = SideEffectOps + {
+        irInstrLoadReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr,
+        irInstrLoadFpr, irInstrLoadFprPair}
 
     FpScalarOps* = {
         irInstrStoreFsd, irInstrStoreFss,
@@ -468,14 +472,70 @@ proc source*(instr: IrInstr, i: int): IrInstrRef =
     return instr.srcRegular[i]
 
 iterator sources*(instr: IrInstr): IrInstrRef =
-    case instr.kind
-    of CtxLoadInstrs, LoadImmInstrs:
-        discard
+    var i = 0
+    while i < instr.numSources:
+        yield instr.source(i)
+        i += 1
+
+proc `==`*(a, b: IrInstrRef): bool {.borrow.}
+proc `$`*(r: IrInstrRef): string =
+    result = "$"
+    result &= $int(r)
+proc hash*(iref: IrInstrRef): Hash =
+    hash(int(iref))
+
+func `==`*(a, b: IrInstr): bool =
+    if a.kind == b.kind:
+        case a.kind
+        of irInstrLoadImmI:
+            a.immValI == b.immValI
+        of irInstrLoadImmB:
+            a.immValB == b.immValB
+        of irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
+            a.instr == b.instr and a.pc == b.pc and
+                a.target == b.target
+        of CtxLoadInstrs:
+            a.ctxLoadIdx == b.ctxLoadIdx
+        of CtxStoreInstrs:
+            a.ctxStoreIdx == b.ctxStoreIdx and
+                a.srcRegular[0] == b.srcRegular[0]
+        of UnopInstrs:
+            a.srcRegular[0] == b.srcRegular[0]
+        of BiOpInstrs:
+            a.srcRegular[0] == b.srcRegular[0] and
+                a.srcRegular[1] == b.srcRegular[1]
+        of TriOpInstrs:
+            a.srcRegular[0] == b.srcRegular[0] and
+                a.srcRegular[1] == b.srcRegular[1] and
+                a.srcRegular[2] == b.srcRegular[2]
     else:
-        var i = 0
-        while i < instr.numSources:
-            yield instr.source(i)
-            i += 1
+        false
+
+func hash*(instr: IrInstr): Hash =
+    result = hash(instr.kind)
+    case instr.kind
+    of irInstrLoadImmI:
+        result = result !& hash(instr.immValI)
+    of irInstrLoadImmB:
+        result = result !& hash(instr.immValB)
+    of irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
+        result = result !& hash(instr.instr)
+        result = result !& hash(instr.pc)
+        result = result !& hash(instr.target)
+    of CtxLoadInstrs:
+        result = result !& hash(instr.ctxLoadIdx)
+    of CtxStoreInstrs:
+        result = result !& hash(instr.ctxStoreIdx)
+        result = result !& hash(instr.srcRegular[0])
+    of UnopInstrs:
+        result = result !& hash(instr.srcRegular[0])
+    of BiOpInstrs:
+        for i in 0..<2:
+            result = result !& hash(instr.srcRegular[i])
+    of TriOpInstrs:
+        for i in 0..<3:
+            result = result !& hash(instr.srcRegular[i])
+    result = !$ result
 
 iterator msources*(instr: var IrInstr): var IrInstrRef =
     case instr.kind
@@ -486,11 +546,6 @@ iterator msources*(instr: var IrInstr): var IrInstrRef =
         while i < instr.numSources:
             yield instr.source(i)
             i += 1
-
-proc `==`*(a, b: IrInstrRef): bool {.borrow.}
-proc `$`*(r: IrInstrRef): string =
-    result = "$"
-    result &= $int(r)
 
 proc allocInstr(blk: IrBasicBlock): IrInstrRef =
     if blk.freeInstrs.len > 0:

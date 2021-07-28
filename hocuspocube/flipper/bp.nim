@@ -1,5 +1,6 @@
 import
     strformat,
+    stew/endians2,
     bpcommon,
     ../gekko/gekko,
     pe
@@ -179,15 +180,15 @@ proc bpWrite*(adr, val: uint32) =
             height = efbCopySize.y+1
             stride = efbCopyDstStride.stride shl 5
 
-        echo &"copy execute {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
-
         assert peCntrl.fmt != peFmtZ24, "depth copies are not supported"
         assert not copyExecute.intensity, "intensity copies are not supported"
 
-        var efbContent = newSeq[uint32](width * height)
-        retrieveFrame(efbContent, srcX, srcY, width, height)
+        case copyExecute.mode
+        of copyXfb:
+            var efbContent = newSeq[uint32](width * height)
+            retrieveFrame(efbContent, srcX, srcY, width, height)
 
-        if copyExecute.mode == copyXfb:
+            echo &"dispcopy {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
             var
                 adr = HwPtr(efbCopyDst shl 5).adr
                 uniqueAdr = adr
@@ -208,8 +209,33 @@ proc bpWrite*(adr, val: uint32) =
                     adr += stride
                     copied += 1
             #echo &"actually copied {copied} lines"
-        else:
-            discard
+        of copyTexture:
+            let
+                fmt = CopyTexFmt(copyExecute.fmt)
+                fmtInfo = texCopyFmtProperties[fmt]
+                dstAdr = HwPtr(efbCopyDst shl 5).adr
+
+                roundedWidth = fmtInfo.roundedWidth(width)
+                roundedHeight = fmtInfo.roundedHeight(height)
+
+                dst = cast[ptr UncheckedArray[uint16]](addr mainRAM[dstAdr])
+
+            var efbContent = newSeq[uint32](roundedWidth * roundedHeight)
+            retrieveFrame(efbContent, srcX, srcY, roundedWidth, roundedHeight)
+
+            echo &"texcopy {srcX}, {srcY} {width}x{height} (rounded to {roundedWidth}x{roundedHeight}) to {efbCopyDst:08X} stride: {stride} {fmt}"
+
+            if fmt == copyTexfmtRGB565:
+                for (srcIdx, dstIdx) in doTileLoop(int roundedWidth, int roundedHeight, 4, 4, flipY = true, tileStride = int(stride) div 2):
+                    let src = efbContent[srcIdx]
+                    dst[dstIdx] = toBE uint16(((src and 0xF8) shl 8) or ((src and 0xFC00) shr 5) or ((src and 0xF80000) shr 19))
+            else:
+                raiseAssert(&"unimplemented texcopy format {fmt}")
+
+            for i in countup(0'u32, fmtInfo.textureDataSize(roundedWidth, roundedHeight)-1, 32):
+                if mainRAMTagging[(dstAdr + (i * 2)) div 32] == memoryTagTexture:
+                    invalidateTexture(dstAdr + i*2)
+
         if copyExecute.clear:
             rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ, peCMode0.colorUpdate, peCMode0.alphaUpdate, zmode.update)
     of 0x53, 0x54:

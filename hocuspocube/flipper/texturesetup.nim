@@ -1,6 +1,7 @@
 import
     hashes, tables, strformat,
-    stew/endians2,
+    bitops,
+    stew/[endians2, bitops2],
     xxhash,
 
     ../util/bitstruct,
@@ -14,6 +15,152 @@ var palHashCache: Table[(uint32, uint32), uint64]
 
 proc clearPalHashCache*() =
     palHashCache.clear()
+
+iterator doTileLoop*(width, height, tileW, tileH: int, stepW = 1, stepH = 1, secondLine = 0, flipY = false, tileStride = 0): (int, int) =
+    var tileSrc = 0
+    let
+        stride = if flipY: -width else: width
+        yadd = if flipY: (height - 1) * width else: 0
+        tileStride = if tileStride == 0: (secondLine+(tileW div stepW)*(tileH div stepH))*(width div tileW) else: tileStride
+    for y in countup(0, height - 1, tileH):
+        var tileLine = tileSrc
+        tileSrc += tileStride
+        for x in countup(0, width - 1, tileW):
+            let tileOffset = x + yadd + y * stride
+            for j in countup(0, tileH - 1, stepH):
+                let lineOffset = tileOffset + j * stride
+                for i in countup(0, tileW - 1, stepW):
+                    yield (lineOffset + i, tileLine)
+                    tileLine += 1
+            tileLine += secondLine
+
+type
+    TexFmtProperties* = object
+        tileW*, tileH*: uint8 # as log2 (to calculate proper size use 1 shl tileW/tileH)
+        cacheLines*: uint8
+
+const texFmtProperties: array[TxTextureFmt, TexFmtProperties] = [
+    # I4
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    # I8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # IA4
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # IA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB565
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB5A3
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGBA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 2),
+    TexFmtProperties(),
+    # C4
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    # C8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # C14X2
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    TexFmtProperties(),
+    TexFmtProperties(),
+    TexFmtProperties(),
+    # Cmp
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    TexFmtProperties(),
+]
+
+const texCopyFmtProperties*: array[CopyTexFmt, TexFmtProperties] = [
+    # R4
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    TexFmtProperties(),
+    # RA4
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # RA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB565
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB5A3
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGBA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 2),
+    # A8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # R8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # G8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # B8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # RG8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # GB8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    TexFmtProperties(),
+    TexFmtProperties(),
+    TexFmtProperties(),
+]
+
+proc numTilesX*(fmt: TexFmtProperties, width: uint32): uint32 =
+    (width + (1'u32 shl fmt.tileW) - 1) shr fmt.tileW
+proc numTilesY*(fmt: TexFmtProperties, height: uint32): uint32 =
+    (height + (1'u32 shl fmt.tileH) - 1) shr fmt.tileH
+proc roundedWidth*(fmt: TexFmtProperties, width: uint32): uint32 =
+    fmt.numTilesX(width) shl fmt.tileW
+proc roundedHeight*(fmt: TexFmtProperties, height: uint32): uint32 =
+    fmt.numTilesY(height) shl fmt.tileH
+
+proc textureDataSize*(fmt: TexFmtProperties, width, height: uint32): uint32 =
+    let
+        numTilesX = fmt.numTilesX(width)
+        numTilesY = fmt.numTilesY(height)
+
+    result = numTilesX * numTilesY * 32
+    if fmt.cacheLines == 2:
+        result *= 2
+
+type
+    TextureKey* = object
+        fmt: TxTextureFmt
+        width, height: uint32
+        adr: uint32
+
+        palHash: uint64
+        palFmt: TxLutFmt
+
+    TextureCacheEntry = object
+        native: NativeTexture
+        dataSize: uint32
+        invalid: bool
+var
+    textures: Table[TextureKey, TextureCacheEntry]
+
+proc hash(key: TextureKey): Hash =
+    result = result !& hash(key.fmt)
+    result = result !& hash(key.width)
+    result = result !& hash(key.height)
+    result = result !& hash(key.adr)
+    if key.fmt in PalettedTexFmts:
+        result = result !& hash(key.palFmt)
+        result = result !& hash(key.palHash)
+    result = !$result
+
+proc `==`(a, b: TextureKey): bool =
+    result = a.fmt == b.fmt and
+        a.width == b.width and a.height == b.height and
+        a.adr == b.adr
+    if result:
+        if a.palFmt != b.palFmt:
+            return false
+        if a.palHash != b.palHash:
+            return false
+
+proc invalidateTexture*(adr: uint32) =
+    # pretty inefficient
+    for key, entry in mpairs textures:
+        if adr >= key.adr and adr < key.adr + entry.dataSize:
+            if not entry.invalid:
+                echo &"invalidating texture at {key.adr:08X} (write to {adr:08X})"
+            entry.invalid = true
 
 import bp
 
@@ -30,49 +177,15 @@ proc calcTexPalHash(adr, size: uint32): uint64 =
             result = XXH3_64bits(cast[ptr UncheckedArray[byte]](addr tmem[adr]), csize_t(size))
             palHashCache[(adr, size)] = result
 
-proc calculateTexSize(fmt: TxTextureFmt, width, height, levels: uint32): (uint32, uint32, uint32) =        
-    let (tileW, tileH, lineBytes) = case fmt
-        of txTexfmtI4, txTexfmtC4, txTexfmtCmp:
-            (3'u32, 3'u32, 32'u32)
-        of txTexfmtI8, txTexfmtIA4, txTexfmtC8:
-            (3'u32, 2'u32, 32'u32)
-        of txTexfmtRGB565, txTexfmtRGB5A3, txTexfmtIA8, txTexfmtC14X2:
-            (2'u32, 2'u32, 32'u32)
-        of txTexfmtRGBA8:
-            (2'u32, 2'u32, 64'u32)
-        else: raiseAssert("invalid texture fmt")
-
-    let
-        numTilesX = (width + (1'u32 shl tileW) - 1) shr tileW
-        numTilesY = (height + (1'u32 shl tileH) - 1) shr tileH
-
-    result[0] = numTilesX * numTilesY * lineBytes
-    result[1] = numTilesX shl tileW
-    result[2] = numTilesY shl tileH
-
-    for i in 1..<levels:
-        result[0] += (numTilesX shr i) * (numTilesY shr i) * lineBytes
-
-iterator doTileLoop(width, height, tileW, tileH: int, stepW = 1, stepH = 1, secondLine = 0): (int, int) =
-    let
-        roundedWidth = (width + tileW - 1) and not(tileW - 1)
-        roundedHeight = (height + tileH - 1) and not(tileH - 1)
-    var tileSrc = 0
-    for y in countup(0, roundedHeight - 1, tileH):
-        for x in countup(0, roundedWidth - 1, tileW):
-            let tileOffset = x + y * roundedWidth
-            for j in countup(0, tileH - 1, stepH):
-                let lineOffset = tileOffset + j * roundedWidth
-                for i in countup(0, tileW - 1, stepW):
-                    yield (lineOffset + i, tileSrc)
-                    tileSrc += 1
-            tileSrc += secondLine
-
 proc decodeTextureI4(dst, src: ptr UncheckedArray[byte], width, height: int) =
     for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 8, 2):
         let srcPixels = src[srcIdx]
         dst[dstIdx] = srcPixels and 0xF0
+        if dst[dstIdx].getBit(4):
+            dst[dstIdx].setMask 0x0F
         dst[dstIdx + 1] = srcPixels shl 4
+        if dst[dstIdx + 1].getBit(4):
+            dst[dstIdx + 1].setMask 0x0F
 
 proc decodeTextureI8(dst, src: ptr UncheckedArray[byte], width, height: int) =
     for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 4):
@@ -81,9 +194,11 @@ proc decodeTextureI8(dst, src: ptr UncheckedArray[byte], width, height: int) =
 proc decodeTextureIA4(dst, src: ptr UncheckedArray[byte], width, height: int) =
     let dst = cast[ptr UncheckedArray[uint16]](dst)
     for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 4):
-        let
+        var
             intensity = uint16((src[srcIdx] and 0xF) shl 4)
             alpha = uint16(src[srcIdx] and 0xF0)
+        if intensity.getBit(4): intensity = intensity or 0x0F
+        if alpha.getBit(4): alpha = alpha or 0x0F
         dst[dstIdx] = (alpha shl 8) or intensity
 
 proc decodeTextureIA8RGB565(dst, src: ptr UncheckedArray[byte], width, height: int) =
@@ -96,17 +211,30 @@ proc decodeTextureIA8RGB565(dst, src: ptr UncheckedArray[byte], width, height: i
 proc RGB5A3ToRGBA8*(color: uint32): uint32 =
     if (color and 0x8000) != 0:
         # color is RGB5
-        ((color and 0x1F) shl 19) or
+        result = ((color and 0x1F) shl 19) or
             ((color and 0x3E0) shl 6) or
             ((color and 0x7C00) shr 7) or
             0xFF000000'u32
+        if result.getBit(3+0):
+            result.setMask 0x7
+        if result.getBit(8+3):
+            result.setMask 0x700
+        if result.getBit(16+3):
+            result.setMask 0x70000
     else:
         # color is RGB4A3
-        ((color and 0xF) shl 20) or
+        result = ((color and 0xF) shl 20) or
             ((color and 0xF0) shl 8) or
             ((color and 0xF00) shr 4) or
             ((color and 0x7000) shl 17)
-
+        if result.getBit(0+4):
+            result.setMask 0xF
+        if result.getBit(8+4):
+            result.setMask 0xF00
+        if result.getBit(16+4):
+            result.setMask 0xF0000
+        if result.getBit(24+5):
+            result.setMask 0x1F000000
 
 proc decodeTextureRGB5A3(dst, src: ptr UncheckedArray[byte], width, height: int) =
     let
@@ -168,13 +296,18 @@ proc blendAvg(first, second: uint32): uint32 =
     (first + second) div 2
 
 proc packRGB565A1ToRGBA8(r, g, b, a: uint32): uint32 =
-    (r shl (0+3)) or (g shl (8+2)) or (b shl (16+3)) or ((if a == 0: 0'u32 else: 255'u32) shl 24)
+    result = (r shl (0+3)) or (g shl (8+2)) or (b shl (16+3)) or ((if a == 0: 0'u32 else: 255'u32) shl 24)
+    if result.getBit(0+3):
+        result = result or 0x7
+    if result.getBit(8+2):
+        result = result or 0x300
+    if result.getBit(16+3):
+        result = result or 0x70000
 
 proc decodeTextureCmpr(dst, src: ptr UncheckedArray[byte], width, height: int) =
     let
         dst = cast[ptr UncheckedArray[uint32]](dst)
         src = cast[ptr UncheckedArray[uint64]](src)
-        roundedWidth = (width + 7) and not(7)
     for (dstIdx, srcIdx) in doTileLoop(width, height, 8, 8, 4, 4):
         let
             cmprBlock = CmprBlock fromBE(src[srcIdx])
@@ -190,7 +323,8 @@ proc decodeTextureCmpr(dst, src: ptr UncheckedArray[byte], width, height: int) =
                         b = blendAvg(cmprBlock.b0, cmprBlock.b1)
                     (r, g, b, 1'u32, r, g, b, 0'u32)
 
-            colors = [packRGB565A1ToRGBA8(cmprBlock.r0, cmprBlock.g0, cmprBlock.b0, 1),
+            colors = [
+                packRGB565A1ToRGBA8(cmprBlock.r0, cmprBlock.g0, cmprBlock.b0, 1),
                 packRGB565A1ToRGBA8(cmprBlock.r1, cmprBlock.g1, cmprBlock.b1, 1),
                 packRGB565A1ToRGBA8(r2, g2, b2, a2),
                 packRGB565A1ToRGBA8(r3, g3, b3, a3)]
@@ -198,43 +332,8 @@ proc decodeTextureCmpr(dst, src: ptr UncheckedArray[byte], width, height: int) =
         for j in 0..<4:
             for i in 0..<4:
                 let idx = cmprBlock.indices((3 - i) + (3 - j) * 4)
-                dst[dstIdx + j * roundedWidth + i] = colors[idx]
+                dst[dstIdx + j * width + i] = colors[idx]
 
-type
-    TextureKey* = object
-        fmt: TxTextureFmt
-        width, height: uint32
-        adr: uint32
-
-        palHash: uint64
-        palFmt: TxLutFmt
-
-    TextureCacheEntry = object
-        native: NativeTexture
-        dataSize: uint32
-        invalid: bool
-var
-    textures: Table[TextureKey, TextureCacheEntry]
-
-proc hash(key: TextureKey): Hash =
-    result = result !& hash(key.fmt)
-    result = result !& hash(key.width)
-    result = result !& hash(key.height)
-    result = result !& hash(key.adr)
-    if key.fmt in PalettedTexFmts:
-        result = result !& hash(key.palFmt)
-        result = result !& hash(key.palHash)
-    result = !$result
-
-proc `==`(a, b: TextureKey): bool =
-    result = a.fmt == b.fmt and
-        a.width == b.width and a.height == b.height and
-        a.adr == b.adr
-    if result:
-        if a.palFmt != b.palFmt:
-            return false
-        if a.palHash != b.palHash:
-            return false
 
 proc getTargetFmt(fmt: TxTextureFmt, palfmt: TxLutFmt): TextureFormat =
     case fmt
@@ -280,9 +379,9 @@ proc setupTexture*(n: int) =
     if (texture = textures.getOrDefault(key); texture.native == nil):
         # load in texture
         let
+            fmtInfo = texFmtProperties[key.fmt]
             targetFmt = getTargetFmt(key.fmt, texmap.setLut.fmt)
-
-            (dataSize, _, _) = calculateTexSize(key.fmt, key.width, key.height, 1)
+            dataSize = fmtInfo.textureDataSize(key.width, key.height)
 
         for i in 0..<dataSize div 32:
             mainRAMTagging[(key.adr shr 5) + i] = memoryTagTexture
@@ -320,29 +419,24 @@ proc setupTexture*(n: int) =
 
         const targetFmtPixelSize: array[TextureFormat, byte] = [1'u8, 1, 2, 4, 2, 2, 3]
 
-        let (_, roundedWidth, roundedHeight) = calculateTexSize(key.fmt, key.width, key.height, 1)
+        let
+            fmtInfo = texFmtProperties[key.fmt]
+            roundedWidth = fmtInfo.roundedWidth(key.width)
+            roundedHeight = fmtInfo.roundedHeight(key.height)
 
         var data = newSeq[byte](roundedWidth*roundedHeight*uint32(targetFmtPixelSize[getTargetFmt(key.fmt, key.palFmt)]))
 
         if key.fmt notin PalettedTexFmts:
             decodingFuncs[key.fmt](cast[ptr UncheckedArray[byte]](addr data[0]),
                 cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
-                int(key.width), int(key.height))
+                int(roundedWidth), int(roundedHeight))
         else:
             decodeTexturePaletted[int(key.fmt == txTexfmtC8)][int(key.palFmt == txLutfmtRGB5A3)](
                 cast[ptr UncheckedArray[byte]](addr data[0]),
                 cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
-                int(key.width), int(key.height),
+                int(roundedWidth), int(roundedHeight),
                 cast[ptr UncheckedArray[uint16]](addr tmem[texpalAdr]))
 
         rasterogl.uploadTexture(texture.native, 0, 0, 0, int(key.width), int(key.height), int(roundedWidth), addr data[0])
 
     rasterogl.bindTexture(n, texture.native)
-
-proc invalidateTexture*(adr: uint32) =
-    # pretty inefficient
-    for key, entry in mpairs textures:
-        if adr >= key.adr and adr < key.adr + entry.dataSize:
-            if not entry.invalid:
-                echo &"invalidating texture at {key.adr:08X} (write to {adr:08X})"
-            entry.invalid = true

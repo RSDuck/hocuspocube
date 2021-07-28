@@ -239,7 +239,7 @@ proc configure*(sampler: NativeSampler, wrapS, wrapT: TextureWrapMode, magFilter
     if sampler.wrapT != wrapT:
         glSamplerParameteri(sampler.handle, GL_TEXTURE_WRAP_T, translateWrapMode[wrapT])
         sampler.wrapT = wrapT
-    
+
     if sampler.magFilter != magFilter:
         glSamplerParameteri(sampler.handle, GL_TEXTURE_MAG_FILTER, translateMagFilter[magFilter])
         sampler.magFilter = magFilter
@@ -460,7 +460,9 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
                     GL_SRC_ALPHA,
                     GL_ONE_MINUS_SRC_ALPHA,
                     GL_DST_ALPHA,
-                    GL_ONE_MINUS_DST_ALPHA]
+                    GL_ONE_MINUS_DST_ALPHA,
+                    GL_DST_COLOR,
+                    GL_ONE_MINUS_DST_COLOR]
 
                 glBlendFunc(translateFactor[state.blendSrcFactor], translateFactor[state.blendDstFactor])
                 currentRenderstate.blendSrcFactor = state.blendSrcFactor

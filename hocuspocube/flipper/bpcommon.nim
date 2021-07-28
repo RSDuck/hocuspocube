@@ -49,6 +49,8 @@ type
         blendFactorInvSrcAlpha
         blendFactorDstAlpha
         blendFactorInvDstAlpha
+        blendFactorDstColor
+        blendFactorInvDstColor
 
     PeFmt* = enum
         peFmtRGB8Z24

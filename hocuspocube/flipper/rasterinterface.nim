@@ -102,6 +102,7 @@ proc setupTextures() =
         rasterogl.configure(samplers[i], 
             texMaps[i].setMode0.wrapS, texMaps[i].setMode0.wrapT,
             texMaps[i].setMode0.magFilter, texMaps[i].setMode0.minFilter)
+        samplerStateDirty.excl i
 
 proc getVtxShaderKey(fmt: DynamicVertexFmt): VertexShaderKey =
     result.enabledAttrs = fmt.enabledAttrs
@@ -146,7 +147,15 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt) =
         #echo &"setup scissor {scissorX}, {scissorY} {scissorW}x{scissorH} (offset: {offsetX} {offsetY})"
         rasterogl.setViewport(int32(viewportX) - offsetX, int32(viewportY) - offsetY, int32(viewportW), int32(viewportH))
         rasterogl.setScissor(true, scissorX - offsetX, scissorY - offsetY, scissorW, scissorH)
-        rasterogl.setBlendState(peCMode0.blendEnable, peCMode0.blendOp, peCMode0.srcFactor, peCMode0.dstFactor)
+        if peCMode0.blendOp == blendSub:
+            rasterogl.setBlendState(peCMode0.blendEnable, blendSub, blendFactorOne, blendFactorOne)
+        else:
+            rasterogl.setBlendState(peCMode0.blendEnable, blendAdd,
+                case peCMode0.srcFactor
+                of blendFactorSrcColor: blendFactorDstColor
+                of blendFactorInvSrcColor: blendFactorInvDstColor
+                else: peCMode0.srcFactor,
+                peCMode0.dstFactor)
         rasterogl.setColorAlphaUpdate(peCMode0.colorUpdate, peCMode0.alphaUpdate)
         rasterogl.setCullFace(genMode.cullmode)
         rasterogl.setZMode(zmode.enable, zmode.fun, zmode.update and zmode.enable)

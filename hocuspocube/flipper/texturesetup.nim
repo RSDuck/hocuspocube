@@ -314,8 +314,8 @@ proc decodeTextureCmpr(dst, src: ptr UncheckedArray[byte], width, height: int) =
 
             (r2, g2, b2, a2, r3, g3, b3, a3) =
                 if cmprBlock.color0 > cmprBlock.color1:
-                    (blend3of8(cmprBlock.r0, cmprBlock.r1), blend3of8(cmprBlock.g0, cmprBlock.g1), blend3of8(cmprBlock.b0, cmprBlock.b1), 1'u32,
-                        blend3of8(cmprBlock.r1, cmprBlock.r0), blend3of8(cmprBlock.g1, cmprBlock.g0), blend3of8(cmprBlock.b1, cmprBlock.b0), 1'u32)
+                    (blend3of8(cmprBlock.r1, cmprBlock.r0), blend3of8(cmprBlock.g1, cmprBlock.g0), blend3of8(cmprBlock.b1, cmprBlock.b0), 1'u32,
+                        blend3of8(cmprBlock.r0, cmprBlock.r1), blend3of8(cmprBlock.g0, cmprBlock.g1), blend3of8(cmprBlock.b0, cmprBlock.b1), 1'u32)
                 else:
                     let
                         r = blendAvg(cmprBlock.r0, cmprBlock.r1)

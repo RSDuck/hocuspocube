@@ -140,12 +140,12 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt) =
     if rasterStateDirty:
         # TODO: clamp scissor to 264 in height when AA is enabled
         let
-            (viewportX, viewportY, viewportW, viewportH) = getViewport()
+            (viewportX, viewportY, viewportW, viewportH, viewportNear, viewportFar) = getViewport()
             (scissorX, scissorY, scissorW, scissorH) = getScissor()
             (offsetX, offsetY) = getScissorOffset()
-        #echo &"setup viewport {viewportX}, {viewportY} {viewportW}x{viewportH}"
+        #echo &"setup viewport {viewportX}, {viewportY} {viewportW}x{viewportH} {viewportNear} {viewportFar}"
         #echo &"setup scissor {scissorX}, {scissorY} {scissorW}x{scissorH} (offset: {offsetX} {offsetY})"
-        rasterogl.setViewport(int32(viewportX) - offsetX, int32(viewportY) - offsetY, int32(viewportW), int32(viewportH))
+        rasterogl.setViewport(viewportX - float32(offsetX), viewportY - float32(offsetY), viewportW, viewportH, viewportNear, viewportFar)
         rasterogl.setScissor(true, scissorX - offsetX, scissorY - offsetY, scissorW, scissorH)
         if peCMode0.blendOp == blendSub:
             rasterogl.setBlendState(peCMode0.blendEnable, blendSub, blendFactorOne, blendFactorOne)

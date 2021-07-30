@@ -204,6 +204,8 @@ proc genVertexShader*(key: VertexShaderKey): string =
                                         dot(position4, PosTexMats[pnmatIdx + 2U]));"""
 
     line "gl_Position = Projection * vec4(transformedPos, 1.0);"
+    # move into our clipping space
+    line "gl_Position.z += gl_Position.w;"
 
     for i in 0..<2:
         let swizzle = if i == 0: 'x' else: 'y'

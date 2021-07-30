@@ -94,7 +94,8 @@ type
         depthFunc: CompareFunction
         vertexShader, fragmentShader, geometryShader: NativeShader
         framebuffer: Framebuffer
-        viewport: (int32, int32, int32, int32)
+        viewport: (float32, float32, float32, float32)
+        depthRange: (float32, float32)
         scissorBox: (int32, int32, int32, int32)
         blendOp: BlendOp
         blendSrcFactor, blendDstFactor: BlendFactor
@@ -308,21 +309,11 @@ proc compileShader*(stage: ShaderStage, source: string): NativeShader =
     of shaderStageGeometry:
         OGLGeometryShader(handle: shader)
 
-proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = false, onChange: proc() = nil) =
+proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = false) =
     let
         toEnable = state.enable - currentRenderstate.enable
         toDisable = currentRenderstate.enable - state.enable
         enableDirty = toEnable + toDisable
-
-    var firstChange = true
-
-    template callback: untyped =
-        if firstChange and onChange != nil:
-            onChange()
-            firstChange = false
-
-    if enableDirty * {enableDepthWrite, enableScissor, enableColorWrite, enableAlphaWrite} != {}:
-        callback
 
     if enableDepthWrite in enableDirty:
         glDepthMask(if enableDepthWrite in state.enable: GL_TRUE else: GL_FALSE)
@@ -346,23 +337,16 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
         currentRenderstate.enable.excl enableScissor
 
     if enableScissor in currentRenderstate.enable and state.scissorBox != currentRenderstate.scissorBox:
-        callback
-
         let (x, y, w, h) = state.scissorBox
         glScissor(x, y, w, h)
         currentRenderstate.scissorBox = state.scissorBox
 
     if state.framebuffer != currentRenderstate.framebuffer:
-        callback
-
         glBindFramebuffer(GL_FRAMEBUFFER,
             if state.framebuffer != nil: state.framebuffer.handle else: 0)
         currentRenderstate.framebuffer = state.framebuffer
 
     if not framebufferOnly:
-        if toEnable + toDisable != {}:
-            callback
-
         if enableDepthTest in toEnable:
             glEnable(GL_DEPTH_TEST)
         if enableCulling in toEnable:
@@ -387,9 +371,7 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
             glCullFace(translateCulling[state.cullface])
             currentRenderstate.cullface = state.cullface
 
-        if enableDepthTest in currentRenderstate.enable and state.depthFunc != currentRenderstate.depthFunc:
-            callback
-            
+        if enableDepthTest in currentRenderstate.enable and state.depthFunc != currentRenderstate.depthFunc:            
             const translateFunc: array[CompareFunction, GLenum] = [
                 GL_NEVER,
                 GL_LESS,
@@ -403,46 +385,35 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
             currentRenderstate.depthFunc = state.depthFunc
 
         if state.vertexShader != currentRenderstate.vertexShader:
-            callback
-
             glUseProgramStages(shaderPipeline, GL_VERTEX_SHADER_BIT, OGLVertexShader(state.vertexShader).handle)
             currentRenderstate.vertexShader = state.vertexShader
         if state.fragmentShader != currentRenderstate.fragmentShader:
-            callback
-
             glUseProgramStages(shaderPipeline, GL_FRAGMENT_SHADER_BIT, OGLFragmentShader(state.fragmentShader).handle)
             currentRenderstate.fragmentShader = state.fragmentShader
         if state.geometryShader != currentRenderstate.geometryShader:
-            callback
-
             glUseProgramStages(shaderPipeline, GL_GEOMETRY_SHADER_BIT,
                 if state.geometryShader != nil: OGLGeometryShader(state.geometryShader).handle else: 0)
             currentRenderstate.geometryShader = state.geometryShader
         
         if state.viewport != currentRenderstate.viewport:
-            callback
-
             let (x, y, w, h) = state.viewport
-            glViewport(x, y, w, h)
+            glViewportIndexedf(0, x, y, w, h)
             currentRenderstate.viewport = state.viewport
+        if state.depthRange != currentRenderstate.depthRange:
+            let (near, far) = state.depthRange
+            glDepthRangef(near, far)
 
         for i in 0..<textureUnits:
             if state.textures[i] != currentRenderstate.textures[i] and state.textures[i] != nil:
-                callback
-
                 glBindTextureUnit(GLuint(i), OGLTexture(state.textures[i]).handle)
                 currentRenderstate.textures[i] = state.textures[i]
         for i in 0..<textureUnits:
             if state.samplers[i] != currentRenderstate.samplers[i] and state.textures[i] != nil:
-                callback
-
                 glBindSampler(GLuint(i), if state.samplers[i] != nil: OGLSampler(state.samplers[i]).handle else: 0)
                 currentRenderstate.samplers[i] = state.samplers[i]
 
         if enableBlending in currentRenderstate.enable:
             if state.blendOp != currentRenderstate.blendOp:
-                callback
-
                 const translateEquation: array[BlendOp, GLenum] = [
                     GL_FUNC_ADD,
                     GL_FUNC_SUBTRACT]
@@ -474,6 +445,8 @@ proc init*() =
 
     glEnable(GL_PRIMITIVE_RESTART)
     glPrimitiveRestartIndex(0xFFFFFFFF'u32)
+
+    glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)
 
     glGenVertexArrays(1, addr flipperVao)
     glBindVertexArray(flipperVao)
@@ -517,12 +490,13 @@ proc init*() =
     metaRenderstate = RenderState(
         vertexShader: fullscreenQuadVtxShader,
         fragmentShader: fullscreenQuadFragShader,
-        viewport: (0'i32, 0'i32, 640'i32, 480'i32),
+        viewport: (0f, 0f, 640f, 480f),
+        depthRange: (0f, 1f),
         enable: {enableColorWrite, enableDepthWrite}) # bah
     metaRenderstate.textures[0] = rawXfbTexture
 
     flipperRenderstate = RenderState(
-        viewport: (0'i32, 0'i32, 640'i32, 528'i32),
+        viewport: (0f, 0f, 640f, 528f),
         framebuffer: efb)
 
     clearRenderstate = RenderState(framebuffer: efb)
@@ -557,8 +531,9 @@ proc clear*(r, g, b, a: uint8, depth: uint32, clearColor, clearAlpha, clearDepth
     if clearDepth: mask = mask or GL_DEPTH_BUFFER_BIT
     glClear(mask)
 
-proc setViewport*(x, y, w, h: int32) =
-    flipperRenderstate.viewport = (x, 528 - (y + h), w, h)
+proc setViewport*(x, y, w, h, near, far: float32) =
+    flipperRenderstate.viewport = (x, 528f - (y + h), w, h)
+    flipperRenderstate.depthRange = (near, far)
 proc setScissor*(enable: bool, x, y, w, h: int32) =
     flipperRenderstate.scissorBox = (x, 528 - (y + h), w, h)
     flipperRenderstate.enable[enableScissor] = enable

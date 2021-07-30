@@ -56,6 +56,14 @@ type
         matColorSrcRegister
         matColorSrcPerVertex
 
+    ViewportItem* = enum
+        viewportX0
+        viewportY0
+        viewportZRange
+        viewportX1
+        viewportY1
+        viewportFar
+
 makeBitStruct uint32, *MatIndexLo:
     geometryIdx[0..5]: uint32
     tex0[6..11]: uint32
@@ -103,7 +111,7 @@ var
     matIdxLo*: MatIndexLo
     matIdxHi*: MatIndexHi
 
-    viewport*: array[6, float32]
+    viewport*: array[ViewportItem, float32]
     projMat: array[6, float32]
     projMatKind: ProjMatKind
 
@@ -118,11 +126,14 @@ var
     ambColorsRegs*: array[2, MatColor]
     lightCtrls*: array[LightCtrlKind, LightCtrl]
 
-proc getViewport*(): (float32, float32, float32, float32) =
-    result[2] = viewport[0] * 2
-    result[3] = -viewport[1] * 2
-    result[0] = viewport[3] - 342f - viewport[0]
-    result[1] = viewport[4] - 342f + viewport[1]
+proc getViewport*(): (float32, float32, float32, float32, float32, float32) =
+    result[2] = viewport[viewportX0] * 2
+    result[3] = -viewport[viewportY0] * 2
+    result[0] = viewport[viewportX1] - 342f - viewport[viewportX0]
+    result[1] = viewport[viewportY1] - 342f + viewport[viewportY0]
+
+    result[5] = viewport[viewportFar] / 16777215f
+    result[4] = result[5] - (viewport[viewportZRange] / 16777215f)
 
 proc translateProj*(proj: var array[16, float32]) =
     for i in 0..<16:
@@ -195,7 +206,7 @@ proc xfWrite*(adr, val: uint32) =
         matIdxHi = MatIndexHi val
         registerUniformDirty = true
     of 0x101A..0x101F:
-        viewport[adr - 0x101A] = cast[float32](val)
+        viewport[ViewportItem(adr - 0x101A)] = cast[float32](val)
         rasterStateDirty = true
         xfLog &"viewport val {adr - 0x101A} {cast[float32](val)}"
     of 0x1020..0x1025:

@@ -52,13 +52,15 @@ proc setupUniforms() =
         registerUniform.matIndices0 = uint32 matIdxLo
         registerUniform.matInidces1 = uint32 matIdxHi
         for i in 0..<8:
-            registerUniform.texcoordScale[i*2+0] = float32(sSize[i].size + 1)
-            registerUniform.texcoordScale[i*2+1] = float32(tSize[i].size + 1)
+            # texture coordinates are .7 fixpoint
+            # we put the factor here in to save the multiplications in the shader
+            registerUniform.texcoordScale[i*2+0] = float32((sSize[i].size + 1) * 128)
+            registerUniform.texcoordScale[i*2+1] = float32((tSize[i].size + 1) * 128)
 
             registerUniform.textureSizes[i*4+0] = float32(texMaps[i].width)
             registerUniform.textureSizes[i*4+1] = float32(texMaps[i].height)
-            registerUniform.textureSizes[i*4+2] = 1f / float32(texMaps[i].width)
-            registerUniform.textureSizes[i*4+3] = 1f / float32(texMaps[i].height)
+            registerUniform.textureSizes[i*4+2] = 1f / float32(texMaps[i].width * 128)
+            registerUniform.textureSizes[i*4+3] = 1f / float32(texMaps[i].height * 128)
 
             registerUniform.regValues[i] = uint32 tevRegister[i]
             registerUniform.konstants[i] = uint32 konstants[i]

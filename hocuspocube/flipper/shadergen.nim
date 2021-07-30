@@ -422,9 +422,6 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         line &"ivec4 reg{i} = ivec4({regR}, {regG}, {regB}, {regA});"
         line &"ivec4 konst{i} = ivec4({konstR}, {konstG}, {konstB}, {konstA});"
 
-    for i in 0..<8:
-        line &"ivec3 texcoord{i} = ivec3(inTexcoord{i});"
-
     if key.zenv1.op != zenvOpDisable:
         line "ivec4 lastTexColor;"
 
@@ -494,7 +491,7 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
         if texmapEnable:
             let textureSwizzle = swizzleFromSwapTable(alphaEnv.tswap, key.ksel)
-            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw) * 255.0).{textureSwizzle};"
+            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], round(inTexcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw) * 255.0).{textureSwizzle};"
         else:
             # welp what happens here?
             line &"ivec4 texcolor = ivec4(0xFFU);"

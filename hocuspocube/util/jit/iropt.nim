@@ -37,13 +37,13 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
                 regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
                 crs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
                 fprs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-        of irInstrLoadReg:
+        of irInstrLoadPpcReg:
             doLoad(regs[instr.ctxLoadIdx], blk, iref)
         of irInstrLoadCrBit:
             doLoad(crs[instr.ctxLoadIdx], blk, iref)
         of irInstrLoadFprPair:
             doLoad(fprs[instr.ctxLoadIdx], blk, iref)
-        of irInstrStoreReg:
+        of irInstrStorePpcReg:
             doStore(regs[instr.ctxStoreIdx], blk, iref, instr.source(0))
         of irInstrStoreCrBit:
             doStore(crs[instr.ctxStoreIdx], blk, iref, instr.source(0))
@@ -200,6 +200,16 @@ proc foldConstants*(blk: IrBasicBlock) =
             if a.isSome and b.isSome:
                 blk.getInstr(iref) = makeImm(a.get + b.get)
             elif a.isSome and a.get == 0:
+                blk.getInstr(iref) = blk.narrowIdentity(instr.source(1))
+            elif b.isSome and b.get == 0:
+                blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
+        of irInstrIAddX:
+            let
+                a = blk.isImmValIX(instr.source(0))
+                b = blk.isImmValIX(instr.source(1))
+            if a.isSome and b.isSome:
+                blk.getInstr(iref) = makeImm(a.get + b.get)
+            elif a.isSome and a.get == 0:
                 blk.getInstr(iref) = makeIdentity(instr.source(1))
             elif b.isSome and b.get == 0:
                 blk.getInstr(iref) = makeIdentity(instr.source(0))
@@ -213,13 +223,22 @@ proc foldConstants*(blk: IrBasicBlock) =
                 if a.isSome and b.isSome:
                     blk.getInstr(iref) = makeImm(a.get - b.get)
                 elif b.isSome and b.get == 0:
+                    blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
+        of irInstrISubX:
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = makeImm(0)
+            else:
+                let
+                    a = blk.isImmValIX(instr.source(0))
+                    b = blk.isImmValIX(instr.source(1))
+                if a.isSome and b.isSome:
+                    blk.getInstr(iref) = makeImm(a.get - b.get)
+                elif b.isSome and b.get == 0:
                     blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrRol, irInstrShl, irInstrShrArith, irInstrShrLogic:
             let b = blk.isImmValI(instr.source(1))
-            if b.isSome and (b.get and 0x3F'u32) == 0:
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
-            elif b.isSome and instr.kind == irInstrShl and (b.get and 0x3F'u32) >= 32:
-                blk.getInstr(iref) = makeImm(0'u32)
+            if b.isSome and (b.get and 0x1F'u32) == 0:
+                blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
             elif (let a = blk.isImmValI(instr.source(0)); a.isSome and b.isSome):
                 let imm =
                     case instr.kind
@@ -229,9 +248,21 @@ proc foldConstants*(blk: IrBasicBlock) =
                     of irInstrShrLogic: a.get shr b.get
                     else: raiseAssert("shouldn't happen")
                 blk.getInstr(iref) = makeImm(imm)
+        of irInstrShlX, irInstrShrArithX, irInstrShrLogicX:
+            let b = blk.isImmValI(instr.source(1))
+            if b.isSome and (b.get and 0x3F'u32) == 0:
+                blk.getInstr(iref) = makeIdentity(instr.source(0))
+            elif (let a = blk.isImmValIX(instr.source(0)); a.isSome and b.isSome):
+                let imm =
+                    case instr.kind
+                    of irInstrShlX: a.get shl b.get
+                    of irInstrShrArithX: cast[uint64](cast[int64](a.get) shr b.get)
+                    of irInstrShrLogicX: a.get shr b.get
+                    else: raiseAssert("shouldn't happen")
+                blk.getInstr(iref) = makeImm(imm)
         of irInstrBitOr:
             if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
+                blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
             else:
                 let
                     a = blk.isImmValI(instr.source(0))
@@ -242,12 +273,12 @@ proc foldConstants*(blk: IrBasicBlock) =
                     (b.isSome and b.get == 0xFFFF_FFFF'u32):
                     blk.getInstr(iref) = makeImm(0xFFFF_FFFF'u32)
                 elif a.isSome and a.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                    blk.getInstr(iref) = blk.narrowIdentity(instr.source(1))
                 elif b.isSome and b.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
+                    blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
         of irInstrBitAnd:
             if instr.source(0) == instr.source(1):
-                blk.getInstr(iref) = makeIdentity(instr.source(0))
+                blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
             else:
                 let
                     a = blk.isImmValI(instr.source(0))
@@ -258,9 +289,9 @@ proc foldConstants*(blk: IrBasicBlock) =
                     (b.isSome and b.get == 0'u32):
                     blk.getInstr(iref) = makeImm(0'u32)
                 elif a.isSome and a.get == 0xFFFF_FFFF'u32:
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                    blk.getInstr(iref) = blk.narrowIdentity(instr.source(1))
                 elif b.isSome and b.get == 0xFFFF_FFFF'u32:
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
+                    blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
         of irInstrBitXor:
             if instr.source(0) == instr.source(1):
                 blk.getInstr(iref) = makeImm(0)
@@ -271,9 +302,13 @@ proc foldConstants*(blk: IrBasicBlock) =
                 if a.isSome and b.isSome:
                     blk.getInstr(iref) = makeImm(a.get xor b.get)
                 elif a.isSome and a.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                    blk.getInstr(iref) = blk.narrowIdentity(instr.source(1))
                 elif b.isSome and b.get == 0:
-                    blk.getInstr(iref) = makeIdentity(instr.source(0))
+                    blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
+                elif a.isSome and a.get == 0xFFFF_FFFF'u32:
+                    blk.getInstr(iref) = makeUnop(irInstrBitNot, instr.source(1))
+                elif b.isSome and b.get == 0xFFFF_FFFF'u32:
+                    blk.getInstr(iref) = makeUnop(irInstrBitNot, instr.source(0))
         of irInstrBitNot:
             if (let a = blk.isImmValI(instr.source(0)); a.isSome):
                 blk.getInstr(iref) = makeImm(not a.get)
@@ -322,7 +357,11 @@ proc foldConstants*(blk: IrBasicBlock) =
         of irInstrCsel:
             let c = blk.isImmValB(instr.source(2))
             if c.isSome:
-                blk.getInstr(iref) = makeIdentity(if c.get: instr.source(0) else: instr.source(1))
+                blk.getInstr(iref) = blk.narrowIdentity(if c.get: instr.source(0) else: instr.source(1))
+        of irInstrExtzw:
+            let val = blk.isImmValI(instr.source(0))
+            if val.isSome:
+                blk.getInstr(iref) = makeImm(val.get)
         else: discard # no optimisations for you :(
 
 proc removeIdentities*(blk: IrBasicBlock) =
@@ -413,9 +452,9 @@ proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAd
                 irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
                 irInstrLoadSpr, irInstrStoreSpr, irInstrCallInterpreterPpc:
                 return false
-            of irInstrLoadReg:
+            of irInstrLoadPpcReg:
                 regsRead.incl instr.ctxLoadIdx
-            of irInstrStoreReg:
+            of irInstrStorePpcReg:
                 if instr.ctxStoreIdx in regsRead:
                     return false
                 regsWritten.incl instr.ctxStoreIdx

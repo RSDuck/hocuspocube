@@ -1,6 +1,23 @@
 import
     strutils, strformat, options, hashes
 
+#[
+    Some notes on this weird IR I've come up with.
+
+    It isn't directly based on anything, for the most part it's just
+    stuff I liked I picked up from other projects (dynarmic, xenia, ...).
+
+    The entire IR is implicitly typed and a reference to an IR instruction
+    also refers to it's value. Every value is either an integer, a boolean value
+    or a floating point value. Booleans are just integers which are either 0
+    or 1.
+
+    Unless marked with an X in the name integer instructions use only the lower
+    32-bit of the source values. If they produce an integer value as a result,
+    the upper 32-bit of it are going to be zero (similarly to how 32-bit instructions
+    work on x64/aarch64).
+]#
+
 type
     IrInstrKind* = enum
         irInstrIdentity = "ident"
@@ -9,8 +26,8 @@ type
         irInstrLoadImmB = "loadb"
 
         # PowerPC reg load/store instructions
-        irInstrLoadReg = "ldrreg"
-        irInstrStoreReg = "strreg"
+        irInstrLoadPpcReg = "ldrreg_ppc"
+        irInstrStorePpcReg = "strreg_ppc"
         irInstrLoadCrBit = "ldrcr"
         irInstrStoreCrBit = "strcr"
         irInstrLoadXer = "ldrxer"
@@ -22,10 +39,23 @@ type
         irInstrLoadFprPair = "ldrfregp"
         irInstrStoreFprPair = "strfregp"
 
+        # DSP reg load/store instructions
+        irInstrLoadAccum = "ldraccum"
+        irInstrStoreAccum = "straccum"
+        irInstrLoadAuxAccum = "ldrauxaccum"
+        irInstrStoreAuxAccum = "strauxaccum"
+        irInstrLoadStatusBit = "ldrstat"
+        irInstrStoreStatusBit = "strstat"
+        irInstrLoadDspReg = "ldrreg_dsp"
+        irInstrStoreDspReg = "strreg_dsp"
+
         irInstrCsel = "csel"
 
         irInstrIAdd = "iadd"
         irInstrISub = "isub"
+
+        irInstrIAddX = "iaddx"
+        irInstrISubX = "isubx"
 
         irInstrIAddExtended = "iaddext"
         irInstrISubExtended = "isubext"
@@ -42,15 +72,27 @@ type
         irInstrBitXor = "bitxor"
         irInstrBitNot = "bitnot"
 
+        irInstrBitAndX = "bitandx"
+        irInstrBitOrX = "bitorx"
+        irInstrBitXorX = "bitxorx"
+        irInstrBitNotX = "bitnotx"
+
         irInstrShl = "shl"
         irInstrShrLogic = "shrl"
         irInstrShrArith = "shra"
         irInstrRol = "rol"
 
+        irInstrShlX = "shlx"
+        irInstrShrLogicX = "shrlx"
+        irInstrShrArithX = "shrax"
+
         irInstrClz = "clz"
 
         irInstrExtsb = "extsb"
         irInstrExtsh = "extsh"
+
+        irInstrExtzw = "extzw"
+        irInstrExtsw = "extsw"
 
         irInstrCondAnd = "condand"
         irInstrCondOr = "condor"
@@ -60,8 +102,14 @@ type
         irInstrOverflowAdd = "addov"
         irInstrOverflowSub = "subov"
 
+        irInstrOverflowAddX = "addovx"
+        irInstrOverflowSubX = "subovx"
+
         irInstrCarryAdd = "addca"
         irInstrCarrySub = "subca"
+
+        irInstrCarryAddX = "addcax"
+        irInstrCarrySubX = "subcax"
 
         irInstrOverflowAddExtended = "addextov"
         irInstrOverflowSubExtended = "subextov"
@@ -92,10 +140,10 @@ type
         irInstrStoreFsq = "strfsq"
         irInstrStoreFpq = "strfpq"
 
-        irInstrBranchPpc = "bppc"
-        irInstrSyscallPpc = "scppc"
+        irInstrBranchPpc = "b_ppc"
+        irInstrSyscallPpc = "sc_ppc"
 
-        irInstrBranchDsp = "bdsp"
+        irInstrBranchDsp = "b_dsp"
 
         irInstrFSwizzleD00 = "swizzlefd00"
         irInstrFSwizzleD11 = "swizzlefd11"
@@ -198,18 +246,21 @@ const
     LoadImmInstrs* = {
         irInstrLoadImmI, irInstrLoadImmB}
     CtxLoadInstrs* = {
-        irInstrLoadReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr, irInstrLoadFpr, irInstrLoadFprPair}
+        irInstrLoadPpcReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr, irInstrLoadFpr, irInstrLoadFprPair,
+        irInstrLoadAccum, irInstrLoadAuxAccum, irInstrLoadStatusBit, irInstrLoadDspReg}
     CtxStoreInstrs* = {
-        irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair}
+        irInstrStorePpcReg, irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
+        irInstrStoreAccum, irInstrStoreAuxAccum, irInstrStoreStatusBit, irInstrStoreDspReg}
     UnOpInstrs* = {
         irInstrIdentity,
 
         irInstrBitNot, irInstrCondNot,
+        irInstrBitNotX,
 
         irInstrClz,
 
-        irInstrExtSb,
-        irInstrExtSh,
+        irInstrExtSb, irInstrExtSh,
+        irInstrExtsw, irInstrExtzw,
 
         irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
         irInstrLoadFss, irInstrLoadFsd,
@@ -240,17 +291,22 @@ const
         irInstrFNegps, irInstrFAbsps}
     BiOpInstrs* = {
         irInstrIAdd, irInstrISub,
+        irInstrIAddX, irInstrISubX,
 
         irInstrMul, irInstrMulhS, irInstrMulhU,
 
         irInstrDivS, irInstrDivU,
 
         irInstrBitAnd, irInstrBitOr, irInstrBitXor,
+        irInstrBitAndX, irInstrBitOrX, irInstrBitXorX,
 
         irInstrShl, irInstrShrLogic, irInstrShrArith, irInstrRol,
+        irInstrShlX, irInstrShrLogicX, irInstrShrArithX,
 
         irInstrOverflowAdd, irInstrOverflowSub,
+        irInstrOverflowAddX, irInstrOverflowSubX,
         irInstrCarryAdd, irInstrCarrySub,
+        irInstrCarryAddX, irInstrCarrySubX,
 
         irInstrCmpEqualI,
         irInstrCmpGreaterUI, irInstrCmpLessUI,
@@ -289,7 +345,7 @@ const
         irInstrFMaddps, irInstrFMsubps, irInstrFNmaddps, irInstrFNmsubps}
 
     ResultlessOps* = {
-        irInstrStoreReg,
+        irInstrStorePpcReg,
         irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr,
         irInstrStoreFpr, irInstrStoreFprPair,
         irInstrStore8, irInstrStore16, irInstrStore32,
@@ -304,7 +360,7 @@ const
         irInstrCallInterpreterDsp}
 
     SideEffectOps* = {
-        irInstrStoreReg, irInstrStoreCrBit, irInstrStoreXer,
+        irInstrStorePpcReg, irInstrStoreCrBit, irInstrStoreXer,
         irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
 
         irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
@@ -317,7 +373,7 @@ const
         irInstrBranchDsp,
         irInstrCallInterpreterPpc, irInstrCallInterpreterDsp}
     StrictSideEffectOps* = SideEffectOps + {
-        irInstrLoadReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr,
+        irInstrLoadPpcReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr,
         irInstrLoadFpr, irInstrLoadFprPair}
 
     FpScalarOps* = {
@@ -343,13 +399,20 @@ const
         irInstrFAddpd, irInstrFSubpd, irInstrFMulpd, irInstrFDivpd,
         irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd}
 
+    HasWideResult* = {
+        irInstrLoadAccum, irInstrLoadAuxAccum,
+        irInstrIAddX, irInstrISubX,
+        irInstrBitAndX, irInstrBitOrX, irInstrBitXorX, irInstrBitNotX,
+        irInstrShlX, irInstrShrLogicX, irInstrShrArithX,
+        irInstrExtsw}
+
 type
     IrInstrRef* = distinct int32
 
     IrInstr* = object
         case kind*: IrInstrKind
         of irInstrLoadImmI:
-            immValI*: uint32
+            immValI*: uint64
         of irInstrLoadImmB:
             immValB*: bool
         of irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
@@ -448,6 +511,24 @@ type
         irSprNumDBatU1
         irSprNumDBatU2
         irSprNumDBatU3
+
+    DspStatusBit* = enum
+        dspStatusBitCa
+        dspStatusBitOv
+        dspStatusBitZr
+        dspStatusBitMi
+        dspStatusBitExt
+        dspStatusBitUnnorm
+        dspStatusBitTb
+        dspStatusBitSv
+        dspStatusBitTe0
+        dspStatusBitTe1
+        dspStatusBitTe2
+        dspStatusBitTe3
+        dspStatusBitEt
+        dspStatusBitIm
+        dspStatusBitXl
+        dspStatusBitDp
 
 const
     InvalidIrInstrRef* = IrInstrRef(-1)
@@ -558,7 +639,7 @@ proc allocInstr(blk: IrBasicBlock): IrInstrRef =
 proc getInstr*(blk: IrBasicBlock, iref: IrInstrRef): var IrInstr =
     blk.instrPool[int iref]
 
-proc makeImm*(val: uint32): IrInstr {.inline.} =
+proc makeImm*(val: uint64): IrInstr {.inline.} =
     IrInstr(kind: irInstrLoadImmI, immValI: val)
 
 proc makeImm*(val: bool): IrInstr {.inline.} =
@@ -602,7 +683,13 @@ proc makeTriop*(kind: IrInstrKind, a, b, c: IrInstrRef): IrInstr {.inline.} =
 proc makeIdentity*(iref: IrInstrRef): IrInstr {.inline.} =
     makeUnop(irInstrIdentity, iref)
 
-proc imm*(blk: IrBasicBlock, val: uint32): IrInstrRef =
+proc narrowIdentity*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr {.inline.} =
+    if blk.getInstr(iref).kind in HasWideResult:
+        makeUnop(irInstrExtzw, iref)
+    else:
+        makeIdentity(iref)
+
+proc imm*(blk: IrBasicBlock, val: uint64): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeImm(val)
 
@@ -685,14 +772,25 @@ proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint32): bool =
     let instr = blk.getInstr(iref)
+    instr.kind == irInstrLoadImmI and uint32(instr.immValI) == imm
+
+proc isImmValX*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint64): bool =
+    let instr = blk.getInstr(iref)
     instr.kind == irInstrLoadImmI and instr.immValI == imm
 
 proc isImmValI*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint32] =
     let instr = blk.getInstr(iref)
     if instr.kind == irInstrLoadImmI:
-        some(instr.immValI)
+        some(uint32(instr.immValI))
     else:
         none(uint32)
+
+proc isImmValIX*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint64] =
+    let instr = blk.getInstr(iref)
+    if instr.kind == irInstrLoadImmI:
+        some(instr.immValI)
+    else:
+        none(uint64)
 
 proc isImmValB*(blk: IrBasicBlock, iref: IrInstrRef): Option[bool] =
     let instr = blk.getInstr(iref)
@@ -703,11 +801,19 @@ proc isImmValB*(blk: IrBasicBlock, iref: IrInstrRef): Option[bool] =
 
 proc isEitherImmI*(blk: IrBasicBlock, a, b: IrInstrRef): Option[(IrInstrRef, uint32)] =
     if (let instr = blk.getInstr(a); instr.kind == irInstrLoadImmI):
+        some((b, uint32(instr.immValI)))
+    elif (let instr = blk.getInstr(b); instr.kind == irInstrLoadImmI):
+        some((a, uint32(instr.immValI)))
+    else:
+        none((IrInstrRef, uint32))
+
+proc isEitherImmIX*(blk: IrBasicBlock, a, b: IrInstrRef): Option[(IrInstrRef, uint64)] =
+    if (let instr = blk.getInstr(a); instr.kind == irInstrLoadImmI):
         some((b, instr.immValI))
     elif (let instr = blk.getInstr(b); instr.kind == irInstrLoadImmI):
         some((a, instr.immValI))
     else:
-        none((IrInstrRef, uint32))
+        none((IrInstrRef, uint64))
 
 proc `$`*(blk: IrBasicBlock): string =
     for i, iref in pairs blk.instrs:
@@ -728,7 +834,7 @@ proc `$`*(blk: IrBasicBlock): string =
         result &= &"{instr.kind} "
         case instr.kind
         of irInstrLoadImmI:
-            result &= &"{instr.immValI:08X}"
+            result &= &"{instr.immValI:016X}"
         of irInstrLoadImmB:
             result &= $instr.immValB
         of CtxLoadInstrs:

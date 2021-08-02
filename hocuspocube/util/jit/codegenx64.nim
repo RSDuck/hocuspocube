@@ -68,27 +68,33 @@ type
 proc toReg(num: int32): Register32 =
     registersToUse[num]
 
+proc toReg64(num: int32): Register64 =
+    Register64(registersToUse[num].ord)
+
 proc toXmm(num: int32): RegisterXmm =
     xmmsToUse[num]
 
-proc getSpillLoc(num: int32): Rm32 =
-    mem32(regRsp, stackShadow + num*16)
-proc getSpillLocXmm(num: int32): RmXmm =
-    memXmm(regRsp, stackShadow + num*16)
+proc getSpillOffset(num: int32): int32 =
+    stackShadow + num*16
 
-proc spillRegister[T](regalloc: var RegAlloc[T], s: var AssemblerX64, regIdx: int) =
+proc spillRegister[T](regalloc: var RegAlloc[T], s: var AssemblerX64, blk: IrBasicBlock, regIdx: int) =
     assert regalloc.activeRegs[regIdx].location == regLocHostGprReg
     assert regalloc.freeSpillLocs[] != {}, &"no spill locations left {regalloc}"
 
     let reg = regalloc.activeRegs[regIdx].idx
     regalloc.activeRegs[regIdx].location = regLocHostSpill
     regalloc.activeRegs[regIdx].idx = regalloc.freeSpillLocs[].popMin()
-    when T is HostIRegRange:
-        s.mov(getSpillLoc(regalloc.activeRegs[regIdx].idx), reg.toReg())
-    else:
-        s.movapd(getSpillLocXmm(regalloc.activeRegs[regIdx].idx), reg.toXmm())
 
-proc prepareCall[T](regalloc: var RegAlloc[T], s: var AssemblerX64, writeVal: IrInstrRef) =
+    let offset = getSpillOffset(regalloc.activeRegs[regIdx].idx)
+    when T is HostIRegRange:
+        if blk.getInstr(regalloc.activeRegs[regIdx].val).kind in HasWideResult:
+            s.mov(mem64(regRsp, offset), reg.toReg64)
+        else:
+            s.mov(mem32(regRsp, offset), reg.toReg)
+    else:
+        s.movapd(memXmm(regRsp, offset), reg.toXmm())
+
+proc prepareCall[T](regalloc: var RegAlloc[T], s: var AssemblerX64, blk: IrBasicBlock, writeVal: IrInstrRef) =
     var i = 0
     while i < regalloc.activeRegs.len:
         block deleted:
@@ -97,14 +103,14 @@ proc prepareCall[T](regalloc: var RegAlloc[T], s: var AssemblerX64, writeVal: Ir
                 if regalloc.activeRegs[i].idx >= (when T is HostIRegRange: calleeSavedRegsNum else: calleeSavedXmmsNum):
                     regalloc.freeRegs.incl regalloc.activeRegs[i].idx
                     if regalloc.activeRegs[i].location == regLocHostGprReg:
-                        regalloc.spillRegister(s, i)
+                        regalloc.spillRegister(s, blk, i)
                     elif regalloc.activeRegs[i].location == regLocHostGprRegImm:
                         regalloc.activeRegs.del i
                         break deleted
             i += 1
 
 
-proc allocHostReg[T](regalloc: var RegAlloc[T], s: var AssemblerX64, lockedRegs: set[T]): int32 =
+proc allocHostReg[T](regalloc: var RegAlloc[T], s: var AssemblerX64, blk: IrBasicBlock, lockedRegs: set[T]): int32 =
     if regalloc.freeRegs == {}:
         # spill a register
         # first try to spill an immediate as those are faster to restore
@@ -120,7 +126,7 @@ proc allocHostReg[T](regalloc: var RegAlloc[T], s: var AssemblerX64, lockedRegs:
                 regalloc.activeRegs[i].idx notin lockedRegs:
 
                 let reg = regalloc.activeRegs[i].idx
-                regalloc.spillRegister(s, i)
+                regalloc.spillRegister(s, blk, i)
 
                 return reg
 
@@ -138,11 +144,16 @@ proc prepareHostRead[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
             if reg.location in {regLocHostGprReg, regLocHostGprRegImm}:
                 return i
             else:
-                let targetReg = allocHostReg(regalloc, s, lockedRegs)
+                let
+                    targetReg = allocHostReg(regalloc, s, blk, lockedRegs)
+                    offset = getSpillOffset(reg.idx)
                 when T is HostIRegRange:
-                    s.mov(targetReg.toReg, getSpillLoc(reg.idx))
+                    if blk.getInstr(iref).kind in HasWideResult:
+                        s.mov(targetReg.toReg64, mem64(regRsp, offset))
+                    else:
+                        s.mov(targetReg.toReg, mem32(regRsp, offset))
                 else:
-                    s.movapd(targetReg.toXmm, getSpillLocXmm(reg.idx))
+                    s.movapd(targetReg.toXmm, memXmm(regRsp, offset))
                 regalloc.freeSpillLocs[].incl reg.idx
                 reg.location = regLocHostGprReg
                 reg.idx = targetReg
@@ -151,12 +162,17 @@ proc prepareHostRead[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
     if (let instr = blk.getInstr(iref); instr.kind in LoadImmInstrs):
         assert T isnot HostFRegRange
 
-        let targetReg = allocHostReg(regalloc, s, lockedRegs)
+        let targetReg = allocHostReg(regalloc, s, blk, lockedRegs)
 
         if instr.kind == irInstrLoadImmB:
             s.mov(reg(targetReg.toReg()), int32(instr.immValB))
         else:
-            s.mov(reg(targetReg.toReg()), cast[int32](instr.immValI))
+            if (instr.immValI and 0xFFFF_FFFF_0000_0000'u64) == 0:
+                s.mov(reg(targetReg.toReg()), cast[int32](instr.immValI))
+            elif (instr.immValI and 0xFFFF_FFFF_0000_0000'u64) == 0xFFFF_FFFF_0000_0000'u64:
+                s.mov(reg(targetReg.toReg64()), cast[int32](instr.immValI))
+            else:
+                s.mov(targetReg.toReg64(), cast[int64](instr.immValI))
 
         regalloc.activeRegs.add(ActiveReg(location: regLocHostGprRegImm, val: iref, idx: targetReg))
         return regalloc.activeRegs.len-1
@@ -181,7 +197,7 @@ proc allocOpW1R0[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
     dst: IrInstrRef,
     blk: IrBasicBlock,
     lockedRegs: set[T] = {}): T =
-    let dstReg = allocHostReg(regalloc, s, lockedRegs)
+    let dstReg = allocHostReg(regalloc, s, blk, lockedRegs)
     regalloc.activeRegs.add(ActiveReg(location: regLocHostGprReg, val: dst, idx: dstReg))
     dstReg
 
@@ -367,8 +383,8 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             instr = blk.getInstr(iref)
 
         template beforeCall =
-            regalloc.prepareCall(s(), iref)
-            xmmRegAlloc.prepareCall(s(), iref)
+            regalloc.prepareCall(s(), blk, iref)
+            xmmRegAlloc.prepareCall(s(), blk, iref)
 
         #echo &"processing instr {i} {regalloc}"
 
@@ -393,12 +409,12 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             beforeCall()
             s.call(instr.target)
             setFlagUnk()
-        of irInstrLoadReg:
+        of irInstrLoadPpcReg:
             let
                 offset = getRegOffset(instr.ctxLoadIdx)
                 dst = regalloc.allocOpW1R0(s, iref, blk)
             s.mov(dst.toReg, mem32(rcpu, int32(offset)))
-        of irInstrStoreReg:
+        of irInstrStorePpcReg:
             let offset = getRegOffset(instr.ctxStoreIdx)
             if (let imm = blk.isImmValI(instr.source(0)); imm.isSome()):
                 s.mov(mem32(rcpu, int32(offset)), cast[int32](imm.get))
@@ -439,15 +455,16 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 if IrSprNum(instr.ctxLoadIdx) == irSprNumTbU:
                     s.sshr(reg(regRax), 32)
                 s.mov(reg(dst.toReg), regEax)
+                setFlagUnk()
             elif IrSprNum(instr.ctxLoadIdx) == irSprNumDec:
                 s.mov(reg(param1), rcpu)
                 beforeCall()
                 s.call(getDecrementer)
                 s.mov(reg(dst.toReg), regEax)
+                setFlagUnk()
             else:
                 let offset = getSprOffset(IrSprNum instr.ctxLoadIdx)
                 s.mov(dst.toReg, mem32(rcpu, int32(offset)))
-            setFlagUnk()
         of irInstrStoreSpr:
             let num = IrSprNum instr.ctxStoreIdx
             if num in {irSprNumTbL, irSprNumTbU, irSprNumDec, irSprNumWpar, irSprNumHid0, irSprNumDmaL}:
@@ -462,6 +479,8 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 of irSprNumWpar: s.call(setWpar)
                 of irSprNumDmaL: s.call(setDmaL)
                 else: raiseAssert("welp!")
+
+                setFlagUnk()
             else:
                 let offset = getSprOffset(num)
                 if (let imm = blk.isImmValI(instr.source(0)); imm.isSome()):
@@ -469,7 +488,22 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 else:
                     let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
                     s.mov(mem32(rcpu, int32(offset)), src.toReg)
-            setFlagUnk()
+        of irInstrLoadAccum:
+            raiseAssert("unimplemented code gen for dsp accum load")
+        of irInstrLoadAuxAccum:
+            raiseAssert("unimplemented codegen for dsp accum store")
+        of irInstrStoreAccum:
+            raiseAssert("unimplemented code gen for dsp accum store")
+        of irInstrStoreAuxAccum:
+            raiseAssert("unimplemented codegen for dsp aux accum store")
+        of irInstrLoadStatusBit:
+            raiseAssert("dsp status bit load codegen not implemented")
+        of irInstrStoreStatusBit:
+            raiseAssert("dsp status bit store codegen not implemented")
+        of irInstrLoadDspReg:
+            raiseAssert("unimplemented codegen for dsp reg load")
+        of irInstrStoreDspReg:
+            raiseAssert("unimplemented codegen for dsp reg store")
         of irInstrCsel:
             let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), i, blk)
             if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
@@ -525,6 +559,42 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     setFlagCmpZero(iref)
                 elif destroysFlags:
                     setFlagUnk()
+        of irInstrIAddX, irInstrBitAndX, irInstrBitOrX, irInstrBitXorX:
+            if (let imm = blk.isEitherImmIX(instr.source(0), instr.source(1)); imm.isSome and cast[int32](imm.get[1]) == cast[int64](imm.get[1])):
+                let (dst, src) = regalloc.allocOpW1R1(s, iref, imm.get[0], i, blk)
+
+                if instr.kind == irInstrBitAnd and imm.get[1] == 0xFF'u32:
+                    s.movzx(dst.toReg, reg(Register8(src.toReg.ord)))
+                elif instr.kind == irInstrBitAnd and imm.get[1] == 0xFFFF'u32:
+                    s.movzx(dst.toReg, reg(Register16(src.toReg.ord)))
+                else:
+                    if dst != src: s.mov(reg(dst.toReg64), src.toReg64)
+                    case instr.kind
+                    of irInstrIAddX: s.add(reg(dst.toReg64), cast[int32](imm.get[1]))
+                    of irInstrBitAndX: s.aand(reg(dst.toReg64), cast[int32](imm.get[1]))
+                    of irInstrBitOrX: s.oor(reg(dst.toReg64), cast[int32](imm.get[1]))
+                    of irInstrBitXorX: s.xxor(reg(dst.toReg64), cast[int32](imm.get[1]))
+                    else: raiseAssert("shouldn't happen")
+            else:
+                let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk, true)
+                if dst == src1:
+                    case instr.kind
+                    of irInstrIAddX: s.add(reg(dst.toReg64), src0.toReg64)
+                    of irInstrBitAndX: s.aand(reg(dst.toReg64), src0.toReg64)
+                    of irInstrBitOrX: s.oor(reg(dst.toReg64), src0.toReg64)
+                    of irInstrBitXorX: s.xxor(reg(dst.toReg64), src0.toReg64)
+                    else: raiseAssert("shouldn't happen")
+                else:
+                    if dst != src0: s.mov(reg(dst.toReg64), src0.toReg64)
+
+                    case instr.kind
+                    of irInstrIAddX: s.add(reg(dst.toReg64), src1.toReg64)
+                    of irInstrBitAndX: s.aand(reg(dst.toReg64), src1.toReg64)
+                    of irInstrBitOrX: s.oor(reg(dst.toReg64), src1.toReg64)
+                    of irInstrBitXorX: s.xxor(reg(dst.toReg64), src1.toReg64)
+                    else: raiseAssert("shouldn't happen")
+
+            setFlagUnk()
         of irInstrISub:
             if (let imm = blk.isImmValI(instr.source(1)); imm.isSome):
                 let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
@@ -539,6 +609,20 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
                 s.sub(reg(dst.toReg), src1.toReg)
             setFlagCmp(instr.source(0), instr.source(1))
+        of irInstrISubX:
+            if (let imm = blk.isImmValIX(instr.source(1)); imm.isSome and cast[int32](imm.get) == cast[int64](imm.get)):
+                let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
+                if dst != src: s.mov(reg(dst.toReg64), src.toReg64)
+                s.sub(reg(dst.toReg64), cast[int32](imm.get))
+            elif blk.isImmValX(instr.source(0), 0):
+                let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(1), i, blk)
+                if dst != src: s.mov(reg(dst.toReg64), src.toReg64)
+                s.neg(reg(dst.toReg64))
+            else:
+                let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
+                if dst != src0: s.mov(reg(dst.toReg64), src0.toReg64)
+                s.sub(reg(dst.toReg64), src1.toReg64)
+            setFlagUnk()
         of irInstrIAddExtended:
             let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), i, blk)
             s.bt(reg(src2.toReg), 0)
@@ -608,8 +692,13 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             if dst != src: s.mov(reg(dst.toReg), src.toReg)
             s.nnot(reg(dst.toReg))
             setFlagCmpZero(iref)
+        of irInstrBitNotX:
+            let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
+            if dst != src: s.mov(reg(dst.toReg), src.toReg)
+            s.nnot(reg(dst.toReg64))
+            setFlagUnk()
         of irInstrRol, irInstrShl, irInstrShrLogic, irInstrShrArith:
-            if (let immShift = blk.isImmValI(instr.source(1)); immShift.isSome() and immShift.get <= 31):
+            if (let immShift = blk.isImmValI(instr.source(1)); immShift.isSome()):
                 let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
                 if dst != src: s.mov(reg(dst.toReg), src.toReg)
                 case instr.kind
@@ -623,14 +712,30 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
                 s.mov(reg(regEcx), src1.toReg)
                 case instr.kind
-                of irInstrShl: s.sshl(reg(Register64(dst.toReg.ord)))
-                of irInstrShrLogic: s.sshr(reg(Register64(dst.toReg.ord)))
-                of irInstrShrArith:
-                    s.movsxd(Register64(dst.toReg.ord), reg(dst.toReg))
-                    s.sar(reg(Register64(dst.toReg.ord)))
+                of irInstrShl: s.sshl(reg(dst.toReg))
+                of irInstrShrLogic: s.sshr(reg(dst.toReg))
+                of irInstrShrArith: s.sar(reg(dst.toReg))
                 of irInstrRol: s.rol(reg(dst.toReg))
                 else: raiseAssert("shouldn't happen")
-                s.mov(dst.toReg, reg(dst.toReg))
+            setFlagUnk()
+        of irInstrShlX, irInstrShrLogicX, irInstrShrArithX:
+            if (let immShift = blk.isImmValI(instr.source(1)); immShift.isSome()):
+                let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
+                if dst != src: s.mov(reg(dst.toReg64), src.toReg64)
+                case instr.kind
+                of irInstrShlX: s.sshl(reg(dst.toReg64), int8(immShift.get and 0x3F'u32))
+                of irInstrShrLogicX: s.sshr(reg(dst.toReg64), int8(immShift.get and 0x3F'u32))
+                of irInstrShrArithX: s.sar(reg(dst.toReg64), int8(immShift.get and 0x3F'u32))
+                else: raiseAssert("shouldn't happen")
+            else:
+                let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
+                if dst != src0: s.mov(reg(dst.toReg64), src0.toReg64)
+                s.mov(reg(regEcx), src1.toReg)
+                case instr.kind
+                of irInstrShlX: s.sshl(reg(dst.toReg64))
+                of irInstrShrLogicX: s.sshr(reg(dst.toReg64))
+                of irInstrShrArithX: s.sar(reg(dst.toReg64))
+                else: raiseAssert("shouldn't happen")
             setFlagUnk()
         of irInstrClz:
             let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
@@ -639,11 +744,13 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.cmov(dst.toReg, reg(regEax), condNotZero)
             s.xxor(reg(dst.toReg), 0x1F)
             setFlagUnk()
-        of irInstrExtsb, irInstrExtsh:
+        of irInstrExtsb, irInstrExtsh, irInstrExtsw, irInstrExtzw:
             let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
             case instr.kind
             of irInstrExtsb: s.movsx(dst.toReg, reg(Register8(src.toReg.ord)))
             of irInstrExtsh: s.movsx(dst.toReg, reg(Register16(src.toReg.ord)))
+            of irInstrExtsw: s.movsxd(dst.toReg64, reg(src.toReg))
+            of irInstrExtzw: s.mov(dst.toReg, reg(src.toReg))
             else: raiseAssert("shouldn't happen")
         of irInstrCondAnd, irInstrCondOr, irInstrCondXor:
             let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk, true)
@@ -670,6 +777,10 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             raiseAssert("unimplemented code gen")
         of irInstrOverflowSub:
             raiseAssert("unimplemented code gen")
+        of irInstrOverflowAddX:
+            raiseAssert("unimplemented code gen")
+        of irInstrOverflowSubX:
+            raiseAssert("unimplemented code gen")
         of irInstrCarryAdd:
             let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
             s.mov(reg(regEax), src0.toReg)
@@ -677,12 +788,16 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.setcc(reg(Register8(dst.toReg.ord)), condBelow)
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
             setFlagUnk()
+        of irInstrCarryAddX:
+            raiseAssert("unimplemented code gen")
         of irInstrCarrySub:
             let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
             s.cmp(reg(src0.toReg), src1.toReg)
             s.setcc(reg(Register8(dst.toReg.ord)), condNotBelow)
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
             setFlagUnk()
+        of irInstrCarrySubX:
+            raiseAssert("unimplemented code gen")
         of irInstrOverflowAddExtended:
             raiseAssert("unimplemented code gen")
         of irInstrOverflowSubExtended:
@@ -925,7 +1040,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             let (dst, src0, src1) = xmmRegalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
             if dst != src0: s.movapd(dst.toXmm, reg(src0.toXmm))
             s.movss(dst.toXmm, reg(src1.toXmm))
-            s.shufps(dst.toXmm, reg(dst.toXmm), 1) # swap the lower to floats
+            s.shufps(dst.toXmm, reg(dst.toXmm), 1) # swap the lower two floats
         of irInstrFMergeD00, irInstrFMergeD01, irInstrFMergeD10, irInstrFMergeD11:
             let (dst, src0, src1) = xmmRegalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
             if dst != src0: s.movapd(dst.toXmm, reg(src0.toXmm))

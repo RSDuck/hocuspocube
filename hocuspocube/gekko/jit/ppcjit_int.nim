@@ -545,7 +545,7 @@ proc slwx*(builder; s, a, b, rc: uint32) =
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
-            val = builder.biop(irInstrShl, rs, rb)
+            val = builder.unop(irInstrExtzw, builder.biop(irInstrShlX, rs, rb))
 
         builder.handleRc(val, rc)
 
@@ -557,7 +557,7 @@ proc srawx*(builder; s, a, b, rc: uint32) =
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
-            val = builder.biop(irInstrShrArith, rs, rb)
+            val = builder.unop(irInstrExtzw, builder.biop(irInstrShrArithX, builder.unop(irInstrExtsw, rs), rb))
 
         builder.handleRc(val, rc)
         
@@ -602,7 +602,7 @@ proc srwx*(builder; s, a, b, rc: uint32) =
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
-            val = builder.biop(irInstrShrLogic, rs, rb)
+            val = builder.unop(irInstrExtzw, builder.biop(irInstrShrLogicX, rs, rb))
 
         builder.handleRc(val, rc)
 

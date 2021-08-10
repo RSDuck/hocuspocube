@@ -440,8 +440,8 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
                 currentRenderstate.blendDstFactor = state.blendDstFactor
 
 proc init*() =
-    glDebugMessageCallback(debugMessage, nil)
-    glEnable(GL_DEBUG_OUTPUT)
+    #glDebugMessageCallback(debugMessage, nil)
+    #glEnable(GL_DEBUG_OUTPUT)
 
     glEnable(GL_PRIMITIVE_RESTART)
     glPrimitiveRestartIndex(0xFFFFFFFF'u32)

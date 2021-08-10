@@ -2,10 +2,14 @@ import
     util/ioregs, util/bitstruct,
     cycletiming,
     gekko/gekko, si/si,
-    frontend/sdl,
     gekko/ppcstate,
 
     strformat
+
+when defined(nintendoswitch):
+    import frontend/switch
+else:
+    import frontend/sdl
 
 template viLog(msg: string): untyped =
     discard

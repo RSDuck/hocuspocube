@@ -3,6 +3,8 @@
 *.out
 
 *.bin
+*.elf
+*.nro
 
 # Logs and test files
 miauz

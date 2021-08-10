@@ -1,15 +1,33 @@
 import
     strformat,
-    sdl2,
 
     ../util/bitstruct,
-    ../frontend/sdl,
     si
 
 template controllerLog(msg: string): untyped =
     discard
 
 type
+    GcControllerButton* = enum
+        gcControllerA
+        gcControllerB
+        gcControllerX
+        gcControllerY
+        gcControllerLeft
+        gcControllerRight
+        gcControllerUp
+        gcControllerDown
+        gcControllerZ
+        gcControllerStart
+
+    GcControllerState* = object
+        keysDown*: set[GcControllerButton]
+        stickX*, stickY*: float32
+        substickX*, substickY*: float32
+        triggerL*, triggerR*: float32
+
+    GcControllerPollFunc* = proc(): GcControllerState
+
     AnalogFullSet = object
         stickX, stickY: uint8
         substickX, substickY: uint8
@@ -21,6 +39,8 @@ type
         mode: uint8
         rumble: bool
         getOrigin: bool
+
+        pollFunc: GcControllerPollFunc
 
 makeBitStruct uint16, Buttons:
     a[0]: bool
@@ -54,29 +74,30 @@ const
     cmdStatusLong = 0x43'u8
     cmdReset = 0xFF'u8
 
-# currently everything's hardcoded here
-# not so great :(
-proc makeButtonState(controller: GcController): Buttons =
-    result.a = SDL_SCANCODE_V in keysDown
-    result.b = SDL_SCANCODE_I in keysDown
-    result.x = SDL_SCANCODE_X in keysDown
-    result.y = SDL_SCANCODE_U in keysDown
-    result.start = SDL_SCANCODE_RETURN in keysDown
-    result.left = SDL_SCANCODE_N in keysDown
-    result.right = SDL_SCANCODE_T in keysDown
-    result.up = SDL_SCANCODE_G in keysDown
-    result.down = SDL_SCANCODE_R in keysDown
+proc makeButtonState(state: GcControllerState, getOrigin: bool): Buttons =
+    result.a = gcControllerA in state.keysDown
+    result.b = gcControllerB in state.keysDown
+    result.x = gcControllerX in state.keysDown
+    result.y = gcControllerY in state.keysDown
+    result.start = gcControllerStart in state.keysDown
+    result.left = gcControllerLeft in state.keysDown
+    result.right = gcControllerRight in state.keysDown
+    result.up = gcControllerUp in state.keysDown
+    result.down = gcControllerDown in state.keysDown
+    result.z = gcControllerZ in state.keysDown
+    result.l = state.triggerL >= 0.9f
+    result.r = state.triggerR >= 0.9f
+    result.getOrigin = getOrigin
     result.useOrigin = true
 
-proc getAnalogState(): AnalogFullSet =
-    result.stickX = if SDL_SCANCODE_LEFT in keysDown: 0x20
-        elif SDL_SCANCODE_RIGHT in keysDown: 0xFF-0x20
-        else: 0x80
-    result.stickY = if SDL_SCANCODE_UP in keysDown: 0xFF-0x20
-        elif SDL_SCANCODE_DOWN in keysDown: 0x20
-        else: 0x80
-    result.substickX = 0x80
-    result.substickY = 0x80
+proc getAnalogState(state: GcControllerState): AnalogFullSet =
+    const stickRange = float32(0x80-0x20)
+    result.stickX = uint8(float32(0x80) + state.stickX * stickRange)
+    result.stickY = uint8(float32(0x80) + state.stickY * stickRange)
+    result.substickX = uint8(float32(0x80) + state.substickX * stickRange)
+    result.substickY = uint8(float32(0x80) + state.substickY * stickRange)
+    result.triggerL = uint8(float32(0xFF) * state.triggerL)
+    result.triggerR = uint8(float32(0xFF) * state.triggerR)
 
 func writeAnalogFullSet(stream: var seq[byte], analogSet: AnalogFullSet) =
     stream.add analogSet.stickX
@@ -92,10 +113,11 @@ func writeAnalogShort(stream: var seq[byte], y, x: uint8) =
     stream.add (x shr 4) or (y and 0xF0'u8)
 
 proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte]): SiTransferState =
-    handleEvents()
     let controller = GcController device
 
     if command.len >= 1:
+        let curState = controller.pollFunc()
+
         controllerLog &"si transaction type: {command[0]:02X}"
         case command[0]
         of cmdId:
@@ -128,8 +150,8 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
             controller.rumble = motor == 1
 
             let
-                buttons = makeButtonState controller
-                analog = getAnalogState()
+                buttons = makeButtonState(curState, controller.getOrigin)
+                analog = getAnalogState(curState)
 
             recvData.add buttons.firstByte
             recvData.add buttons.secondByte
@@ -168,8 +190,10 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
         of cmdOrigin:
             if command.len > 1:
                 return siErrCollision
-            
-            let buttons = makeButtonState controller
+
+            controller.getOrigin = false
+
+            let buttons = makeButtonState(curState, controller.getOrigin)
             recvData.add buttons.firstByte
             recvData.add buttons.secondByte
             recvData.writeAnalogFullSet controller.calibration
@@ -187,9 +211,9 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
             controller.mode = mode
             controller.rumble = motor == 1
 
-            controller.calibration = getAnalogState()
+            controller.calibration = getAnalogState curState
 
-            let buttons = makeButtonState controller
+            let buttons = makeButtonState(curState, controller.getOrigin)
             recvData.add buttons.firstByte
             recvData.add buttons.secondByte
             recvData.writeAnalogFullSet controller.calibration
@@ -208,8 +232,8 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
             controller.rumble = motor == 1
 
             let 
-                buttons = makeButtonState controller
-                analog = getAnalogState() 
+                buttons = makeButtonState(curState, controller.getOrigin)
+                analog = getAnalogState curState
             recvData.add buttons.firstByte
             recvData.add buttons.secondByte
             recvData.writeAnalogFullSet analog
@@ -223,8 +247,11 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
         siErrNoResponse
 
 
-proc makeGcController*(): GcController =
+proc makeGcController*(pollFunc: GcControllerPollFunc): GcController =
     GcController(
         transact: transact,
         getOrigin: true,
-        calibration: getAnalogState())
+        calibration:
+            AnalogFullSet(stickX: 0x80, stickY: 0x80,
+                substickX: 0x80, substickY: 0x80),
+        pollFunc: pollFunc)

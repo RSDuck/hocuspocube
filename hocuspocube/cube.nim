@@ -1,11 +1,15 @@
 import
     streams, strformat,
-    gekko/[interpreter/ppcinterpreter, gekko, ppcstate],
-    gekko/jit/ppcfrontend,
+    gekko/[interpreter/ppcinterpreter, jit/ppcfrontend, gekko, ppcstate],
     dsp/[interpreter/dspinterpreter, jit/dspfrontend],
     flipper/[rasterinterface, cp],
     util/dolfile,
     cycletiming
+
+when defined(nintendoswitch):
+    import frontend/switch
+else:
+    import frontend/sdl
 
 proc loadDol*(input: Stream) =
     let file = dolfile.loadDol(input)
@@ -27,7 +31,7 @@ proc boot*() =
 
 proc run*() =
     rasterinterface.init()
-    while true:
+    while frontendRunning:
         gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
         ppcfrontend.gekkoRun gekkoTimestamp, gekkoTarget
         dspfrontend.dspRun dspTimestamp, gekkoTimestamp

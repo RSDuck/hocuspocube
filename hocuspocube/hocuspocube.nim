@@ -1,35 +1,46 @@
 import
     streams, os,
-    parsecfg,
+    parsecfg, strformat,
 
     cube,
     dsp/dsp,
     di,
     exi/rtcsramrom,
-    si/gccontroller, si/si,
-    frontend/sdl
+    si/gccontroller, si/si
 
-if paramCount() > 0:
-    initFrontend()
+when defined(nintendoswitch):
+    import frontend/switch
+else:
+    import frontend/sdl
 
-    let cfg = loadConfig("settings.ini")
+proc start*() =
+    if paramCount() > 0:
+        initFrontend()
 
-    loadIplSram cfg.getSectionValue("General", "IPLPath"), cfg.getSectionValue("General", "SRAMPath")
+        let cfg = loadConfig("settings.ini")
 
-    setupDspRom cfg.getSectionValue("General", "DSPIROMPath"), cfg.getSectionValue("General", "DSPDROMPath")
+        loadIplSram cfg.getSectionValue("General", "IPLPath"), cfg.getSectionValue("General", "SRAMPath")
 
-    configureSiDevice 0, makeGcController()
+        setupDspRom cfg.getSectionValue("General", "DSPIROMPath"), cfg.getSectionValue("General", "DSPDROMPath")
 
-    if paramStr(1) == "loaddol" and paramCount() >= 2:
-        loadDol(newFileStream(paramStr(2)))
-    elif paramStr(1) == "boot" and paramCount() >= 2:
-        loadDvd(paramStr(2))
-        boot()
-    elif paramStr(1) == "boot":
-        boot()
+        configureSiDevice 0, makeGcController(handleGcController)
+
+        if paramStr(1) == "loaddol" and paramCount() >= 2:
+            echo &"loading {paramStr(2)}"
+            loadDol(newFileStream(paramStr(2)))
+        elif paramStr(1) == "boot" and paramCount() >= 2:
+            echo &"booting with as medium inserted {paramStr(2)}"
+            loadDvd(paramStr(2))
+            boot()
+        elif paramStr(1) == "boot":
+            boot()
+        else:
+            raiseAssert("unrecognised command")
+
+        run()
+        deinitFrontend()
     else:
         raiseAssert("unrecognised command")
 
-    run()
-else:
-    raiseAssert("unrecognised command")
+when not defined(nintendoswitch):
+    start()

@@ -1,7 +1,6 @@
 import
     ../util/bitstruct
 
-# refer to https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/Core/DSP/DSPCore.h#L181
 makeBitStruct uint16, *Status:
     ca[0]: bool # carry
     ov[1]: bool # overflow

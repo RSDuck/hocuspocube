@@ -150,7 +150,7 @@ const
         "admpy": MulAccExclude
     }.toTable()
 
-    DspSecondaryPatterns = @[
+    DspSecondaryPatterns* = @[
         ("mr",  "________0000mmrr"),
         ("mv",  "________0001ddss"),
         ("st",  "________001ssmrr"),

@@ -64,6 +64,8 @@ type
         flagStateUnknown
         flagStateCmpZero
         flagStateCmpVal
+        flagStateCmpValX
+        flagStateCmpZeroX
 
 proc toReg(num: int32): Register32 =
     registersToUse[num]
@@ -304,7 +306,25 @@ proc getSprOffset(num: IrSprNum): int32 =
     of irSprNumGqr0..irSprNumGqr7: offsetof(PpcState, gqr)+(int(num)-irSprNumGqr0.ord)*4
     else: raiseAssert("shouldn't be handled here"))
 
-proc getRegOffset(num: uint32): int32 =
+proc getDspRegOffset(num: DspReg): int32 =
+    case num
+    of dspRegAdr0..dspRegAdr3: int32(offsetof(DspState, adrReg) + (ord(num) - ord(dspRegAdr0)) * 2)
+    of dspRegInc0..dspRegInc3: int32(offsetof(DspState, incReg) + (ord(num) - ord(dspRegInc0)) * 2)
+    of dspRegWrap0..dspRegWrap3: int32(offsetof(DspState, incReg) + (ord(num) - ord(dspRegWrap0)) * 2)
+    of dspRegX0..dspRegY0: int32(offsetof(DspState, auxAccum) + (ord(num) - ord(dspRegX0)) * 4)
+    of dspRegX1..dspRegY1: int32(offsetof(DspState, auxAccum) + (ord(num) - ord(dspRegX0)) * 4 + 2)
+    of dspRegA0..dspRegB0: int32(offsetof(DspState, mainAccum) + (ord(num) - ord(dspRegA0)) * 4)
+    of dspRegA1..dspRegB1: int32(offsetof(DspState, mainAccum) + (ord(num) - ord(dspRegA1)) * 4 + 2)
+    of dspRegA2..dspRegB2: int32(offsetof(DspState, mainAccum) + (ord(num) - ord(dspRegA2)) * 4 + 4)
+    of dspRegDpp: int32(offsetof(DspState, dpp))
+    of dspRegPs0: int32(offsetof(DspState, prod))
+    of dspRegPs1: int32(offsetof(DspState, prod) + 2)
+    of dspRegPs2: int32(offsetof(DspState, prod) + 4)
+    of dspRegPc1: int32(offsetof(DspState, prodcarry))
+    of dspRegStatus: int32(offsetof(DspState, status))
+    else: raiseAssert(&"blah {num}")
+
+proc getPpcRegOffset(num: uint32): int32 =
     int32(offsetof(PpcState, r)) + 4'i32*int32(num)
 
 proc initRegAlloc[T](spillLocs: ptr set[0..maxSpill-1]): RegAlloc[T] =
@@ -351,8 +371,15 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
     template setFlagCmpZero(val: IrInstrRef): untyped =
         flagstate = flagStateCmpZero
         flagstateL = val
+    template setFlagCmpZeroX(val: IrInstrRef): untyped =
+        flagstate = flagStateCmpZeroX
+        flagstateL = val
     template setFlagCmp(a, b: IrInstrRef): untyped =
         flagstate = flagStateCmpVal
+        flagstateL = a
+        flagstateR = b
+    template setFlagCmpX(a, b: IrInstrRef): untyped =
+        flagstate = flagStateCmpValX
         flagstateL = a
         flagstateR = b
 
@@ -389,7 +416,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
         #echo &"processing instr {i} {regalloc}"
 
         case instr.kind
-        of irInstrIdentity, irInstrLoadCrBit, irInstrStoreCrBit:
+        of irInstrIdentity, irInstrLoadCrBit, irInstrStoreCrBit, irInstrExtractLo..irInstrMergeHi:
             raiseAssert(&"should have been lowered {instr.kind}")
         of irInstrLoadImmI:
             discard
@@ -411,11 +438,11 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             setFlagUnk()
         of irInstrLoadPpcReg:
             let
-                offset = getRegOffset(instr.ctxLoadIdx)
+                offset = getPpcRegOffset(instr.ctxLoadIdx)
                 dst = regalloc.allocOpW1R0(s, iref, blk)
             s.mov(dst.toReg, mem32(rcpu, int32(offset)))
         of irInstrStorePpcReg:
-            let offset = getRegOffset(instr.ctxStoreIdx)
+            let offset = getPpcRegOffset(instr.ctxStoreIdx)
             if (let imm = blk.isImmValI(instr.source(0)); imm.isSome()):
                 s.mov(mem32(rcpu, int32(offset)), cast[int32](imm.get))
             else:
@@ -489,26 +516,60 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
                     s.mov(mem32(rcpu, int32(offset)), src.toReg)
         of irInstrLoadAccum:
-            raiseAssert("unimplemented code gen for dsp accum load")
-        of irInstrLoadAuxAccum:
-            raiseAssert("unimplemented codegen for dsp accum store")
+            let dst = regalloc.allocOpW1R0(s, iref, blk)
+            case DspAccum(instr.ctxLoadIdx)
+            of dspAccumA: s.mov(dst.toReg64, mem64(rcpu, int32(offsetof(DspState, mainAccum))))
+            of dspAccumB: s.mov(dst.toReg64, mem64(rcpu, int32(offsetof(DspState, mainAccum) + 8)))
+            of dspAccumX: s.movsxd(dst.toReg64, mem32(rcpu, int32(offsetof(DspState, auxAccum))))
+            of dspAccumY: s.movsxd(dst.toReg64, mem32(rcpu, int32(offsetof(DspState, auxAccum) + 4)))
+            of dspAccumProd: s.mov(dst.toReg64, mem64(rcpu, int32(offsetof(DspState, prod))))
         of irInstrStoreAccum:
-            raiseAssert("unimplemented code gen for dsp accum store")
-        of irInstrStoreAuxAccum:
-            raiseAssert("unimplemented codegen for dsp aux accum store")
+            let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
+            case DspAccum(instr.ctxStoreIdx)
+            of dspAccumA: s.mov(mem64(rcpu, int32(offsetof(DspState, mainAccum))), src.toReg64)
+            of dspAccumB: s.mov(mem64(rcpu, int32(offsetof(DspState, mainAccum) + 8)), src.toReg64)
+            of dspAccumX: s.mov(mem32(rcpu, int32(offsetof(DspState, auxAccum))), src.toReg)
+            of dspAccumY: s.mov(mem32(rcpu, int32(offsetof(DspState, auxAccum) + 4)), src.toReg)
+            of dspAccumProd: s.mov(mem64(rcpu, int32(offsetof(DspState, prod))), src.toReg64)
         of irInstrLoadStatusBit:
-            raiseAssert("dsp status bit load codegen not implemented")
+            let dst = regalloc.allocOpW1R0(s, iref, blk)
+            s.movzx(dst.toReg, mem16(rcpu, int32(offsetof(DspState, status))))
+            s.sshr(reg(dst.toReg), int8(instr.ctxLoadIdx))
+            s.aand(reg(dst.toReg), 1)
         of irInstrStoreStatusBit:
-            raiseAssert("dsp status bit store codegen not implemented")
+            let
+                src = regalloc.allocOpW0R1(s, instr.source(0), blk)
+            s.movzx(regEax, mem16(rcpu, int32 offsetof(DspState, status)))
+            s.aand(reg(regEax), cast[int32](not(1'u32 shl instr.ctxStoreIdx)))
+            s.mov(reg(regEcx), src.toReg)
+            s.sshl(reg(regEcx), int8 instr.ctxStoreIdx)
+            s.oor(reg(regEax), regEcx)
+            s.mov(mem16(rcpu, int32 offsetof(DspState, status)), regAx)
+            setFlagUnk()
         of irInstrLoadDspReg:
-            raiseAssert("unimplemented codegen for dsp reg load")
+            let
+                dst = regalloc.allocOpW1R0(s, iref, blk)
+                offset = getDspRegOffset(DspReg instr.ctxLoadIdx)
+            s.movzx(dst.toReg, mem16(rcpu, int32(offset)))
         of irInstrStoreDspReg:
-            raiseAssert("unimplemented codegen for dsp reg store")
+            let
+                dst = regalloc.allocOpW0R1(s, instr.source(0), blk)
+                offset = getDspRegOffset(DspReg instr.ctxStoreIdx)
+            if DspReg(instr.ctxStoreIdx) in {dspRegA2, dspRegB2, dspRegPs2}:
+                s.mov(mem32(rcpu, int32(offset)), dst.toReg)
+            else:
+                s.mov(mem16(rcpu, int32(offset)), Register16(ord(dst.toReg)))
         of irInstrCsel:
             let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), i, blk)
-            if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
             s.test(reg(src2.toReg), src2.toReg)
+            if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
             s.cmov(dst.toReg, reg(src1.toReg), condZero)
+            setFlagCmpZero(instr.source(2))
+        of irInstrCselX:
+            let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), i, blk)
+            s.test(reg(src2.toReg64), src2.toReg64)
+            if dst != src0: s.mov(reg(dst.toReg64), src0.toReg64)
+            s.cmov(dst.toReg64, reg(src1.toReg64), condZero)
             setFlagUnk()
         of irInstrIAdd, irInstrBitAnd, irInstrBitOr, irInstrBitXor, irInstrMul:
             var
@@ -535,6 +596,8 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     of irInstrMul: s.imul(dst.toReg, reg(src.toReg), cast[int32](imm.get[1]))
                     else: raiseAssert("shouldn't happen")
             else:
+                var
+                    comparesToZero = instr.kind in {irInstrBitAnd, irInstrBitOr, irInstrBitXor}
                 let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk, true)
                 if dst == src1:
                     case instr.kind
@@ -778,9 +841,19 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
         of irInstrOverflowSub:
             raiseAssert("unimplemented code gen")
         of irInstrOverflowAddX:
-            raiseAssert("unimplemented code gen")
+            let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
+            s.mov(reg(regRax), src0.toReg64)
+            s.add(reg(regRax), src1.toReg64)
+            s.setcc(reg(Register8(dst.toReg.ord)), condOverflow)
+            s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrOverflowSubX:
-            raiseAssert("unimplemented code gen")
+            let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
+            s.mov(reg(regRax), src0.toReg64)
+            s.sub(reg(regRax), src1.toReg64)
+            s.setcc(reg(Register8(dst.toReg.ord)), condOverflow)
+            s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrCarryAdd:
             let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
             s.mov(reg(regEax), src0.toReg)
@@ -789,7 +862,12 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
             setFlagUnk()
         of irInstrCarryAddX:
-            raiseAssert("unimplemented code gen")
+            let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
+            s.mov(reg(regRax), src0.toReg64)
+            s.add(reg(regRax), src1.toReg64)
+            s.setcc(reg(Register8(dst.toReg.ord)), condBelow)
+            s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrCarrySub:
             let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
             s.cmp(reg(src0.toReg), src1.toReg)
@@ -797,7 +875,11 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
             setFlagUnk()
         of irInstrCarrySubX:
-            raiseAssert("unimplemented code gen")
+            let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk)
+            s.cmp(reg(src0.toReg64), src1.toReg64)
+            s.setcc(reg(Register8(dst.toReg.ord)), condNotBelow)
+            s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+            setFlagUnk()
         of irInstrOverflowAddExtended:
             raiseAssert("unimplemented code gen")
         of irInstrOverflowSubExtended:
@@ -819,7 +901,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
             setFlagUnk()
         of irInstrCmpEqualI, irInstrCmpGreaterUI, irInstrCmpLessUI, irInstrCmpGreaterSI, irInstrCmpLessSI:
-            let dst = 
+            let dst =
                 (if flagstate == flagStateCmpVal and
                         flagstateL == instr.source(0) and flagstateR == instr.source(1):
                     regalloc.allocOpW1R0(s, iref, blk)
@@ -847,6 +929,37 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 of irInstrCmpLessUI: condBelow
                 of irInstrCmpGreaterSI: condNotLequal
                 of irInstrCmpLessSI: condLess
+                else: raiseAssert("welp"))
+            s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+        of irInstrCmpEqualIX, irInstrCmpGreaterUIX, irInstrCmpLessUIX, irInstrCmpGreaterSIX, irInstrCmpLessSIX:
+            let dst =
+                (if flagstate == flagStateCmpValX and
+                        flagstateL == instr.source(0) and flagstateR == instr.source(1):
+                    regalloc.allocOpW1R0(s, iref, blk)
+                elif (let imm = blk.isImmValIX(instr.source(1)); imm.isSome and cast[int32](imm.get) == cast[int64](imm.get)):
+                    if imm.get == 0 and flagstate == flagStateCmpZeroX and flagstateL == instr.source(0):
+                        regalloc.allocOpW1R0(s, iref, blk)
+                    else:
+                        let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
+                        s.cmp(reg(src.toReg64), cast[int32](imm.get))
+                        if imm.get == 0:
+                            setFlagCmpZeroX(instr.source(0))
+                        else:
+                            setFlagCmpX(instr.source(0), instr.source(1))
+                        dst
+                else:
+                    let (dst, src0, src1) =
+                        regalloc.allocOpW1R2(assembler, iref, instr.source(0), instr.source(1), i, blk)
+                    s.cmp(reg(src0.toReg64), src1.toReg64)
+                    setFlagCmpX(instr.source(0), instr.source(1))
+                    dst)
+            s.setcc(reg(Register8(dst.toReg.ord)),
+                case instr.kind
+                of irInstrCmpEqualIX: condZero
+                of irInstrCmpGreaterUIX: condNbequal
+                of irInstrCmpLessUIX: condBelow
+                of irInstrCmpGreaterSIX: condNotLequal
+                of irInstrCmpLessSIX: condLess
                 else: raiseAssert("welp"))
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
         of irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32:
@@ -984,7 +1097,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 if instr.kind == irInstrBranchPpc:
                     s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), regEax)
                 else:
-                    s.mov(mem16(rcpu, int32 offsetof(PpcState, pc)), regAx)
+                    s.mov(mem16(rcpu, int32 offsetof(DspState, pc)), regAx)
 
                 if idleLoop:
                     s.mov(reg(regEax), -1)

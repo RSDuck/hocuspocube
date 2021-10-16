@@ -98,15 +98,12 @@ func loadAccum*(state; n: int, val: uint16) {.inline.} =
         state.writeReg dspRegA1.succ(n), val
 
 func storeAccum*(state; n: int): uint16 {.inline.} =
-    if state.status.xl and (state.status.ov or state.status.ext):
-        if cast[int64](state.mainAccum[n]) > 0xFFFF_FFFF'i64:
-            0x8000'u16
-        elif cast[int64](state.mainAccum[n]) < -0x1_0000_0000'i64:
-            0x7FFF'u16
-        else:
-            uint16(state.mainAccum[n] shr 16)
-    else:
+    if not state.status.xl or cast[uint64](int64(cast[int32](state.mainAccum[n]))) == state.mainAccum[n]:
         uint16(state.mainAccum[n] shr 16)
+    elif state.mainAccum[n] < 0:
+        0x8000'u16
+    else:
+        0x7FFF'u16            
 
 func readAuxAccum*(state; n: int): int64 {.inline.} =
     cast[int32](state.auxAccum[n])
@@ -142,7 +139,7 @@ func decAdr*(adr, wrap: uint16): uint16 =
     var nextAdr = adr + wrap
     if ((nextAdr xor adr) and ((wrap or 1) shl 1)) > wrap:
         nextAdr -= wrap + 1
-    
+
     uint16 nextAdr
 
 func incAdr*(adr, wrap: uint16, inc: int16): uint16 =

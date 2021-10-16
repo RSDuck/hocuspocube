@@ -2,6 +2,8 @@ import
     options, bitops, algorithm, strformat,
     tables,
     stew/bitseqs,
+    ../aluhelper,
+    ../../dsp/dspstate,
     ir
 
 proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
@@ -62,59 +64,43 @@ proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
                     crs[i].curVal = InvalidIrInstrRef
         else: discard
 
-    var
-        newInstrs: seq[IrInstrRef]
-        cr = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
+    let oldInstrs = move blk.instrs
+    var cr = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
+
+    assert blk.instrs.len == 0
 
     # lower loadCrBit/storeCrBit and simultaenously lift cr reads/writes
-    for i in 0..<blk.instrs.len:
-        let
-            iref = blk.instrs[i]
-            instr = blk.getInstr(iref)
+    for iref in oldInstrs:
+        let instr = blk.getInstr(iref)
         case instr.kind
         of irInstrLoadCrBit:
             if cr.curVal == InvalidIrInstrRef:
                 cr.curVal = blk.loadctx(irInstrLoadSpr, irSprNumCr.uint32)
-                newInstrs.add cr.curVal
 
-            let
-                shiftAmount = blk.imm(31-instr.ctxLoadIdx)
-                shift = blk.biop(irInstrShrLogic, cr.curVal, shiftAmount)
-                mask = blk.imm(1)
-            blk.getInstr(iref) = makeBiop(irInstrBitAnd, shift, mask)
-            newInstrs.add [shiftAmount, shift, mask, iref]
+            blk.getInstr(iref) = makeBiop(irInstrBitAnd,
+                blk.biop(irInstrShrLogic, cr.curVal, blk.imm(31-instr.ctxLoadIdx)),
+                blk.imm(1))
         of irInstrStoreCrBit:
             if cr.curVal == InvalidIrInstrRef:
                 cr.curVal = blk.loadctx(irInstrLoadSpr, irSprNumCr.uint32)
-                newInstrs.add cr.curVal
 
-            let
-                mask = blk.imm(not(1'u32 shl (31-instr.ctxStoreIdx)))
-                andOp = blk.biop(irInstrBitAnd, cr.curVal, mask)
-                shiftAmount = blk.imm(31'u32-instr.ctxStoreIdx)
-                shiftOp = blk.biop(irInstrShl, instr.source(0), shiftAmount)
-                orrOp = blk.biop(irInstrBitOr, shiftOp, andOp)
-
-            blk.getInstr(iref) = makeStorectx(irInstrStoreSpr, irSprNumCr.uint32, orrOp)
-            newInstrs.add [mask, andOp, shiftAmount, shiftOp, orrOp, iref]
+            let newCr = blk.biop(irInstrBitOr,
+                blk.biop(irInstrShl, instr.source(0), blk.imm(31'u32-instr.ctxStoreIdx)),
+                blk.biop(irInstrBitAnd, cr.curVal, blk.imm(not(1'u32 shl (31-instr.ctxStoreIdx)))))
+            blk.getInstr(iref) = makeStorectx(irInstrStoreSpr, irSprNumCr.uint32, newCr)
 
             if cr.lastStore != InvalidIrInstrRef:
                 blk.getInstr(cr.lastStore) = makeIdentity(InvalidIrInstrRef)
-            cr = RegState(curVal: orrOp, lastStore: iref)
+            cr = RegState(curVal: newCr, lastStore: iref)
         of irInstrLoadSpr:
-            newInstrs.add iref
             if instr.ctxLoadIdx == irSprNumCr.uint32:
                 doLoad(cr, blk, iref)
         of irInstrStoreSpr:
-            newInstrs.add iref
             if instr.ctxStoreIdx == irSprNumCr.uint32:
                 doStore(cr, blk, iref, instr.source(0))
-        else:
-            newInstrs.add iref
+        else: discard
 
-    blk.instrs = newInstrs
-
-    #echo blk
+        blk.instrs.add iref
 
 proc floatOpts*(blk: IrBasicBlock) =
     #[
@@ -186,6 +172,45 @@ proc floatOpts*(blk: IrBasicBlock) =
     for pairLoad in pairLoads:
         if not pairLoadUpperUsed[int(pairLoad)]:
             blk.getInstr(pairLoad) = IrInstr(kind: irInstrLoadFpr, ctxLoadIdx: blk.getInstr(pairLoad).ctxLoadIdx)
+
+proc dspOpts*(blk: IrBasicBlock) =
+    let oldInstrs = move blk.instrs
+
+    # lower dsp specific instructions
+    for iref in oldInstrs:
+        let instr = blk.getInstr(iref)
+        case instr.kind
+        of irInstrExtractMid, irInstrExtractHi:
+            blk.getInstr(iref) = makeBiop(irInstrBitAndX,
+                blk.biop(irInstrShrLogicX, instr.source(0), blk.imm(if instr.kind == irInstrExtractMid: 16 else: 32)),
+                blk.imm(0xFFFF))
+        of irInstrExtractLo:
+            blk.getInstr(iref) = makeBiop(irInstrBitAndX, instr.source(0), blk.imm(0xFFFF))
+        of irInstrMergeLo:
+            blk.getInstr(iref) = makeBiop(irInstrBitOrX,
+                blk.biop(irInstrBitAndX, instr.source(0), blk.imm(not 0xFFFF'u64)),
+                blk.biop(irInstrBitAndX, instr.source(1), blk.imm(0xFFFF)))
+        of irInstrMergeMid:
+            blk.getInstr(iref) = makeBiop(irInstrBitOrX,
+                blk.biop(irInstrBitAndX, instr.source(0), blk.imm(not 0xFFFF_0000'u64)),
+                blk.biop(irInstrShlX, blk.biop(irInstrBitAndX, instr.source(1), blk.imm(0xFFFF)), blk.imm(16)))
+        of irInstrMergeHi:
+            blk.getInstr(iref) = makeBiop(irInstrBitOrX,
+                blk.biop(irInstrBitAndX, instr.source(0), blk.imm(not 0xFFFF_0000_0000'u64)),
+                blk.biop(irInstrShlX, blk.unop(irInstrExtsb, instr.source(1)), blk.imm(32)))
+        of irInstrLoadStatusBit:
+            blk.getInstr(iref) = makeBiop(irInstrBitAnd,
+                blk.biop(irInstrShrLogic, blk.loadctx(irInstrLoadDspReg, dspRegStatus.uint32), blk.imm(instr.ctxLoadIdx)),
+                blk.imm(1))
+        of irInstrStoreStatusBit:
+            blk.getInstr(iref) = makeStorectx(irInstrStoreDspReg, dspRegStatus.uint32,
+                blk.biop(irInstrBitOr,
+                    blk.biop(irInstrBitAnd, blk.loadctx(irInstrLoadDspReg, dspRegStatus.uint32), blk.imm(not(1'u32 shl instr.ctxStoreIdx))),
+                    blk.biop(irInstrShl, blk.biop(irInstrBitAnd, instr.source(0), blk.imm(1)), blk.imm(instr.ctxStoreIdx))))
+        else:
+            discard
+
+        blk.instrs.add iref
 
 proc foldConstants*(blk: IrBasicBlock) =
     for i in 0..<blk.instrs.len:
@@ -276,6 +301,22 @@ proc foldConstants*(blk: IrBasicBlock) =
                     blk.getInstr(iref) = blk.narrowIdentity(instr.source(1))
                 elif b.isSome and b.get == 0:
                     blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
+        of irInstrBitOrX:
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = makeIdentity(instr.source(0))
+            else:
+                let
+                    a = blk.isImmValIX(instr.source(0))
+                    b = blk.isImmValIX(instr.source(1))
+                if a.isSome and b.isSome:
+                    blk.getInstr(iref) = makeImm(a.get or b.get)
+                elif (a.isSome and a.get == 0xFFFF_FFFF_FFFF_FFFF'u64) or
+                    (b.isSome and b.get == 0xFFFF_FFFF_FFFF_FFFF'u64):
+                    blk.getInstr(iref) = makeImm(0xFFFF_FFFF_FFFF_FFFF'u64)
+                elif a.isSome and a.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif b.isSome and b.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrBitAnd:
             if instr.source(0) == instr.source(1):
                 blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
@@ -292,6 +333,22 @@ proc foldConstants*(blk: IrBasicBlock) =
                     blk.getInstr(iref) = blk.narrowIdentity(instr.source(1))
                 elif b.isSome and b.get == 0xFFFF_FFFF'u32:
                     blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
+        of irInstrBitAndX:
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = makeIdentity(instr.source(0))
+            else:
+                let
+                    a = blk.isImmValIX(instr.source(0))
+                    b = blk.isImmValIX(instr.source(1))
+                if a.isSome and b.isSome:
+                    blk.getInstr(iref) = makeImm(a.get and b.get)
+                elif (a.isSome and a.get == 0'u32) or
+                    (b.isSome and b.get == 0'u32):
+                    blk.getInstr(iref) = makeImm(0'u32)
+                elif a.isSome and a.get == 0xFFFF_FFFF_FFFF_FFFF'u64:
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif b.isSome and b.get == 0xFFFF_FFFF_FFFF_FFFF'u64:
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
         of irInstrBitXor:
             if instr.source(0) == instr.source(1):
                 blk.getInstr(iref) = makeImm(0)
@@ -309,8 +366,28 @@ proc foldConstants*(blk: IrBasicBlock) =
                     blk.getInstr(iref) = makeUnop(irInstrBitNot, instr.source(1))
                 elif b.isSome and b.get == 0xFFFF_FFFF'u32:
                     blk.getInstr(iref) = makeUnop(irInstrBitNot, instr.source(0))
+        of irInstrBitXorX:
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = makeImm(0)
+            else:
+                let
+                    a = blk.isImmValIX(instr.source(0))
+                    b = blk.isImmValIX(instr.source(1))
+                if a.isSome and b.isSome:
+                    blk.getInstr(iref) = makeImm(a.get xor b.get)
+                elif a.isSome and a.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(1))
+                elif b.isSome and b.get == 0:
+                    blk.getInstr(iref) = makeIdentity(instr.source(0))
+                elif a.isSome and a.get == 0xFFFF_FFFF_FFFF_FFFF'u64:
+                    blk.getInstr(iref) = makeUnop(irInstrBitNot, instr.source(1))
+                elif b.isSome and b.get == 0xFFFF_FFFF_FFFF_FFFF'u64:
+                    blk.getInstr(iref) = makeUnop(irInstrBitNot, instr.source(0))
         of irInstrBitNot:
             if (let a = blk.isImmValI(instr.source(0)); a.isSome):
+                blk.getInstr(iref) = makeImm(not a.get)
+        of irInstrBitNotX:
+            if (let a = blk.isImmValIX(instr.source(0)); a.isSome):
                 blk.getInstr(iref) = makeImm(not a.get)
         of irInstrCondXor:
             if instr.source(0) == instr.source(1):
@@ -358,10 +435,22 @@ proc foldConstants*(blk: IrBasicBlock) =
             let c = blk.isImmValB(instr.source(2))
             if c.isSome:
                 blk.getInstr(iref) = blk.narrowIdentity(if c.get: instr.source(0) else: instr.source(1))
-        of irInstrExtzw:
+        of irInstrCselX:
+            let c = blk.isImmValB(instr.source(2))
+            if c.isSome:
+                blk.getInstr(iref) = makeIdentity(if c.get: instr.source(0) else: instr.source(1))
+        of irInstrExtsb, irInstrExtsh, irInstrExtzw:
             let val = blk.isImmValI(instr.source(0))
             if val.isSome:
-                blk.getInstr(iref) = makeImm(val.get)
+                blk.getInstr(iref) = makeImm(case instr.kind
+                    of irInstrExtsh: signExtend(val.get, 16)
+                    of irInstrExtsb: signExtend(val.get, 8)
+                    of irInstrExtzw: val.get
+                    else: raiseAssert("should not happen"))
+        of irInstrExtsw:
+            let val = blk.isImmValI(instr.source(0))
+            if val.isSome:
+                blk.getInstr(iref) = makeImm(signExtend(val.get, 32))
         else: discard # no optimisations for you :(
 
 proc removeIdentities*(blk: IrBasicBlock) =
@@ -435,7 +524,8 @@ proc verify*(blk: IrBasicBlock) =
         instrsEncountered.setBit(int(iref))
 
         if i == blk.instrs.len - 1:
-            assert instr.kind in {irInstrBranchPpc, irInstrSyscallPpc, irInstrCallInterpreterPpc}
+            assert instr.kind in {irInstrBranchPpc, irInstrSyscallPpc, irInstrCallInterpreterPpc,
+                irInstrBranchDsp, irInstrCallInterpreterDsp}, &"last instruction of IR block not valid\n{blk}"
 
 proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAdr: uint32): bool =
     let lastInstr = blk.getInstr(blk.instrs[^1])

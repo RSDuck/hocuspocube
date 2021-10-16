@@ -58,7 +58,7 @@ proc generateFields*(instr, letBlock: NimNode, patterns: OrderedTable[string, Sl
 func extractBits[T](x: T, slice: Slice[int]): T {.inline.} =
     (x and slice.toMask[:T]) shr slice.a
 
-func insertBits[T](x: var T, slice: Slice[int], val: T) =
+func insertBits*[T](x: var T, slice: Slice[int], val: T) =
     let mask = slice.toMask[:T]
     x = (x and not(mask)) or ((val shl slice.a) and mask)
 

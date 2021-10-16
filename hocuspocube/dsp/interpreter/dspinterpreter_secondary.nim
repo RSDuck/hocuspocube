@@ -6,9 +6,9 @@ import
 using state: var DspState
 
 proc undefinedSecondary(state; instr: uint16) =
-    discard
+    raiseAssert(&"undefined secondary dsp instr {state.pc:02X} {instr:02X}")
 
-proc mr(state; m, r: uint16) =
+proc mr*(state; m, r: uint16) =
     case range[0..3](m)
     of 0: discard # parallel nop
     of 1: state.adrReg[r] = incAdr(state.adrReg[r], state.wrapReg[r])
@@ -21,13 +21,13 @@ proc incAdrReg(state; reg, m: int) =
     else:
         state.adrReg[reg] = incAdr(state.adrReg[reg], state.wrapReg[reg], cast[int16](state.incReg[reg]))
 
-proc mv(state; d, s: uint16) =
+proc mv*(state; d, s: uint16) =
     state.writeReg dspRegX0.succ(int d),
         case range[0..3](s)
         of 0..1: state.readReg(dspRegA0.succ(int s))
         of 2..3: state.storeAccum(int s - 2)
 
-proc st(state; s, m, r: uint16) =
+proc st*(state; s, m, r: uint16) =
     let
         val = case range[0..3](s)
             of 0..1: state.readReg(dspRegA0.succ(int s))
@@ -36,7 +36,7 @@ proc st(state; s, m, r: uint16) =
 
     state.incAdrReg(int r, int m)
 
-proc ld(state; d, m, r: uint16) =
+proc ld*(state; d, m, r: uint16) =
     let val = dataRead(state.adrReg[r])
 
     state.incAdrReg(int r, int m)
@@ -45,7 +45,7 @@ proc ld(state; d, m, r: uint16) =
     of 0..5: state.writeReg dspRegX0.succ(int d), val
     of 6..7: state.loadAccum(int d - 6, val)
 
-proc ls(state; d, m, n, k, s: uint16) =
+proc ls*(state; d, m, n, k, s: uint16) =
     let
         (loadReg, storeReg) = if k == 0: (0, 3) else: (3, 0)
         storeVal = state.storeAccum(int s)
@@ -56,7 +56,7 @@ proc ls(state; d, m, n, k, s: uint16) =
     state.incAdrReg(0, int n)
     state.incAdrReg(3, int m)
 
-proc ldd(state; d, m, n, r: uint16) =
+proc ldd*(state; d, m, n, r: uint16) =
     let
         (d1, d2, adr) =
             if r == 3:

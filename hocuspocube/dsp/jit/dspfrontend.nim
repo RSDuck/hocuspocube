@@ -2,7 +2,7 @@ import
     strformat, sets,
 
     ../../cycletiming,
-    ../../util/jit/[ir, codegenx64],
+    ../../util/jit/[ir, codegenx64, iropt],
     dspfrontendcommon,
     dspblockcache,
 
@@ -18,7 +18,6 @@ proc undefinedInstr(state: var IrBlockBuilder[DspIrState], instr: uint16) =
 proc compileBlock(): BlockEntryFunc =
     var
         builder: IrBlockBuilder[DspIrState]
-        cycles = 0'i32
         blockAdr = mDspState.pc
 
         numInstrs = 0
@@ -26,26 +25,25 @@ proc compileBlock(): BlockEntryFunc =
     builder.regs.pc = blockAdr
     builder.blk = IrBasicBlock()
 
-    #echo &"compiling dsp block {blockAdr:04X}"
-
     while not builder.regs.branch:
         builder.regs.instr = instrRead(builder.regs.pc)
 
-        #echo &"adding instr {builder.regs.instr:04X}"
-
         dspMainDispatch(builder.regs.instr, builder, undefinedInstr)
 
-        cycles += int32 gekkoCyclesPerDspCycle
-
-        if builder.regs.pc in loopEnds:
-            break
+        builder.regs.cycles += int32 gekkoCyclesPerDspCycle
 
         builder.regs.pc += 1
         numInstrs += 1
 
-    #echo builder.blk
+        if (builder.regs.pc-1 in loopEnds) or builder.regs.cycles >= 128:
+            discard builder.triop(irInstrBranchDsp, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
+            break
 
-    result = cast[BlockEntryFunc](genCode(builder.blk, cycles, false, false))
+    builder.blk.dspOpts()
+    builder.blk.calcLiveIntervals()
+    builder.blk.verify()
+
+    result = cast[BlockEntryFunc](genCode(builder.blk, builder.regs.cycles, false, false))
     blockEntries[mapBlockEntryAdr(blockAdr)] = result
 
 proc dspRun*(timestamp: var int64, target: int64) =

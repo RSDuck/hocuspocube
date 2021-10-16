@@ -61,7 +61,7 @@ proc loopi*(state; c: uint16) =
     if c > 0:
         state.setupLoop c, lastInstr
     else:
-        state.pc = lastInstr - 1
+        state.pc = lastInstr
 
 proc loop*(state; r: uint16) =
     let
@@ -71,7 +71,7 @@ proc loop*(state; r: uint16) =
     if count > 0:
         state.setupLoop count, lastInstr
     else:
-        state.pc = lastInstr - 1
+        state.pc = lastInstr
 
 proc repi*(state; c: uint16) =
     if c > 0:

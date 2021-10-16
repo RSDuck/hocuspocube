@@ -42,14 +42,21 @@ type
         # DSP reg load/store instructions
         irInstrLoadAccum = "ldraccum"
         irInstrStoreAccum = "straccum"
-        irInstrLoadAuxAccum = "ldrauxaccum"
-        irInstrStoreAuxAccum = "strauxaccum"
         irInstrLoadStatusBit = "ldrstat"
         irInstrStoreStatusBit = "strstat"
         irInstrLoadDspReg = "ldrreg_dsp"
         irInstrStoreDspReg = "strreg_dsp"
 
+        # used for DSP partial loads/stores to dsp accumulators
+        irInstrExtractLo = "extrlo"
+        irInstrExtractMid = "extrmid"
+        irInstrExtractHi = "extrhi"
+        irInstrMergeLo = "mergelo"
+        irInstrMergeMid = "mergemid"
+        irInstrMergeHi = "mergehi"
+
         irInstrCsel = "csel"
+        irInstrCselX = "cselx"
 
         irInstrIAdd = "iadd"
         irInstrISub = "isub"
@@ -122,6 +129,11 @@ type
         irInstrCmpLessUI = "cmpiltu"
         irInstrCmpGreaterSI = "cmpgts"
         irInstrCmpLessSI = "cmplts"
+        irInstrCmpEqualIX = "cmpieqx"
+        irInstrCmpGreaterUIX = "cmpigtux"
+        irInstrCmpLessUIX = "cmpiltux"
+        irInstrCmpGreaterSIX = "cmpgtsx"
+        irInstrCmpLessSIX = "cmpltsx"
 
         irInstrLoadU8 = "ldrb"
         irInstrLoadU16 = "ldrh"
@@ -247,15 +259,16 @@ const
         irInstrLoadImmI, irInstrLoadImmB}
     CtxLoadInstrs* = {
         irInstrLoadPpcReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr, irInstrLoadFpr, irInstrLoadFprPair,
-        irInstrLoadAccum, irInstrLoadAuxAccum, irInstrLoadStatusBit, irInstrLoadDspReg}
+        irInstrLoadAccum, irInstrLoadStatusBit, irInstrLoadDspReg}
     CtxStoreInstrs* = {
         irInstrStorePpcReg, irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
-        irInstrStoreAccum, irInstrStoreAuxAccum, irInstrStoreStatusBit, irInstrStoreDspReg}
+        irInstrStoreAccum, irInstrStoreStatusBit, irInstrStoreDspReg}
     UnOpInstrs* = {
         irInstrIdentity,
 
-        irInstrBitNot, irInstrCondNot,
-        irInstrBitNotX,
+        irInstrExtractLo, irInstrExtractMid, irInstrExtractHi,
+
+        irInstrBitNot, irInstrBitNotX, irInstrCondNot,
 
         irInstrClz,
 
@@ -290,6 +303,8 @@ const
         irInstrFNegss, irInstrFAbsss,
         irInstrFNegps, irInstrFAbsps}
     BiOpInstrs* = {
+        irInstrMergeLo, irInstrMergeMid, irInstrMergeHi,
+
         irInstrIAdd, irInstrISub,
         irInstrIAddX, irInstrISubX,
 
@@ -311,6 +326,11 @@ const
         irInstrCmpEqualI,
         irInstrCmpGreaterUI, irInstrCmpLessUI,
         irInstrCmpGreaterSI, irInstrCmpLessSI,
+        irInstrCmpEqualIX,
+        irInstrCmpGreaterUIX,
+        irInstrCmpLessUIX,
+        irInstrCmpGreaterSIX,
+        irInstrCmpLessSIX,
 
         irInstrCondAnd, irInstrCondOr, irInstrCondXor,
 
@@ -329,7 +349,7 @@ const
 
         irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedsd}
     TriOpInstrs* = {
-        irInstrCsel,
+        irInstrCsel, irInstrCselX,
         irInstrIAddExtended, irInstrISubExtended,
         irInstrOverflowAddExtended, irInstrOverflowSubExtended,
         irInstrCarryAddExtended, irInstrCarrySubExtended,
@@ -362,6 +382,7 @@ const
     SideEffectOps* = {
         irInstrStorePpcReg, irInstrStoreCrBit, irInstrStoreXer,
         irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
+        irInstrStoreAccum, irInstrStoreStatusBit, irInstrStoreDspReg,
 
         irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
         irInstrLoadFss, irInstrLoadFsd, irInstrLoadFsq, irInstrLoadFpq,
@@ -374,7 +395,8 @@ const
         irInstrCallInterpreterPpc, irInstrCallInterpreterDsp}
     StrictSideEffectOps* = SideEffectOps + {
         irInstrLoadPpcReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr,
-        irInstrLoadFpr, irInstrLoadFprPair}
+        irInstrLoadFpr, irInstrLoadFprPair,
+        irInstrLoadAccum, irInstrLoadStatusBit, irInstrLoadDspReg}
 
     FpScalarOps* = {
         irInstrStoreFsd, irInstrStoreFss,
@@ -400,7 +422,8 @@ const
         irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd}
 
     HasWideResult* = {
-        irInstrLoadAccum, irInstrLoadAuxAccum,
+        irInstrLoadAccum,
+        irInstrMergeLo, irInstrMergeMid, irInstrMergeHi,
         irInstrIAddX, irInstrISubX,
         irInstrBitAndX, irInstrBitOrX, irInstrBitXorX, irInstrBitNotX,
         irInstrShlX, irInstrShrLogicX, irInstrShrArithX,
@@ -512,6 +535,13 @@ type
         irSprNumDBatU2
         irSprNumDBatU3
 
+    DspAccum* = enum
+        dspAccumA
+        dspAccumB
+        dspAccumX
+        dspAccumY
+        dspAccumProd
+
     DspStatusBit* = enum
         dspStatusBitCa
         dspStatusBitOv
@@ -561,7 +591,7 @@ iterator sources*(instr: IrInstr): IrInstrRef =
 proc `==`*(a, b: IrInstrRef): bool {.borrow.}
 proc `$`*(r: IrInstrRef): string =
     result = "$"
-    result &= $int(r)
+    result.addInt int(r)
 proc hash*(iref: IrInstrRef): Hash =
     hash(int(iref))
 
@@ -636,7 +666,13 @@ proc allocInstr(blk: IrBasicBlock): IrInstrRef =
         blk.instrPool.setLen(blk.instrPool.len + 1)
         instr
 
-proc getInstr*(blk: IrBasicBlock, iref: IrInstrRef): var IrInstr =
+# this used to be a proc, but that caused some problems
+# where the pointer returned by this proc would be calculated first
+# but then then the left side is evaluated, resizing the seq
+# and thus potentially invalidating it.
+#
+# see https://github.com/nim-lang/Nim/issues/18683
+template getInstr*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr =
     blk.instrPool[int iref]
 
 proc makeImm*(val: uint64): IrInstr {.inline.} =
@@ -689,82 +725,78 @@ proc narrowIdentity*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr {.inline.} =
     else:
         makeIdentity(iref)
 
+# block building helpers
 proc imm*(blk: IrBasicBlock, val: uint64): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeImm(val)
+    add(blk.instrs, result)
+
+template imm*[T](builder: IrBlockBuilder[T], val: uint64): IrInstrRef =
+    imm(builder.blk, val)
 
 proc imm*(blk: IrBasicBlock, val: bool): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeImm(val)
+    add(blk.instrs, result)
+
+template imm*[T](builder: IrBlockBuilder[T], val: bool): IrInstrRef =
+    imm(builder.blk, val)
 
 proc loadctx*(blk: IrBasicBlock, kind: IrInstrKind, idx: uint32): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeLoadctx(kind, idx)
+    add(blk.instrs, result)
+
+template loadctx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32): IrInstrRef =
+    loadctx(builder.blk, kind, idx)
 
 proc storectx*(blk: IrBasicBlock, kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeStorectx(kind, idx, val)
+    add(blk.instrs, result)
+
+template storectx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
+    storectx(builder.blk, kind, idx, val)
 
 proc unop*(blk: IrBasicBlock, kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeUnop(kind, val)
+    add(blk.instrs, result)
+
+template unop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
+    unop(builder.blk, kind, val)
 
 proc biop*(blk: IrBasicBlock, kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeBiop(kind, a, b)
+    add(blk.instrs, result)
+
+template biop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
+    biop(builder.blk, kind, a, b)
 
 proc triop*(blk: IrBasicBlock, kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeTriop(kind, a, b, c)
+    add(blk.instrs, result)
 
-proc interpreter*(blk: IrBasicBlock, kind: IrInstrKind, instrcode, pc: uint32, target: pointer): IrInstrRef =
-    case kind
-    of irInstrCallInterpreterDsp, irInstrCallInterpreterPpc:
-        result = blk.allocInstr()
-        blk.getInstr(result) = IrInstr(kind: kind, target: target, instr: instrcode, pc: pc)
-    else:
-        raiseAssert(&"{kind} is not an interpreter instr")
+template triop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
+    triop(builder.blk, kind, a, b, c)
 
-proc interpreter*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
-    blk.interpreter(irInstrCallInterpreterPpc, instrcode, pc, target)
+proc interpretppc*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = IrInstr(kind: irInstrCallInterpreterPpc, target: target, instr: instrcode, pc: pc)
+    add(blk.instrs, result)
+
+template interpreter*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
+    discard interpretppc(builder.blk, instrcode, pc, target)
 
 proc interpretdsp*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
-    blk.interpreter(irInstrCallInterpreterDsp, instrcode, pc, target)
+    result = blk.allocInstr()
+    blk.getInstr(result) = IrInstr(kind: irInstrCallInterpreterDsp, target: target, instr: instrcode, pc: pc)
+    add(blk.instrs, result)
 
-# block building helpers
-proc imm*[T](builder: IrBlockBuilder[T], val: uint32): IrInstrRef =
-    result = builder.blk.imm(val)
-    add(builder.blk.instrs, result)
-
-proc imm*[T](builder: IrBlockBuilder[T], val: bool): IrInstrRef =
-    result = builder.blk.imm(val)
-    add(builder.blk.instrs, result)
-
-proc loadctx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32): IrInstrRef =
-    result = builder.blk.loadctx(kind, idx)
-    add(builder.blk.instrs, result)
-
-proc storectx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
-    result = builder.blk.storectx(kind, idx, val)
-    add(builder.blk.instrs, result)
-
-proc unop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
-    result = builder.blk.unop(kind, val)
-    add(builder.blk.instrs, result)
-
-proc biop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
-    result = builder.blk.biop(kind, a, b)
-    add(builder.blk.instrs, result)
-
-proc triop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
-    result = builder.blk.triop(kind, a, b, c)
-    add(builder.blk.instrs, result)
-
-proc interpreter*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
-    add(builder.blk.instrs, builder.blk.interpreter(instrcode, pc, target))
-
-proc interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint16, target: pointer) =
-    add(builder.blk.instrs, builder.blk.interpretdsp(instrcode, pc, target))
+template interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
+    discard interpretdsp(builder.blk, instrcode, pc, target)
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)

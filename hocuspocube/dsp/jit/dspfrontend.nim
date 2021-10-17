@@ -36,7 +36,7 @@ proc compileBlock(): BlockEntryFunc =
         numInstrs += 1
 
         if (builder.regs.pc-1 in loopEnds) or builder.regs.cycles >= 128:
-            discard builder.triop(irInstrBranchDsp, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
+            discard builder.triop(dspBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
     builder.blk.dspOpts()

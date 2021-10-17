@@ -16,15 +16,15 @@ proc addAccumOp(builder; accumN: uint32, addend: IrInstrRef, secondary: Option[u
         builder.dispatchSecondary(secondary.get)
 
     let
-        sum = builder.biop(irInstrIAddX, accum, addend)
-        ov = builder.biop(irInstrOverflowAddX, accum, addend)
-        ca = builder.biop(irInstrCarryAddX, accum, addend)
-        zero = builder.biop(irInstrCmpEqualIX, sum, builder.imm(0))
-        mi = builder.biop(irInstrCmpLessSIX, sum, builder.imm(0))
-        ext = builder.biop(irInstrCmpEqualIX, sum, builder.unop(irInstrExtsw, sum))
-        unnorm = builder.biop(irInstrShrLogic,
-            builder.unop(irInstrBitNot,
-                builder.biop(irInstrBitXor, sum, builder.biop(irInstrShl, sum, builder.imm(1)))),
+        sum = builder.biop(iAddX, accum, addend)
+        ov = builder.biop(overflowAddX, accum, addend)
+        ca = builder.biop(carryAddX, accum, addend)
+        zero = builder.biop(iCmpEqualX, sum, builder.imm(0))
+        mi = builder.biop(iCmpLessSX, sum, builder.imm(0))
+        ext = builder.biop(iCmpEqualX, sum, builder.unop(extsw, sum))
+        unnorm = builder.biop(lsr,
+            builder.unop(bitNot,
+                builder.biop(bitXor, sum, builder.biop(lsl, sum, builder.imm(1)))),
             builder.imm(31))
 
     builder.writeStatus(dspStatusBitOv, ov)
@@ -36,7 +36,7 @@ proc addAccumOp(builder; accumN: uint32, addend: IrInstrRef, secondary: Option[u
 
     builder.writeAccumSignExtend(accumN, sum)
 
-proc logicOp(builder; accumN: uint32, op: IrInstrKind, operand: IrInstrRef, secondary: Option[uint16]) =
+proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, secondary: Option[uint16]) =
     let accum = builder.readAccum(accumN)
 
     if secondary.isSome:
@@ -44,12 +44,12 @@ proc logicOp(builder; accumN: uint32, op: IrInstrKind, operand: IrInstrRef, seco
 
     let
         res = builder.biop(op, accum, operand)
-        zero = builder.biop(irInstrCmpEqualIX, res, builder.imm(0))
-        mi = builder.biop(irInstrCmpLessSIX, res, builder.imm(0))
-        ext = builder.biop(irInstrCmpEqualIX, res, builder.unop(irInstrExtsw, res))
-        unnorm = builder.biop(irInstrShrLogic,
-            builder.unop(irInstrBitNot,
-                builder.biop(irInstrBitXor, res, builder.biop(irInstrShl, res, builder.imm(1)))),
+        zero = builder.biop(iCmpEqualX, res, builder.imm(0))
+        mi = builder.biop(iCmpLessSX, res, builder.imm(0))
+        ext = builder.biop(iCmpEqualX, res, builder.unop(extsw, res))
+        unnorm = builder.biop(lsr,
+            builder.unop(bitNot,
+                builder.biop(bitXor, res, builder.biop(lsl, res, builder.imm(1)))),
             builder.imm(31))
 
     builder.writeStatus(dspStatusBitOv, builder.imm(false))
@@ -98,21 +98,21 @@ proc xorli*(builder; d: uint16) =
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.xorli)
         discard builder.fetchFollowingImm
     else:
-        builder.logicOp(d, irInstrBitXorX, builder.imm(uint64(builder.fetchFollowingImm()) shl 16), none(uint16))
+        builder.logicOp(d, bitXorX, builder.imm(uint64(builder.fetchFollowingImm()) shl 16), none(uint16))
 
 proc anli*(builder; d: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.anli)
         discard builder.fetchFollowingImm
     else:
-        builder.logicOp(d, irInstrBitAndX, builder.imm((uint64(builder.fetchFollowingImm()) shl 16) or 0xFFFF_FFFF_0000_FFFF'u64), none(uint16))
+        builder.logicOp(d, bitAndX, builder.imm((uint64(builder.fetchFollowingImm()) shl 16) or 0xFFFF_FFFF_0000_FFFF'u64), none(uint16))
 
 proc orli*(builder; d: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.orli)
         discard builder.fetchFollowingImm
     else:
-        builder.logicOp(d, irInstrBitOrX, builder.imm(uint64(builder.fetchFollowingImm()) shl 16), none(uint16))
+        builder.logicOp(d, bitOrX, builder.imm(uint64(builder.fetchFollowingImm()) shl 16), none(uint16))
 
 proc norm*(builder; d, r: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.norm)
@@ -145,8 +145,8 @@ proc asfn2*(builder; d: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfn2)
 
 proc mv*(builder; d, s: uint16) =
-    if interpretAlu or DspReg(d) in dspRegCallStack..dspRegLoopCountStack or
-        DspReg(s) in dspRegCallStack..dspRegLoopCountStack:
+    if interpretAlu or DspReg(d) in pcs..lcs or
+        DspReg(s) in pcs..lcs:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mv)
     else:
         builder.writeReg(DspReg d, builder.readReg(DspReg s))
@@ -156,7 +156,7 @@ proc mvsi*(builder; d, i: uint16) =
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mvsi)
     else:
         if d <= 5:
-            builder.writeReg(dspRegX0.succ(int d), builder.imm(signExtend(i, 8)))
+            builder.writeReg(x0.succ(int d), builder.imm(signExtend(i, 8)))
         else:
             builder.loadAccum(d - 6, builder.imm(signExtend(i, 8)))
 
@@ -186,8 +186,8 @@ proc btstl*(builder; b: uint16) =
     else:
         let mask = builder.imm(uint32(builder.fetchFollowingImm()) shl 16)
         builder.writeStatus(dspStatusBitTb,
-            builder.biop(irInstrCmpEqualI,
-                builder.biop(irInstrBitAnd, builder.readAccum(b), mask),
+            builder.biop(iCmpEqual,
+                builder.biop(bitAnd, builder.readAccum(b), mask),
                 builder.imm(0)))
 
 proc btsth*(builder; b: uint16) =
@@ -197,8 +197,8 @@ proc btsth*(builder; b: uint16) =
     else:
         let mask = builder.imm(uint32(builder.fetchFollowingImm()) shl 16)
         builder.writeStatus(dspStatusBitTb,
-            builder.biop(irInstrCmpEqualI,
-                builder.biop(irInstrBitAnd, builder.readAccum(b), mask),
+            builder.biop(iCmpEqual,
+                builder.biop(bitAnd, builder.readAccum(b), mask),
                 mask))
 
 proc add*(builder; s, d, x: uint16) =
@@ -206,7 +206,7 @@ proc add*(builder; s, d, x: uint16) =
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.add)
     else:
         builder.addAccumOp(d, case range[0..7](s)
-            of 0..3: builder.biop(irInstrShl, builder.unop(irInstrExtsh, builder.readReg(dspRegX0.succ(int s))), builder.imm(16))
+            of 0..3: builder.biop(lsl, builder.unop(extsh, builder.readReg(x0.succ(int s))), builder.imm(16))
             of 4..5: builder.readAuxAccum(s - 4)
             of 6: builder.readAccum(1 - d)
             of 7: builder.readProd(),
@@ -217,7 +217,7 @@ proc addl*(builder; s, d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.addl)
     else:
-        builder.addAccumOp(d, builder.readReg(dspRegX0.succ(int s)), some(x))
+        builder.addAccumOp(d, builder.readReg(x0.succ(int s)), some(x))
 
 proc sub*(builder; s, d, x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.sub)
@@ -337,43 +337,43 @@ proc nnot*(builder; d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.nnot)
     else:
-        builder.logicOp(d, irInstrBitXorX, builder.imm(0xFFFF_0000'u64), some(x))
+        builder.logicOp(d, bitXorX, builder.imm(0xFFFF_0000'u64), some(x))
 
 proc xxor*(builder; s, d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.xxor)
     else:
-        builder.logicOp(d, irInstrBitXorX, builder.biop(irInstrBitAndX, builder.readAuxAccum(s), builder.imm(0xFFFF_0000'u64)), some(x))
+        builder.logicOp(d, bitXorX, builder.biop(bitAndX, builder.readAuxAccum(s), builder.imm(0xFFFF_0000'u64)), some(x))
 
 proc xxor2*(builder; d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.xxor2)
     else:
-        builder.logicOp(d, irInstrBitXorX, builder.biop(irInstrBitAndX, builder.readAccum(1-d), builder.imm(0xFFFF_0000'u64)), some(x))
+        builder.logicOp(d, bitXorX, builder.biop(bitAndX, builder.readAccum(1-d), builder.imm(0xFFFF_0000'u64)), some(x))
 
 proc aand*(builder; s, d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.aand)
     else:
-        builder.logicOp(d, irInstrBitAndX, builder.biop(irInstrBitOrX, builder.readAuxAccum(s), builder.imm(0xFFFF_FFFF_0000_FFFF'u64)), some(x))
+        builder.logicOp(d, bitAndX, builder.biop(bitOrX, builder.readAuxAccum(s), builder.imm(0xFFFF_FFFF_0000_FFFF'u64)), some(x))
 
 proc aand2*(builder; d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.aand2)
     else:
-        builder.logicOp(d, irInstrBitAndX, builder.biop(irInstrBitOrX, builder.readAccum(1-d), builder.imm(0xFFFF_FFFF_0000_FFFF'u64)), some(x))
+        builder.logicOp(d, bitAndX, builder.biop(bitOrX, builder.readAccum(1-d), builder.imm(0xFFFF_FFFF_0000_FFFF'u64)), some(x))
 
 proc oor*(builder; s, d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.oor)
     else:
-        builder.logicOp(d, irInstrBitOrX, builder.biop(irInstrBitAndX, builder.readAuxAccum(s), builder.imm(0xFFFF_0000'u64)), some(x))
+        builder.logicOp(d, bitOrX, builder.biop(bitAndX, builder.readAuxAccum(s), builder.imm(0xFFFF_0000'u64)), some(x))
 
 proc oor2*(builder; d, x: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.oor2)
     else:
-        builder.logicOp(d, irInstrBitXorX, builder.biop(irInstrBitAndX, builder.readAccum(1-d), builder.imm(0xFFFF_0000'u64)), some(x))
+        builder.logicOp(d, bitXorX, builder.biop(bitAndX, builder.readAccum(1-d), builder.imm(0xFFFF_0000'u64)), some(x))
 
 proc lsf*(builder; s, d, x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsf)

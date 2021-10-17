@@ -19,426 +19,427 @@ import
 ]#
 
 type
-    IrInstrKind* = enum
-        irInstrIdentity = "ident"
+    InstrKind* = enum
+        identity = "ident"
 
-        irInstrLoadImmI = "loadi"
-        irInstrLoadImmB = "loadb"
+        loadImmI = "loadi"
+        loadImmB = "loadb"
 
         # PowerPC reg load/store instructions
-        irInstrLoadPpcReg = "ldrreg_ppc"
-        irInstrStorePpcReg = "strreg_ppc"
-        irInstrLoadCrBit = "ldrcr"
-        irInstrStoreCrBit = "strcr"
-        irInstrLoadXer = "ldrxer"
-        irInstrStoreXer = "strxer"
-        irInstrLoadSpr = "ldrspr"
-        irInstrStoreSpr = "strspr"
-        irInstrLoadFpr = "ldrfreg"
-        irInstrStoreFpr = "strfreg"
-        irInstrLoadFprPair = "ldrfregp"
-        irInstrStoreFprPair = "strfregp"
+        loadPpcReg = "ldrreg_ppc"
+        storePpcReg = "strreg_ppc"
+        loadCrBit = "ldrcr"
+        storeCrBit = "strcr"
+        loadXer = "ldrxer"
+        storeXer = "strxer"
+        loadSpr = "ldrspr"
+        storeSpr = "strspr"
+        loadFpr = "ldrfreg"
+        storeFpr = "strfreg"
+        loadFprPair = "ldrfregp"
+        storeFprPair = "strfregp"
 
         # DSP reg load/store instructions
-        irInstrLoadAccum = "ldraccum"
-        irInstrStoreAccum = "straccum"
-        irInstrLoadStatusBit = "ldrstat"
-        irInstrStoreStatusBit = "strstat"
-        irInstrLoadDspReg = "ldrreg_dsp"
-        irInstrStoreDspReg = "strreg_dsp"
+        loadAccum = "ldraccum"
+        storeAccum = "straccum"
+        loadStatusBit = "ldrstat"
+        storeStatusBit = "strstat"
+        loadDspReg = "ldrreg_dsp"
+        storeDspReg = "strreg_dsp"
 
         # used for DSP partial loads/stores to dsp accumulators
-        irInstrExtractLo = "extrlo"
-        irInstrExtractMid = "extrmid"
-        irInstrExtractHi = "extrhi"
-        irInstrMergeLo = "mergelo"
-        irInstrMergeMid = "mergemid"
-        irInstrMergeHi = "mergehi"
+        extractLo = "extrlo"
+        extractMid = "extrmid"
+        extractHi = "extrhi"
+        mergeLo = "mergelo"
+        mergeMid = "mergemid"
+        mergeHi = "mergehi"
 
-        irInstrCsel = "csel"
-        irInstrCselX = "cselx"
+        csel = "csel"
+        cselX = "cselx"
 
-        irInstrIAdd = "iadd"
-        irInstrISub = "isub"
+        iAdd = "iadd"
+        iSub = "isub"
 
-        irInstrIAddX = "iaddx"
-        irInstrISubX = "isubx"
+        iAddX = "iaddx"
+        iSubX = "isubx"
 
-        irInstrIAddExtended = "iaddext"
-        irInstrISubExtended = "isubext"
+        iAddExtended = "iaddext"
+        iSubExtended = "isubext"
 
-        irInstrMul = "mul"
-        irInstrMulhS = "mulhs"
-        irInstrMulhU = "mulhu"
+        imul = "mul"
+        iMulhS = "mulhs"
+        iMulhU = "mulhu"
 
-        irInstrDivS = "divs"
-        irInstrDivU = "divu"
+        iDivS = "divs"
+        iDivU = "divu"
 
-        irInstrBitAnd = "bitand"
-        irInstrBitOr = "bitor"
-        irInstrBitXor = "bitxor"
-        irInstrBitNot = "bitnot"
+        bitAnd = "bitand"
+        bitOr = "bitor"
+        bitXor = "bitxor"
+        bitNot = "bitnot"
 
-        irInstrBitAndX = "bitandx"
-        irInstrBitOrX = "bitorx"
-        irInstrBitXorX = "bitxorx"
-        irInstrBitNotX = "bitnotx"
+        bitAndX = "bitandx"
+        bitOrX = "bitorx"
+        bitXorX = "bitxorx"
+        bitNotX = "bitnotx"
 
-        irInstrShl = "shl"
-        irInstrShrLogic = "shrl"
-        irInstrShrArith = "shra"
-        irInstrRol = "rol"
+        lsl = "lsl"
+        lsr = "lsr"
+        asr = "asr"
+        rol = "rol"
 
-        irInstrShlX = "shlx"
-        irInstrShrLogicX = "shrlx"
-        irInstrShrArithX = "shrax"
+        lslX = "lslx"
+        lsrX = "lsrx"
+        asrX = "asrx"
 
-        irInstrClz = "clz"
+        clz = "clz"
 
-        irInstrExtsb = "extsb"
-        irInstrExtsh = "extsh"
+        extsb = "extsb"
+        extsh = "extsh"
 
-        irInstrExtzw = "extzw"
-        irInstrExtsw = "extsw"
+        extzw = "extzw"
+        extsw = "extsw"
 
-        irInstrCondAnd = "condand"
-        irInstrCondOr = "condor"
-        irInstrCondXor = "condxor"
-        irInstrCondNot = "condnot"
+        condAnd = "condand"
+        condOr = "condor"
+        condXor = "condxor"
+        condNot = "condnot"
 
-        irInstrOverflowAdd = "addov"
-        irInstrOverflowSub = "subov"
+        overflowAdd = "addov"
+        overflowSub = "subov"
 
-        irInstrOverflowAddX = "addovx"
-        irInstrOverflowSubX = "subovx"
+        overflowAddX = "addovx"
+        overflowSubX = "subovx"
 
-        irInstrCarryAdd = "addca"
-        irInstrCarrySub = "subca"
+        carryAdd = "addca"
+        carrySub = "subca"
 
-        irInstrCarryAddX = "addcax"
-        irInstrCarrySubX = "subcax"
+        carryAddX = "addcax"
+        carrySubX = "subcax"
 
-        irInstrOverflowAddExtended = "addextov"
-        irInstrOverflowSubExtended = "subextov"
+        overflowAddExtended = "addextov"
+        overflowSubExtended = "subextov"
 
-        irInstrCarryAddExtended = "addextca"
-        irInstrCarrySubExtended = "subextca"
+        carryAddExtended = "addextca"
+        carrySubExtended = "subextca"
 
-        irInstrCmpEqualI = "cmpieq"
-        irInstrCmpGreaterUI = "cmpigtu"
-        irInstrCmpLessUI = "cmpiltu"
-        irInstrCmpGreaterSI = "cmpgts"
-        irInstrCmpLessSI = "cmplts"
-        irInstrCmpEqualIX = "cmpieqx"
-        irInstrCmpGreaterUIX = "cmpigtux"
-        irInstrCmpLessUIX = "cmpiltux"
-        irInstrCmpGreaterSIX = "cmpgtsx"
-        irInstrCmpLessSIX = "cmpltsx"
+        iCmpEqual = "cmpieq"
+        iCmpGreaterU = "cmpigtu"
+        iCmpLessU = "cmpiltu"
+        iCmpGreaterS = "cmpgts"
+        iCmpLessS = "cmplts"
 
-        irInstrLoadU8 = "ldrb"
-        irInstrLoadU16 = "ldrh"
-        irInstrLoadS16 = "ldrsh"
-        irInstrLoad32 = "ldr"
-        irInstrLoadFss = "ldrfss"
-        irInstrLoadFsd = "ldrfsd"
-        irInstrLoadFsq = "ldrfsq"
-        irInstrLoadFpq = "ldrfpq"
+        iCmpEqualX = "cmpieqx"
+        iCmpGreaterUX = "cmpigtux"
+        iCmpLessUX = "cmpiltux"
+        iCmpGreaterSX = "cmpgtsx"
+        iCmpLessSX = "cmpltsx"
 
-        irInstrStore8 = "strb"
-        irInstrStore16 = "strh"
-        irInstrStore32 = "str"
-        irInstrStoreFss = "strfss"
-        irInstrStoreFsd = "strfsd"
-        irInstrStoreFsq = "strfsq"
-        irInstrStoreFpq = "strfpq"
+        ppcLoadU8 = "ldrb"
+        ppcLoadU16 = "ldrh"
+        ppcLoadS16 = "ldrsh"
+        ppcLoad32 = "ldr"
+        ppcLoadFss = "ldrfss"
+        ppcLoadFsd = "ldrfsd"
+        ppcLoadFsq = "ldrfsq"
+        ppcLoadFpq = "ldrfpq"
 
-        irInstrBranchPpc = "b_ppc"
-        irInstrSyscallPpc = "sc_ppc"
+        ppcStore8 = "strb"
+        ppcStore16 = "strh"
+        ppcStore32 = "str"
+        ppcStoreFss = "strfss"
+        ppcStoreFsd = "strfsd"
+        ppcStoreFsq = "strfsq"
+        ppcStoreFpq = "strfpq"
 
-        irInstrBranchDsp = "b_dsp"
+        ppcBranch = "b_ppc"
+        ppcSyscall = "sc_ppc"
 
-        irInstrFSwizzleD00 = "swizzlefd00"
-        irInstrFSwizzleD11 = "swizzlefd11"
+        dspBranch = "b_dsp"
 
-        irInstrFSwizzleS00 = "swizzlefs00"
-        irInstrFSwizzleS11 = "swizzlefs11"
+        fSwizzleD00 = "swizzlefd00"
+        fSwizzleD11 = "swizzlefd11"
 
-        irInstrFMergeD00 = "mergefd00"
-        irInstrFMergeD01 = "mergefd01"
-        irInstrFMergeD10 = "mergefd10"
-        irInstrFMergeD11 = "mergefd11"
+        fSwizzleS00 = "swizzlefs00"
+        fSwizzleS11 = "swizzlefs11"
 
-        irInstrFMergeS00 = "mergefs00"
-        irInstrFMergeS01 = "mergefs01"
-        irInstrFMergeS10 = "mergefs10"
-        irInstrFMergeS11 = "mergefs11"
+        fMergeD00 = "mergefd00"
+        fMergeD01 = "mergefd01"
+        fMergeD10 = "mergefd10"
+        fMergeD11 = "mergefd11"
 
-        irInstrCvtsd2ss = "cvtsd2ss"
-        irInstrCvtss2sd = "cvtss2sd"
+        fMergeS00 = "mergefs00"
+        fMergeS01 = "mergefs01"
+        fMergeS10 = "mergefs10"
+        fMergeS11 = "mergefs11"
 
-        irInstrCvtpd2ps = "cvtpd2ps"
-        irInstrCvtps2pd = "cvtps2pd"
+        cvtsd2ss = "cvtsd2ss"
+        cvtss2sd = "cvtss2sd"
 
-        irInstrCvtsd2intTrunc = "cvtsd2intTrunc"
-        irInstrCvtss2intTrunc = "cvtss2intTrunc"
+        cvtpd2ps = "cvtpd2ps"
+        cvtps2pd = "cvtps2pd"
 
-        irInstrFRessd = "fressd"
-        irInstrFRsqrtsd = "frsqrtsd"
+        cvtsd2intTrunc = "cvtsd2intTrunc"
+        cvtss2intTrunc = "cvtss2intTrunc"
 
-        irInstrFResss = "fresss"
-        irInstrFRsqrtss = "frsqrtss"
+        fRessd = "fressd"
+        fRsqrtsd = "frsqrtsd"
 
-        irInstrFRespd = "frespd"
-        irInstrFRsqrtpd = "frsqrtpd"
+        fResss = "fresss"
+        fRsqrtss = "frsqrtss"
 
-        irInstrFResps = "fresps"
-        irInstrFRsqrtps = "frsqrtps"
+        fRespd = "frespd"
+        fRsqrtpd = "frsqrtpd"
 
-        irInstrFNegsd = "fnegsd"
-        irInstrFAbssd = "fabssd"
+        fResps = "fresps"
+        fRsqrtps = "frsqrtps"
 
-        irInstrFNegss = "fnegss"
-        irInstrFAbsss = "fabsss"
+        fNegsd = "fnegsd"
+        fAbssd = "fabssd"
 
-        irInstrFNegpd = "fnegpd"
-        irInstrFAbspd = "fabspd"
+        fNegss = "fnegss"
+        fAbsss = "fabsss"
 
-        irInstrFNegps = "fnegps"
-        irInstrFAbsps = "fabsps"
+        fNegpd = "fnegpd"
+        fAbspd = "fabspd"
 
-        irInstrFAddsd = "faddsd"
-        irInstrFSubsd = "fsubsd"
-        irInstrFMulsd = "fmulsd"
-        irInstrFDivsd = "fdivsd"
+        fNegps = "fnegps"
+        fAbsps = "fabsps"
 
-        irInstrFAddss = "faddss"
-        irInstrFSubss = "fsubss"
-        irInstrFMulss = "fmulss"
-        irInstrFDivss = "fdivss"
+        fAddsd = "faddsd"
+        fSubsd = "fsubsd"
+        fMulsd = "fmulsd"
+        fDivsd = "fdivsd"
 
-        irInstrFAddpd = "faddpd"
-        irInstrFSubpd = "fsubpd"
-        irInstrFMulpd = "fmulpd"
-        irInstrFDivpd = "fdivpd"
+        fAddss = "faddss"
+        fSubss = "fsubss"
+        fMulss = "fmulss"
+        fDivss = "fdivss"
 
-        irInstrFAddps = "faddpds"
-        irInstrFSubps = "fsubpds"
-        irInstrFMulps = "fmulpds"
-        irInstrFDivps = "fdivpds"
+        fAddpd = "faddpd"
+        fSubpd = "fsubpd"
+        fMulpd = "fmulpd"
+        fDivpd = "fdivpd"
 
-        irInstrFMaddsd = "fmaddsd"
-        irInstrFMsubsd = "fmsubsd"
-        irInstrFNmaddsd = "fnmaddsd"
-        irInstrFNmsubsd = "fnmsubsd"
+        fAddps = "faddpds"
+        fSubps = "fsubpds"
+        fMulps = "fmulpds"
+        fDivps = "fdivpds"
 
-        irInstrFMaddss = "fmaddss"
-        irInstrFMsubss = "fmsubss"
-        irInstrFNmaddss = "fnmaddss"
-        irInstrFNmsubss = "fnmsubss"
+        fMaddsd = "fmaddsd"
+        fMsubsd = "fmsubsd"
+        fNmaddsd = "fnmaddsd"
+        fNmsubsd = "fnmsubsd"
 
-        irInstrFMaddpd = "fmaddpd"
-        irInstrFMsubpd = "fmsubpd"
-        irInstrFNmaddpd = "fnmaddpd"
-        irInstrFNmsubpd = "fnmsubpd"
+        fMaddss = "fmaddss"
+        fMsubss = "fmsubss"
+        fNmaddss = "fnmaddss"
+        fNmsubss = "fnmsubss"
 
-        irInstrFMaddps = "fmaddps"
-        irInstrFMsubps = "fmsubps"
-        irInstrFNmaddps = "fnmaddps"
-        irInstrFNmsubps = "fnmsubps"
+        fMaddpd = "fmaddpd"
+        fMsubpd = "fmsubpd"
+        fNmaddpd = "fnmaddpd"
+        fNmsubpd = "fnmsubpd"
 
-        irInstrCmpEqualFsd = "cmpfeq"
-        irInstrCmpGreaterFsd = "cmpfgt"
-        irInstrCmpLessFsd = "cmpflt"
-        irInstrCmpUnorderedSd = "cmpfunord"
+        fMaddps = "fmaddps"
+        fMsubps = "fmsubps"
+        fNmaddps = "fnmaddps"
+        fNmsubps = "fnmsubps"
 
-        irInstrCallInterpreterPpc = "interpretppc"
-        irInstrCallInterpreterDsp = "interpretdsp"
+        fCmpEqualsd = "cmpfeq"
+        fCmpGreatersd = "cmpfgt"
+        fCmpLesssd = "cmpflt"
+        fUnorderedsd = "cmpfunord"
+
+        ppcCallInterpreter = "interpretppc"
+        dspCallInterpreter = "interpretdsp"
 
 const
     LoadImmInstrs* = {
-        irInstrLoadImmI, irInstrLoadImmB}
+        loadImmI, loadImmB}
     CtxLoadInstrs* = {
-        irInstrLoadPpcReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr, irInstrLoadFpr, irInstrLoadFprPair,
-        irInstrLoadAccum, irInstrLoadStatusBit, irInstrLoadDspReg}
+        loadPpcReg, loadCrBit, loadXer, loadSpr, loadFpr, loadFprPair,
+        loadAccum, loadStatusBit, loadDspReg}
     CtxStoreInstrs* = {
-        irInstrStorePpcReg, irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
-        irInstrStoreAccum, irInstrStoreStatusBit, irInstrStoreDspReg}
+        storePpcReg, storeCrBit, storeXer, storeSpr, storeFpr, storeFprPair,
+        storeAccum, storeStatusBit, storeDspReg}
     UnOpInstrs* = {
-        irInstrIdentity,
+        identity,
 
-        irInstrExtractLo, irInstrExtractMid, irInstrExtractHi,
+        extractLo, extractMid, extractHi,
 
-        irInstrBitNot, irInstrBitNotX, irInstrCondNot,
+        bitNot, bitNotX, condNot,
 
-        irInstrClz,
+        clz,
 
-        irInstrExtSb, irInstrExtSh,
-        irInstrExtsw, irInstrExtzw,
+        extsb, extsh,
+        extsw, extzw,
 
-        irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
-        irInstrLoadFss, irInstrLoadFsd,
+        ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32,
+        ppcLoadFss, ppcLoadFsd,
 
-        irInstrSyscallPpc,
+        ppcSyscall,
 
-        irInstrFSwizzleD00,
-        irInstrFSwizzleD11,
+        fSwizzleD00,
+        fSwizzleD11,
 
-        irInstrFSwizzleS00,
-        irInstrFSwizzleS11,
+        fSwizzleS00,
+        fSwizzleS11,
 
-        irInstrCvtsd2ss, irInstrCvtss2sd,
-        irInstrCvtpd2ps, irInstrCvtps2pd,
+        cvtsd2ss, cvtss2sd,
+        cvtpd2ps, cvtps2pd,
 
-        irInstrCvtsd2intTrunc,
-        irInstrCvtss2intTrunc,
+        cvtsd2intTrunc,
+        cvtss2intTrunc,
 
-        irInstrFRessd, irInstrFRsqrtsd,
-        irInstrFRespd, irInstrFRsqrtpd,
-        irInstrFResss, irInstrFRsqrtss,
-        irInstrFResps, irInstrFRsqrtps,
+        fRessd, fRsqrtsd,
+        fRespd, fRsqrtpd,
+        fResss, fRsqrtss,
+        fResps, fRsqrtps,
 
-        irInstrFNegsd, irInstrFAbssd,
-        irInstrFNegpd, irInstrFAbspd,
+        fNegsd, fAbssd,
+        fNegpd, fAbspd,
 
-        irInstrFNegss, irInstrFAbsss,
-        irInstrFNegps, irInstrFAbsps}
+        fNegss, fAbsss,
+        fNegps, fAbsps}
     BiOpInstrs* = {
-        irInstrMergeLo, irInstrMergeMid, irInstrMergeHi,
+        mergeLo, mergeMid, mergeHi,
 
-        irInstrIAdd, irInstrISub,
-        irInstrIAddX, irInstrISubX,
+        iAdd, iSub,
+        iAddX, iSubX,
 
-        irInstrMul, irInstrMulhS, irInstrMulhU,
+        imul, iMulhS, iMulhU,
 
-        irInstrDivS, irInstrDivU,
+        iDivS, iDivU,
 
-        irInstrBitAnd, irInstrBitOr, irInstrBitXor,
-        irInstrBitAndX, irInstrBitOrX, irInstrBitXorX,
+        bitAnd, bitOr, bitXor,
+        bitAndX, bitOrX, bitXorX,
 
-        irInstrShl, irInstrShrLogic, irInstrShrArith, irInstrRol,
-        irInstrShlX, irInstrShrLogicX, irInstrShrArithX,
+        lsl, lsr, asr, rol,
+        lslX, lsrX, asrX,
 
-        irInstrOverflowAdd, irInstrOverflowSub,
-        irInstrOverflowAddX, irInstrOverflowSubX,
-        irInstrCarryAdd, irInstrCarrySub,
-        irInstrCarryAddX, irInstrCarrySubX,
+        overflowAdd, overflowSub,
+        overflowAddX, overflowSubX,
+        carryAdd, carrySub,
+        carryAddX, carrySubX,
 
-        irInstrCmpEqualI,
-        irInstrCmpGreaterUI, irInstrCmpLessUI,
-        irInstrCmpGreaterSI, irInstrCmpLessSI,
-        irInstrCmpEqualIX,
-        irInstrCmpGreaterUIX,
-        irInstrCmpLessUIX,
-        irInstrCmpGreaterSIX,
-        irInstrCmpLessSIX,
+        iCmpEqual,
+        iCmpGreaterU, iCmpLessU,
+        iCmpGreaterS, iCmpLessS,
+        iCmpEqualX,
+        iCmpGreaterUX,
+        iCmpLessUX,
+        iCmpGreaterSX,
+        iCmpLessSX,
 
-        irInstrCondAnd, irInstrCondOr, irInstrCondXor,
+        condAnd, condOr, condXor,
 
-        irInstrStore8, irInstrStore16, irInstrStore32,
-        irInstrStoreFss, irInstrStoreFsd,
+        ppcStore8, ppcStore16, ppcStore32,
+        ppcStoreFss, ppcStoreFsd,
 
-        irInstrLoadFsq, irInstrLoadFpq,
+        ppcLoadFsq, ppcLoadFpq,
 
-        irInstrFMergeD00, irInstrFMergeD01, irInstrFMergeD10, irInstrFMergeD11,
-        irInstrFMergeS00, irInstrFMergeS01, irInstrFMergeS10, irInstrFMergeS11,
+        fMergeD00, fMergeD01, fMergeD10, fMergeD11,
+        fMergeS00, fMergeS01, fMergeS10, fMergeS11,
 
-        irInstrFAddsd, irInstrFSubsd, irInstrFMulsd, irInstrFDivsd,
-        irInstrFAddpd, irInstrFSubpd, irInstrFMulpd, irInstrFDivpd,
-        irInstrFAddss, irInstrFSubss, irInstrFMulss, irInstrFDivss,
-        irInstrFAddps, irInstrFSubps, irInstrFMulps, irInstrFDivps,
+        fAddsd, fSubsd, fMulsd, fDivsd,
+        fAddpd, fSubpd, fMulpd, fDivpd,
+        fAddss, fSubss, fMulss, fDivss,
+        fAddps, fSubps, fMulps, fDivps,
 
-        irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedsd}
+        fCmpEqualsd, fCmpGreatersd, fCmpLesssd, fUnorderedsd}
     TriOpInstrs* = {
-        irInstrCsel, irInstrCselX,
-        irInstrIAddExtended, irInstrISubExtended,
-        irInstrOverflowAddExtended, irInstrOverflowSubExtended,
-        irInstrCarryAddExtended, irInstrCarrySubExtended,
+        csel, cselX,
+        iAddExtended, iSubExtended,
+        overflowAddExtended, overflowSubExtended,
+        carryAddExtended, carrySubExtended,
 
-        irInstrStoreFsq, irInstrStoreFpq,
+        ppcStoreFsq, ppcStoreFpq,
 
-        irInstrBranchPpc, irInstrBranchDsp,
+        ppcBranch, dspBranch,
 
-        irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
-        irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd,
+        fMaddsd, fMsubsd, fNmaddsd, fNmsubsd,
+        fMaddpd, fMsubpd, fNmaddpd, fNmsubpd,
 
-        irInstrFMaddss, irInstrFMsubss, irInstrFNmaddss, irInstrFNmsubss,
-        irInstrFMaddps, irInstrFMsubps, irInstrFNmaddps, irInstrFNmsubps}
+        fMaddss, fMsubss, fNmaddss, fNmsubss,
+        fMaddps, fMsubps, fNmaddps, fNmsubps}
 
     ResultlessOps* = {
-        irInstrStorePpcReg,
-        irInstrStoreCrBit, irInstrStoreXer, irInstrStoreSpr,
-        irInstrStoreFpr, irInstrStoreFprPair,
-        irInstrStore8, irInstrStore16, irInstrStore32,
-        irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
+        storePpcReg,
+        storeCrBit, storeXer, storeSpr,
+        storeFpr, storeFprPair,
+        ppcStore8, ppcStore16, ppcStore32,
+        ppcStoreFss, ppcStoreFsd, ppcStoreFsq, ppcStoreFpq,
 
-        irInstrBranchPpc,
-        irInstrSyscallPpc,
+        ppcBranch,
+        ppcSyscall,
 
-        irInstrBranchDsp,
+        dspBranch,
         
-        irInstrCallInterpreterPpc,
-        irInstrCallInterpreterDsp}
+        ppcCallInterpreter,
+        dspCallInterpreter}
 
     SideEffectOps* = {
-        irInstrStorePpcReg, irInstrStoreCrBit, irInstrStoreXer,
-        irInstrStoreSpr, irInstrStoreFpr, irInstrStoreFprPair,
-        irInstrStoreAccum, irInstrStoreStatusBit, irInstrStoreDspReg,
+        storePpcReg, storeCrBit, storeXer,
+        storeSpr, storeFpr, storeFprPair,
+        storeAccum, storeStatusBit, storeDspReg,
 
-        irInstrLoadU8, irInstrLoadU16, irInstrLoadS16, irInstrLoad32,
-        irInstrLoadFss, irInstrLoadFsd, irInstrLoadFsq, irInstrLoadFpq,
+        ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32,
+        ppcLoadFss, ppcLoadFsd, ppcLoadFsq, ppcLoadFpq,
 
-        irInstrStore8, irInstrStore16, irInstrStore32,
-        irInstrStoreFss, irInstrStoreFsd, irInstrStoreFsq, irInstrStoreFpq,
+        ppcStore8, ppcStore16, ppcStore32,
+        ppcStoreFss, ppcStoreFsd, ppcStoreFsq, ppcStoreFpq,
 
-        irInstrBranchPpc, irInstrSyscallPpc,
-        irInstrBranchDsp,
-        irInstrCallInterpreterPpc, irInstrCallInterpreterDsp}
+        ppcBranch, ppcSyscall,
+        dspBranch,
+        ppcCallInterpreter, dspCallInterpreter}
     StrictSideEffectOps* = SideEffectOps + {
-        irInstrLoadPpcReg, irInstrLoadCrBit, irInstrLoadXer, irInstrLoadSpr,
-        irInstrLoadFpr, irInstrLoadFprPair,
-        irInstrLoadAccum, irInstrLoadStatusBit, irInstrLoadDspReg}
+        loadPpcReg, loadCrBit, loadXer, loadSpr,
+        loadFpr, loadFprPair,
+        loadAccum, loadStatusBit, loadDspReg}
 
     FpScalarOps* = {
-        irInstrStoreFsd, irInstrStoreFss,
-        irInstrFSwizzleD00, irInstrFMergeD00,
-        irInstrFSwizzleS00, irInstrFMergeS00,
-        irInstrFRessd, irInstrFRsqrtsd,
-        irInstrFResss, irInstrFRsqrtss,
-        irInstrCvtsd2ss, irInstrCvtss2sd,
-        irInstrCvtsd2intTrunc, irInstrCvtss2intTrunc,
-        irInstrFNegsd, irInstrFAbssd,
-        irInstrFNegss, irInstrFAbsss,
-        irInstrFAddsd, irInstrFSubsd, irInstrFMulsd, irInstrFDivsd,
-        irInstrFAddss, irInstrFSubss, irInstrFMulss, irInstrFDivss,
-        irInstrFMaddsd, irInstrFMsubsd, irInstrFNmaddsd, irInstrFNmsubsd,
-        irInstrFMaddss, irInstrFMsubss, irInstrFNmaddss, irInstrFNmsubss,
-        irInstrCmpEqualFsd, irInstrCmpGreaterFsd, irInstrCmpLessFsd, irInstrCmpUnorderedSd}
+        ppcStoreFsd, ppcStoreFss,
+        fSwizzleD00, fMergeD00,
+        fSwizzleS00, fMergeS00,
+        fRessd, fRsqrtsd,
+        fResss, fRsqrtss,
+        cvtsd2ss, cvtss2sd,
+        cvtsd2intTrunc, cvtss2intTrunc,
+        fNegsd, fAbssd,
+        fNegss, fAbsss,
+        fAddsd, fSubsd, fMulsd, fDivsd,
+        fAddss, fSubss, fMulss, fDivss,
+        fMaddsd, fMsubsd, fNmaddsd, fNmsubsd,
+        fMaddss, fMsubss, fNmaddss, fNmsubss,
+        fCmpEqualsd, fCmpGreatersd, fCmpLesssd, fUnorderedsd}
     FpPairOps* = {
-        irInstrFSwizzleD11, irInstrFMergeD11,
-        irInstrCvtpd2ps, irInstrCvtps2pd,
-        irInstrFRespd, irInstrFRsqrtpd,
-        irInstrFNegpd, irInstrFAbspd,
-        irInstrFAddpd, irInstrFSubpd, irInstrFMulpd, irInstrFDivpd,
-        irInstrFMaddpd, irInstrFMsubpd, irInstrFNmaddpd, irInstrFNmsubpd}
+        fSwizzleD11, fMergeD11,
+        cvtpd2ps, cvtps2pd,
+        fRespd, fRsqrtpd,
+        fNegpd, fAbspd,
+        fAddpd, fSubpd, fMulpd, fDivpd,
+        fMaddpd, fMsubpd, fNmaddpd, fNmsubpd}
 
     HasWideResult* = {
-        irInstrLoadAccum,
-        irInstrMergeLo, irInstrMergeMid, irInstrMergeHi,
-        irInstrIAddX, irInstrISubX,
-        irInstrBitAndX, irInstrBitOrX, irInstrBitXorX, irInstrBitNotX,
-        irInstrShlX, irInstrShrLogicX, irInstrShrArithX,
-        irInstrExtsw}
+        loadAccum,
+        mergeLo, mergeMid, mergeHi,
+        iAddX, iSubX,
+        bitAndX, bitOrX, bitXorX, bitNotX,
+        lslX, lsrX, asrX,
+        extsw}
 
 type
     IrInstrRef* = distinct int32
 
     IrInstr* = object
-        case kind*: IrInstrKind
-        of irInstrLoadImmI:
+        case kind*: InstrKind
+        of loadImmI:
             immValI*: uint64
-        of irInstrLoadImmB:
+        of loadImmB:
             immValB*: bool
-        of irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
+        of ppcCallInterpreter, dspCallInterpreter:
             instr*, pc*: uint32
             target*: pointer
         of CtxLoadInstrs:
@@ -565,7 +566,7 @@ const
 
 proc numSources*(instr: IrInstr): int =
     case instr.kind
-    of LoadImmInstrs, CtxLoadInstrs, irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
+    of LoadImmInstrs, CtxLoadInstrs, ppcCallInterpreter, dspCallInterpreter:
         0
     of CtxStoreInstrs, UnopInstrs:
         1
@@ -598,11 +599,11 @@ proc hash*(iref: IrInstrRef): Hash =
 func `==`*(a, b: IrInstr): bool =
     if a.kind == b.kind:
         case a.kind
-        of irInstrLoadImmI:
+        of loadImmI:
             a.immValI == b.immValI
-        of irInstrLoadImmB:
+        of loadImmB:
             a.immValB == b.immValB
-        of irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
+        of ppcCallInterpreter, dspCallInterpreter:
             a.instr == b.instr and a.pc == b.pc and
                 a.target == b.target
         of CtxLoadInstrs:
@@ -625,11 +626,11 @@ func `==`*(a, b: IrInstr): bool =
 func hash*(instr: IrInstr): Hash =
     result = hash(instr.kind)
     case instr.kind
-    of irInstrLoadImmI:
+    of loadImmI:
         result = result !& hash(instr.immValI)
-    of irInstrLoadImmB:
+    of loadImmB:
         result = result !& hash(instr.immValB)
-    of irInstrCallInterpreterPpc, irInstrCallInterpreterDsp:
+    of ppcCallInterpreter, dspCallInterpreter:
         result = result !& hash(instr.instr)
         result = result !& hash(instr.pc)
         result = result !& hash(instr.target)
@@ -676,40 +677,40 @@ template getInstr*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr =
     blk.instrPool[int iref]
 
 proc makeImm*(val: uint64): IrInstr {.inline.} =
-    IrInstr(kind: irInstrLoadImmI, immValI: val)
+    IrInstr(kind: loadImmI, immValI: val)
 
 proc makeImm*(val: bool): IrInstr {.inline.} =
-    IrInstr(kind: irInstrLoadImmB, immValB: val)
+    IrInstr(kind: loadImmB, immValB: val)
 
-proc makeLoadctx*(kind: IrInstrKind, idx: uint32): IrInstr {.inline.} =
+proc makeLoadctx*(kind: InstrKind, idx: uint32): IrInstr {.inline.} =
     case kind
     of CtxLoadInstrs:
         IrInstr(kind: kind, ctxLoadIdx: idx)
     else:
         raiseAssert(&"invalid context load kind {kind}")
 
-proc makeStorectx*(kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstr {.inline.} =
+proc makeStorectx*(kind: InstrKind, idx: uint32, val: IrInstrRef): IrInstr {.inline.} =
     case kind
     of CtxStoreInstrs:
         IrInstr(kind: kind, ctxStoreIdx: idx, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
     else:
         raiseAssert(&"invalid context store kind {kind}")
 
-proc makeUnop*(kind: IrInstrKind, operand: IrInstrRef): IrInstr {.inline.} =
+proc makeUnop*(kind: InstrKind, operand: IrInstrRef): IrInstr {.inline.} =
     case kind
     of UnOpInstrs:
         IrInstr(kind: kind, srcRegular: [operand, InvalidIrInstrRef, InvalidIrInstrRef])
     else:
         raiseAssert(&"invalid unop kind {kind}")
 
-proc makeBiop*(kind: IrInstrKind, a, b: IrInstrRef): IrInstr {.inline.} =
+proc makeBiop*(kind: InstrKind, a, b: IrInstrRef): IrInstr {.inline.} =
     case kind
     of BiOpInstrs:
         IrInstr(kind: kind, srcRegular: [a, b, InvalidIrInstrRef])
     else:
         raiseAssert(&"invalid biop kind {kind}")
 
-proc makeTriop*(kind: IrInstrKind, a, b, c: IrInstrRef): IrInstr {.inline.} =
+proc makeTriop*(kind: InstrKind, a, b, c: IrInstrRef): IrInstr {.inline.} =
     case kind
     of TriOpInstrs:
         IrInstr(kind: kind, srcRegular: [a, b, c])
@@ -717,11 +718,11 @@ proc makeTriop*(kind: IrInstrKind, a, b, c: IrInstrRef): IrInstr {.inline.} =
         raiseAssert(&"invalid triop kind {kind}")
 
 proc makeIdentity*(iref: IrInstrRef): IrInstr {.inline.} =
-    makeUnop(irInstrIdentity, iref)
+    makeUnop(identity, iref)
 
 proc narrowIdentity*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr {.inline.} =
     if blk.getInstr(iref).kind in HasWideResult:
-        makeUnop(irInstrExtzw, iref)
+        makeUnop(extzw, iref)
     else:
         makeIdentity(iref)
 
@@ -742,49 +743,49 @@ proc imm*(blk: IrBasicBlock, val: bool): IrInstrRef =
 template imm*[T](builder: IrBlockBuilder[T], val: bool): IrInstrRef =
     imm(builder.blk, val)
 
-proc loadctx*(blk: IrBasicBlock, kind: IrInstrKind, idx: uint32): IrInstrRef =
+proc loadctx*(blk: IrBasicBlock, kind: InstrKind, idx: uint32): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeLoadctx(kind, idx)
     add(blk.instrs, result)
 
-template loadctx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32): IrInstrRef =
+template loadctx*[T](builder: IrBlockBuilder[T], kind: InstrKind, idx: uint32): IrInstrRef =
     loadctx(builder.blk, kind, idx)
 
-proc storectx*(blk: IrBasicBlock, kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
+proc storectx*(blk: IrBasicBlock, kind: InstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeStorectx(kind, idx, val)
     add(blk.instrs, result)
 
-template storectx*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
+template storectx*[T](builder: IrBlockBuilder[T], kind: InstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
     storectx(builder.blk, kind, idx, val)
 
-proc unop*(blk: IrBasicBlock, kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
+proc unop*(blk: IrBasicBlock, kind: InstrKind, val: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeUnop(kind, val)
     add(blk.instrs, result)
 
-template unop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, val: IrInstrRef): IrInstrRef =
+template unop*[T](builder: IrBlockBuilder[T], kind: InstrKind, val: IrInstrRef): IrInstrRef =
     unop(builder.blk, kind, val)
 
-proc biop*(blk: IrBasicBlock, kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
+proc biop*(blk: IrBasicBlock, kind: InstrKind, a, b: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeBiop(kind, a, b)
     add(blk.instrs, result)
 
-template biop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b: IrInstrRef): IrInstrRef =
+template biop*[T](builder: IrBlockBuilder[T], kind: InstrKind, a, b: IrInstrRef): IrInstrRef =
     biop(builder.blk, kind, a, b)
 
-proc triop*(blk: IrBasicBlock, kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
+proc triop*(blk: IrBasicBlock, kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef =
     result = blk.allocInstr()
     blk.getInstr(result) = makeTriop(kind, a, b, c)
     add(blk.instrs, result)
 
-template triop*[T](builder: IrBlockBuilder[T], kind: IrInstrKind, a, b, c: IrInstrRef): IrInstrRef =
+template triop*[T](builder: IrBlockBuilder[T], kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef =
     triop(builder.blk, kind, a, b, c)
 
 proc interpretppc*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
     result = blk.allocInstr()
-    blk.getInstr(result) = IrInstr(kind: irInstrCallInterpreterPpc, target: target, instr: instrcode, pc: pc)
+    blk.getInstr(result) = IrInstr(kind: ppcCallInterpreter, target: target, instr: instrcode, pc: pc)
     add(blk.instrs, result)
 
 template interpreter*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
@@ -792,7 +793,7 @@ template interpreter*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, targ
 
 proc interpretdsp*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
     result = blk.allocInstr()
-    blk.getInstr(result) = IrInstr(kind: irInstrCallInterpreterDsp, target: target, instr: instrcode, pc: pc)
+    blk.getInstr(result) = IrInstr(kind: dspCallInterpreter, target: target, instr: instrcode, pc: pc)
     add(blk.instrs, result)
 
 template interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
@@ -800,49 +801,49 @@ template interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, tar
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)
-    instr.kind == irInstrLoadImmB and instr.immValB == imm
+    instr.kind == loadImmB and instr.immValB == imm
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint32): bool =
     let instr = blk.getInstr(iref)
-    instr.kind == irInstrLoadImmI and uint32(instr.immValI) == imm
+    instr.kind == loadImmI and uint32(instr.immValI) == imm
 
 proc isImmValX*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint64): bool =
     let instr = blk.getInstr(iref)
-    instr.kind == irInstrLoadImmI and instr.immValI == imm
+    instr.kind == loadImmI and instr.immValI == imm
 
 proc isImmValI*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint32] =
     let instr = blk.getInstr(iref)
-    if instr.kind == irInstrLoadImmI:
+    if instr.kind == loadImmI:
         some(uint32(instr.immValI))
     else:
         none(uint32)
 
 proc isImmValIX*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint64] =
     let instr = blk.getInstr(iref)
-    if instr.kind == irInstrLoadImmI:
+    if instr.kind == loadImmI:
         some(instr.immValI)
     else:
         none(uint64)
 
 proc isImmValB*(blk: IrBasicBlock, iref: IrInstrRef): Option[bool] =
     let instr = blk.getInstr(iref)
-    if instr.kind == irInstrLoadImmB:
+    if instr.kind == loadImmB:
         some(instr.immValB)
     else:
         none(bool)
 
 proc isEitherImmI*(blk: IrBasicBlock, a, b: IrInstrRef): Option[(IrInstrRef, uint32)] =
-    if (let instr = blk.getInstr(a); instr.kind == irInstrLoadImmI):
+    if (let instr = blk.getInstr(a); instr.kind == loadImmI):
         some((b, uint32(instr.immValI)))
-    elif (let instr = blk.getInstr(b); instr.kind == irInstrLoadImmI):
+    elif (let instr = blk.getInstr(b); instr.kind == loadImmI):
         some((a, uint32(instr.immValI)))
     else:
         none((IrInstrRef, uint32))
 
 proc isEitherImmIX*(blk: IrBasicBlock, a, b: IrInstrRef): Option[(IrInstrRef, uint64)] =
-    if (let instr = blk.getInstr(a); instr.kind == irInstrLoadImmI):
+    if (let instr = blk.getInstr(a); instr.kind == loadImmI):
         some((b, instr.immValI))
-    elif (let instr = blk.getInstr(b); instr.kind == irInstrLoadImmI):
+    elif (let instr = blk.getInstr(b); instr.kind == loadImmI):
         some((a, instr.immValI))
     else:
         none((IrInstrRef, uint64))
@@ -865,15 +866,15 @@ proc `$`*(blk: IrBasicBlock): string =
             result &= " = "
         result &= &"{instr.kind} "
         case instr.kind
-        of irInstrLoadImmI:
+        of loadImmI:
             result &= &"{instr.immValI:016X}"
-        of irInstrLoadImmB:
+        of loadImmB:
             result &= $instr.immValB
         of CtxLoadInstrs:
             result &= &"{instr.ctxLoadIdx}"
         of CtxStoreInstrs:
             result &= &"{instr.ctxStoreIdx}, ${int(instr.source(0))}"
-        of irInstrCallInterpreterDsp, irInstrCallInterpreterPpc:
+        of dspCallInterpreter, ppcCallInterpreter:
             result &= &"{instr.instr:08X}"
         else:
             for i in 0..<instr.numSources:

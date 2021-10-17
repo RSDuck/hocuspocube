@@ -38,7 +38,7 @@ proc compileBlock(): BlockEntryFunc =
         cycles += 1
 
         if cycles >= 64 and not builder.regs.branch:
-            discard builder.triop(irInstrBranchPpc, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
+            discard builder.triop(ppcBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
     let isIdleLoop = builder.blk.checkIdleLoop(instrIndexes, gekkoState.pc, builder.regs.pc)

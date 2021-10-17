@@ -13,7 +13,7 @@ proc eieio*(builder) =
     raiseAssert "instr not implemented eieio"
 
 proc isync*(builder) =
-    discard builder.triop(irInstrBranchPpc, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
+    discard builder.triop(ppcBranch, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
     builder.regs.branch = true
 
 proc lwarx*(builder; d, a, b: uint32) =
@@ -23,7 +23,7 @@ proc stwcxdot*(builder; s, a, b: uint32) =
     raiseAssert "instr not implemented stwcxdot"
 
 proc sync*(builder) =
-    discard builder.triop(irInstrBranchPpc, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
+    discard builder.triop(ppcBranch, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
     builder.regs.branch = true
 
 const
@@ -35,23 +35,23 @@ proc rfi*(builder) =
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.rfi)
     else:
         let
-            msr = builder.loadctx(irInstrLoadSpr, irSprNumMsr.uint32)
-            srr0 = builder.loadctx(irInstrLoadSpr, irSprNumSrr0.uint32)
-            srr1 = builder.loadctx(irInstrLoadSpr, irSprNumSrr1.uint32)
+            msr = builder.loadctx(loadSpr, irSprNumMsr.uint32)
+            srr0 = builder.loadctx(loadSpr, irSprNumSrr0.uint32)
+            srr1 = builder.loadctx(loadSpr, irSprNumSrr1.uint32)
 
-            newMsr = builder.biop(irInstrBitOr,
-                builder.biop(irInstrBitAnd, msr, builder.imm(not(exceptionSavedMask or powMask))),
-                builder.biop(irInstrBitAnd, srr1, builder.imm(exceptionSavedMask)))
+            newMsr = builder.biop(bitOr,
+                builder.biop(bitAnd, msr, builder.imm(not(exceptionSavedMask or powMask))),
+                builder.biop(bitAnd, srr1, builder.imm(exceptionSavedMask)))
 
-        discard builder.storectx(irInstrStoreSpr, irSprNumMsr.uint32, newMsr)
-        discard builder.triop(irInstrBranchPpc, builder.imm(true), srr0, builder.imm(0))
+        discard builder.storectx(storeSpr, irSprNumMsr.uint32, newMsr)
+        discard builder.triop(ppcBranch, builder.imm(true), srr0, builder.imm(0))
     builder.regs.branch = true
 
 proc sc*(builder) =
     when interpretSystem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.sc)
     else:
-        discard builder.unop(irInstrSyscallPpc, builder.imm(builder.regs.pc + 4))
+        discard builder.unop(ppcSyscall, builder.imm(builder.regs.pc + 4))
     builder.regs.branch = true
 
 proc tw*(builder; to, a, b: uint32) =
@@ -67,13 +67,13 @@ proc mfcr*(builder; d: uint32) =
     when interpretSystem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mfcr)
     else:
-        builder.storereg(d, builder.loadctx(irInstrLoadSpr, irSprNumCr.uint32))
+        builder.storereg(d, builder.loadctx(loadSpr, irSprNumCr.uint32))
 
 proc mfmsr*(builder; d: uint32) =
     when interpretSystem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mfmsr)
     else:
-        builder.storereg(d, builder.loadctx(irInstrLoadSpr, irSprNumMsr.uint32))
+        builder.storereg(d, builder.loadctx(loadSpr, irSprNumMsr.uint32))
 
 proc mfspr*(builder; d, spr: uint32) =
     when interpretSystem:
@@ -81,7 +81,7 @@ proc mfspr*(builder; d, spr: uint32) =
     else:
         let n = decodeSplitSpr spr
 
-        builder.storereg(d, builder.loadctx(irInstrLoadSpr,
+        builder.storereg(d, builder.loadctx(loadSpr,
             case n
             of 1: irSprNumXer.uint32
             of 8: irSprNumLr.uint32
@@ -122,8 +122,8 @@ proc mftb*(builder; d, tpr: uint32) =
 
         builder.storereg(d,
             case n
-            of 268: builder.loadctx(irInstrLoadSpr, irSprNumTbL.uint32)
-            of 269: builder.loadctx(irInstrLoadSpr, irSprNumTbU.uint32)
+            of 268: builder.loadctx(loadSpr, irSprNumTbL.uint32)
+            of 269: builder.loadctx(loadSpr, irSprNumTbU.uint32)
             else:
                 raiseAssert &"unknown mftb register {n}")
 
@@ -134,18 +134,18 @@ proc mtcrf*(builder; s, crm: uint32) =
         let
             mask = makeFieldMask(crm)
             rs = builder.loadreg(s)
-            cr = builder.loadctx(irInstrLoadSpr, irSprNumCr.uint32)
+            cr = builder.loadctx(loadSpr, irSprNumCr.uint32)
 
-        discard builder.storectx(irInstrStoreSpr, irSprNumCr.uint32,
-            builder.biop(irInstrBitOr,
-                builder.biop(irInstrBitAnd, cr, builder.imm(not mask)),
-                builder.biop(irInstrBitAnd, rs, builder.imm(mask))))
+        discard builder.storectx(storeSpr, irSprNumCr.uint32,
+            builder.biop(bitOr,
+                builder.biop(bitAnd, cr, builder.imm(not mask)),
+                builder.biop(bitAnd, rs, builder.imm(mask))))
 
 proc mtmsr*(builder; s: uint32) =
     when interpretSystem:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mtmsr)
     else:
-        discard builder.storectx(irInstrStoreSpr, irSprNumMsr.uint32, builder.loadreg(s))
+        discard builder.storectx(storeSpr, irSprNumMsr.uint32, builder.loadreg(s))
 
 proc mcrfs*(builder; crfD, crfS: uint32) =
     raiseAssert "unimplemented instr mcrf"
@@ -159,37 +159,37 @@ proc mtspr*(builder; d, spr: uint32) =
         let rd = builder.loadreg(d)
 
         case n
-        of 1: discard builder.storectx(irInstrStoreSpr, irSprNumXer.uint32, rd)
-        of 8: discard builder.storectx(irInstrStoreSpr, irSprNumLr.uint32, rd)
-        of 9: discard builder.storectx(irInstrStoreSpr, irSprNumCtr.uint32, rd)
-        of 18: discard builder.storectx(irInstrStoreSpr, irSprNumDsisr.uint32, rd)
-        of 19: discard builder.storectx(irInstrStoreSpr, irSprNumDar.uint32, rd)
-        of 22: discard builder.storectx(irInstrStoreSpr, irSprNumDec.uint32, rd)
-        of 26: discard builder.storectx(irInstrStoreSpr, irSprNumSrr0.uint32, rd)
-        of 27: discard builder.storectx(irInstrStoreSpr, irSprNumSrr1.uint32, rd)
-        of 272..275: discard builder.storectx(irInstrStoreSpr, irSprNumSprg0.succ(int n - 272).uint32, rd)
-        of 284: discard builder.storectx(irInstrStoreSpr, irSprNumTbL.uint32, rd)
-        of 285: discard builder.storectx(irInstrStoreSpr, irSprNumTbU.uint32, rd)
+        of 1: discard builder.storectx(storeSpr, irSprNumXer.uint32, rd)
+        of 8: discard builder.storectx(storeSpr, irSprNumLr.uint32, rd)
+        of 9: discard builder.storectx(storeSpr, irSprNumCtr.uint32, rd)
+        of 18: discard builder.storectx(storeSpr, irSprNumDsisr.uint32, rd)
+        of 19: discard builder.storectx(storeSpr, irSprNumDar.uint32, rd)
+        of 22: discard builder.storectx(storeSpr, irSprNumDec.uint32, rd)
+        of 26: discard builder.storectx(storeSpr, irSprNumSrr0.uint32, rd)
+        of 27: discard builder.storectx(storeSpr, irSprNumSrr1.uint32, rd)
+        of 272..275: discard builder.storectx(storeSpr, irSprNumSprg0.succ(int n - 272).uint32, rd)
+        of 284: discard builder.storectx(storeSpr, irSprNumTbL.uint32, rd)
+        of 285: discard builder.storectx(storeSpr, irSprNumTbU.uint32, rd)
         of 528..535:
             let n = n - 528
-            discard builder.storectx(irInstrStoreSpr,
+            discard builder.storectx(storeSpr,
                 (if (n and 1) == 0: irSprNumIBatU0 else: irSprNumIBatL0).succ(int(n shr 1)).uint32, rd)
         of 536..543:
             let n = n - 536
-            discard builder.storectx(irInstrStoreSpr,
+            discard builder.storectx(storeSpr,
                 (if (n and 1) == 0: irSprNumDBatU0 else: irSprNumDBatL0).succ(int(n shr 1)).uint32, rd)
-        of 912..919: discard builder.storectx(irInstrStoreSpr, irSprNumGqr0.succ(int n - 912).uint32, rd)
-        of 920: discard builder.storectx(irInstrStoreSpr, irSprNumHid2.uint32, rd)
-        of 921: discard builder.storectx(irInstrStoreSpr, irSprNumWpar.uint32, rd)
-        of 922: discard builder.storectx(irInstrStoreSpr, irSprNumDmaU.uint32, rd)
-        of 923: discard builder.storectx(irInstrStoreSpr, irSprNumDmaL.uint32, rd)
-        of 952: discard builder.storectx(irInstrStoreSpr, irSprNumMmcr0.uint32, rd)
-        of 956: discard builder.storectx(irInstrStoreSpr, irSprNumMmcr1.uint32, rd)
-        of 953..954: discard builder.storectx(irInstrStoreSpr, irSprNumPmc0.succ(int n - 953).uint32, rd)
-        of 957..958: discard builder.storectx(irInstrStoreSpr, irSprNumPmc2.succ(int n - 957).uint32, rd)
-        of 1008: discard builder.storectx(irInstrStoreSpr, irSprNumHid0.uint32, rd)
-        of 1009: discard builder.storectx(irInstrStoreSpr, irSprNumHid1.uint32, rd)
-        of 1017: discard builder.storectx(irInstrStoreSpr, irSprNumL2cr.uint32, rd)
+        of 912..919: discard builder.storectx(storeSpr, irSprNumGqr0.succ(int n - 912).uint32, rd)
+        of 920: discard builder.storectx(storeSpr, irSprNumHid2.uint32, rd)
+        of 921: discard builder.storectx(storeSpr, irSprNumWpar.uint32, rd)
+        of 922: discard builder.storectx(storeSpr, irSprNumDmaU.uint32, rd)
+        of 923: discard builder.storectx(storeSpr, irSprNumDmaL.uint32, rd)
+        of 952: discard builder.storectx(storeSpr, irSprNumMmcr0.uint32, rd)
+        of 956: discard builder.storectx(storeSpr, irSprNumMmcr1.uint32, rd)
+        of 953..954: discard builder.storectx(storeSpr, irSprNumPmc0.succ(int n - 953).uint32, rd)
+        of 957..958: discard builder.storectx(storeSpr, irSprNumPmc2.succ(int n - 957).uint32, rd)
+        of 1008: discard builder.storectx(storeSpr, irSprNumHid0.uint32, rd)
+        of 1009: discard builder.storectx(storeSpr, irSprNumHid1.uint32, rd)
+        of 1017: discard builder.storectx(storeSpr, irSprNumL2cr.uint32, rd)
         else: raiseAssert(&"unknown spr num {n}")
 
 proc dcbf*(builder; a, b: uint32) =

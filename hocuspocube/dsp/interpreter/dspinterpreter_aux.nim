@@ -12,78 +12,78 @@ template fetchFollowingImm*: uint16 {.dirty.} =
 
 func writeReg*(state; n: DspReg, val: uint16) {.inline.} =
     case n
-    of dspRegAdr0..dspRegAdr3: state.adrReg[ord(n) - ord(dspRegAdr0)] = val
-    of dspRegInc0..dspRegInc3: state.incReg[ord(n) - ord(dspRegInc0)] = val
-    of dspRegWrap0..dspRegWrap3: state.wrapReg[ord(n) - ord(dspRegWrap0)] = val
-    of dspRegCallStack: state.callStack.push(val)
-    of dspRegStatusStack: state.statusStack.push(val)
-    of dspRegLoopAdrStack:
+    of r0..r3: state.adrReg[ord(n) - ord(r0)] = val
+    of m0..m3: state.incReg[ord(n) - ord(m0)] = val
+    of l0..l3: state.wrapReg[ord(n) - ord(l0)] = val
+    of pcs: state.callStack.push(val)
+    of pss: state.statusStack.push(val)
+    of eas:
         state.loopCountStack.sp += 1
         state.loopAddrStack.push(val)
-    of dspRegLoopCountStack:
+    of lcs:
         state.loopAddrStack.sp += 1
         state.loopCountStack.push(val)
-    of dspRegA0, dspRegB0:
-        state.mainAccum[ord(n) - ord(dspRegA0)].clearMask 0xFFFF'u64
-        state.mainAccum[ord(n) - ord(dspRegA0)].setMask uint64(val)
-    of dspRegA1, dspRegB1:
-        state.mainAccum[ord(n) - ord(dspRegA1)].clearMask 0xFFFF_0000'u64
-        state.mainAccum[ord(n) - ord(dspRegA1)].setMask uint64(val) shl 16
-    of dspRegA2, dspRegB2:
-        state.mainAccum[ord(n) - ord(dspRegA2)].clearMask 0xFFFF_FFFF_0000_0000'u64
-        state.mainAccum[ord(n) - ord(dspRegA2)].setMask signExtend[uint64](val, 8) shl 32
-    of dspRegX0, dspRegY0:
-        state.auxAccum[ord(n) - ord(dspRegX0)].clearMask 0xFFFF'u32
-        state.auxAccum[ord(n) - ord(dspRegX0)].setMask uint32(val)
-    of dspRegX1, dspRegY1:
-        state.auxAccum[ord(n) - ord(dspRegX1)].clearMask 0xFFFF_0000'u32
-        state.auxAccum[ord(n) - ord(dspRegX1)].setMask uint32(val) shl 16
-    of dspRegDpp: state.dpp = val
-    of dspRegStatus:
+    of a0, b0:
+        state.mainAccum[ord(n) - ord(a0)].clearMask 0xFFFF'u64
+        state.mainAccum[ord(n) - ord(a0)].setMask uint64(val)
+    of a1, b1:
+        state.mainAccum[ord(n) - ord(a1)].clearMask 0xFFFF_0000'u64
+        state.mainAccum[ord(n) - ord(a1)].setMask uint64(val) shl 16
+    of a2, b2:
+        state.mainAccum[ord(n) - ord(a2)].clearMask 0xFFFF_FFFF_0000_0000'u64
+        state.mainAccum[ord(n) - ord(a2)].setMask signExtend[uint64](val, 8) shl 32
+    of x0, y0:
+        state.auxAccum[ord(n) - ord(x0)].clearMask 0xFFFF'u32
+        state.auxAccum[ord(n) - ord(x0)].setMask uint32(val)
+    of x1, y1:
+        state.auxAccum[ord(n) - ord(x1)].clearMask 0xFFFF_0000'u32
+        state.auxAccum[ord(n) - ord(x1)].setMask uint32(val) shl 16
+    of dpp: state.dpp = val
+    of psr:
         # TODO: check this, I've done a test about this before, but forgot how it went
         # but not all bits can be changed
         state.status = Status(val)
-    of dspRegPs0:
+    of ps0:
         state.prod.clearMask 0xFFFF'u64
         state.prod.setMask uint64(val)
-    of dspRegPs1:
+    of ps1:
         state.prod.clearMask 0xFFFF_0000'u64
         state.prod.setMask uint64(val) shl 16
-    of dspRegPs2:
+    of ps2:
         state.prod.clearMask 0xFFFF_FFFF_0000_0000'u64
         state.prod.setMask signExtend[uint64](val, 8) shl 32
-    of dspRegPc1:
+    of pc1:
         state.prodcarry = val
 
 func readReg*(state; n: DspReg): uint16 {.inline.} =
     case n
-    of dspRegAdr0..dspRegAdr3: state.adrReg[ord(n) - ord(dspRegAdr0)]
-    of dspRegInc0..dspRegInc3: state.incReg[ord(n) - ord(dspRegInc0)]
-    of dspRegWrap0..dspRegWrap3: state.wrapReg[ord(n) - ord(dspRegWrap0)]
-    of dspRegCallStack: state.callStack.pop()
-    of dspRegStatusStack: state.statusStack.pop()
-    of dspRegLoopAdrStack:
+    of r0..r3: state.adrReg[ord(n) - ord(r0)]
+    of m0..m3: state.incReg[ord(n) - ord(m0)]
+    of l0..l3: state.wrapReg[ord(n) - ord(l0)]
+    of pcs: state.callStack.pop()
+    of pss: state.statusStack.pop()
+    of eas:
         state.loopCountStack.sp -= 1
         state.loopAddrStack.pop()
-    of dspRegLoopCountStack:
+    of lcs:
         state.loopAddrStack.sp -= 1
         state.loopCountStack.pop()
-    of dspRegA0, dspRegB0:
-        uint16(state.mainAccum[ord(n) - ord(dspRegA0)])
-    of dspRegA1, dspRegB1:
-        uint16(state.mainAccum[ord(n) - ord(dspRegA1)] shr 16)
-    of dspRegA2, dspRegB2:
-        uint16(state.mainAccum[ord(n) - ord(dspRegA2)] shr 32)
-    of dspRegX0, dspRegY0:
-        uint16(state.auxAccum[ord(n) - ord(dspRegX0)])
-    of dspRegX1, dspRegY1:
-        uint16(state.auxAccum[ord(n) - ord(dspRegX1)] shr 16)
-    of dspRegDpp: state.dpp
-    of dspRegStatus: uint16(state.status)
-    of dspRegPs0: uint16(state.prod)
-    of dspRegPs1: uint16(state.prod shr 16)
-    of dspRegPs2: uint16(state.prod shr 32)
-    of dspRegPc1: uint16(state.prodcarry)
+    of a0, b0:
+        uint16(state.mainAccum[ord(n) - ord(a0)])
+    of a1, b1:
+        uint16(state.mainAccum[ord(n) - ord(a1)] shr 16)
+    of a2, b2:
+        uint16(state.mainAccum[ord(n) - ord(a2)] shr 32)
+    of x0, y0:
+        uint16(state.auxAccum[ord(n) - ord(x0)])
+    of x1, y1:
+        uint16(state.auxAccum[ord(n) - ord(x1)] shr 16)
+    of dpp: state.dpp
+    of psr: uint16(state.status)
+    of ps0: uint16(state.prod)
+    of ps1: uint16(state.prod shr 16)
+    of ps2: uint16(state.prod shr 32)
+    of pc1: uint16(state.prodcarry)
 
 func readAccum*(state; n: int): int64 {.inline.} =
     cast[int64](state.mainAccum[n])
@@ -95,7 +95,7 @@ func loadAccum*(state; n: int, val: uint16) {.inline.} =
     if state.status.xl:
         state.mainAccum[n] = signExtend(uint64(val) shl 16, 32)
     else: 
-        state.writeReg dspRegA1.succ(n), val
+        state.writeReg a1.succ(n), val
 
 func storeAccum*(state; n: int): uint16 {.inline.} =
     if not state.status.xl or cast[uint64](int64(cast[int32](state.mainAccum[n]))) == state.mainAccum[n]:
@@ -234,7 +234,7 @@ func setU1*(state; mid: uint16) =
     state.status.unnorm = mid.getBit(15) == mid.getBit(14)
 
 func dppAdr*(state; a: uint16): uint16 =
-    (state.readReg(dspRegDpp) shl 8) or a
+    (state.readReg(dpp) shl 8) or a
 
 proc conditionHolds*(state; cond: uint32): bool =
     let

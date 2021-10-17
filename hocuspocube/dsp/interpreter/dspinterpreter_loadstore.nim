@@ -19,15 +19,15 @@ proc st*(state; m, r, s: uint16) =
 proc ldsa*(state; d, a: uint16) =
     let val = dataRead(state.dppAdr(a))
     if d < 6:
-        state.writeReg(dspRegX0.succ(int d), val)
+        state.writeReg(x0.succ(int d), val)
     else:
         state.loadAccum(int d - 6, val)
 
 proc stsa*(state; s, a: uint16) =
     let val = case range[0..7](s)
-        of 0..1: state.readReg(dspRegA2.succ(int s))
+        of 0..1: state.readReg(a2.succ(int s))
         of 2..3: 0'u16
-        of 4..5: state.readReg(dspRegA0.succ(int s - 4))
+        of 4..5: state.readReg(a0.succ(int s - 4))
         of 6..7: state.storeAccum(int s - 6)
     dataWrite(state.dppAdr(a), val)
 

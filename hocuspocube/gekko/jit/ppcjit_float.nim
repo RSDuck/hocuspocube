@@ -16,7 +16,7 @@ proc faddx*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFAddSd, fra, frb)
+            val = builder.biop(fAddsd, fra, frb)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -29,7 +29,7 @@ proc faddsx*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOp(builder.biop(irInstrFAddSd, fra, frb))
+            val = builder.postSingleOp(builder.biop(fAddsd, fra, frb))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -42,7 +42,7 @@ proc fdivx*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFDivSd, fra, frb)
+            val = builder.biop(fDivsd, fra, frb)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -55,7 +55,7 @@ proc fdivsx*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOp(builder.biop(irInstrFDivSd, fra, frb))
+            val = builder.postSingleOp(builder.biop(fDivsd, fra, frb))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -68,7 +68,7 @@ proc fmulx*(builder; d, a, c, rc: uint32) =
             fra = builder.loadfreg(a)
             frc = builder.loadfreg(c)
 
-            val = builder.biop(irInstrFMulSd, fra, frc)
+            val = builder.biop(fMulsd, fra, frc)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -81,7 +81,7 @@ proc fmulsx*(builder; d, a, c, rc: uint32) =
             fra = builder.loadfreg(a)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOp(builder.biop(irInstrFMulSd, fra, frc))
+            val = builder.postSingleOp(builder.biop(fMulsd, fra, frc))
 
         builder.storefregReplicate d, val
 
@@ -92,7 +92,7 @@ proc fresx*(builder; d, b, rc: uint32) =
         let
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOp(builder.unop(irInstrFResSd, frb))
+            val = builder.postSingleOp(builder.unop(fRessd, frb))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -104,7 +104,7 @@ proc frsqrtex*(builder; d, b, rc: uint32) =
         let
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOp(builder.unop(irInstrFRsqrtSd, frb))
+            val = builder.postSingleOp(builder.unop(fRsqrtsd, frb))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -117,7 +117,7 @@ proc fsubx*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFSubSd, fra, frb)
+            val = builder.biop(fSubsd, fra, frb)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -130,7 +130,7 @@ proc fsubsx*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOp(builder.biop(irInstrFSubSd, fra, frb))
+            val = builder.postSingleOp(builder.biop(fSubsd, fra, frb))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -148,7 +148,7 @@ proc fmaddx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.triop(irInstrFMaddSd, fra, frb, frс)
+            val = builder.triop(fMaddsd, fra, frb, frс)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -162,7 +162,7 @@ proc fmaddsx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.postSingleOp(builder.triop(irInstrFMaddSd, fra, frb, frс))
+            val = builder.postSingleOp(builder.triop(fMaddsd, fra, frb, frс))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -176,7 +176,7 @@ proc fmsubx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.triop(irInstrFMsubSd, fra, frb, frс)
+            val = builder.triop(fMsubsd, fra, frb, frс)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -190,7 +190,7 @@ proc fmsubsx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.postSingleOp(builder.triop(irInstrFMsubSd, fra, frb, frс))
+            val = builder.postSingleOp(builder.triop(fMsubsd, fra, frb, frс))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -204,7 +204,7 @@ proc fnmaddx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.triop(irInstrFNmaddSd, fra, frb, frс)
+            val = builder.triop(fNmaddsd, fra, frb, frс)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -218,7 +218,7 @@ proc fnmaddsx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.postSingleOp(builder.triop(irInstrFNmaddSd, fra, frb, frс))
+            val = builder.postSingleOp(builder.triop(fNmaddsd, fra, frb, frс))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -232,7 +232,7 @@ proc fnmsubx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.triop(irInstrFNmsubSd, fra, frb, frс)
+            val = builder.triop(fNmsubsd, fra, frb, frс)
 
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
@@ -246,7 +246,7 @@ proc fnmsubsx*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frс = builder.loadfreg(c)
 
-            val = builder.postSingleOp(builder.triop(irInstrFNmsubSd, fra, frb, frс))
+            val = builder.postSingleOp(builder.triop(fNmsubsd, fra, frb, frс))
 
         builder.storefregReplicate d, val
     builder.regs.floatInstr = true
@@ -260,7 +260,7 @@ proc fctiwzx*(builder; d, b, rc: uint32) =
     else:
         let
             frb = builder.loadfreg(b)
-            val = builder.unop(irInstrCvtsd2intTrunc, frb)
+            val = builder.unop(cvtsd2intTrunc, frb)
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
@@ -283,14 +283,14 @@ proc fcmpo*(builder; crfD, a, b: uint32) =
             frb = builder.loadfreg(b)
 
         let
-            lt = builder.biop(irInstrCmpLessFsd, fra, frb)
-            gt = builder.biop(irInstrCmpGreaterFsd, fra, frb)
-            eq = builder.biop(irInstrCmpEqualFsd, fra, frb)
-            unordered = builder.biop(irInstrCmpUnorderedsd, fra, frb)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+0, lt)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+1, gt)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+2, eq)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+3, unordered)
+            lt = builder.biop(fCmpLesssd, fra, frb)
+            gt = builder.biop(fCmpGreatersd, fra, frb)
+            eq = builder.biop(fCmpEqualsd, fra, frb)
+            unordered = builder.biop(fUnorderedsd, fra, frb)
+        discard builder.storectx(storeCrBit, crfD*4+0, lt)
+        discard builder.storectx(storeCrBit, crfD*4+1, gt)
+        discard builder.storectx(storeCrBit, crfD*4+2, eq)
+        discard builder.storectx(storeCrBit, crfD*4+3, unordered)
     builder.regs.floatInstr = true
 
 proc fcmpu*(builder; crfD, a, b: uint32) =
@@ -302,14 +302,14 @@ proc fcmpu*(builder; crfD, a, b: uint32) =
             frb = builder.loadfreg(b)
 
         let
-            lt = builder.biop(irInstrCmpLessFsd, fra, frb)
-            gt = builder.biop(irInstrCmpGreaterFsd, fra, frb)
-            eq = builder.biop(irInstrCmpEqualFsd, fra, frb)
-            unordered = builder.biop(irInstrCmpUnorderedsd, fra, frb)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+0, lt)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+1, gt)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+2, eq)
-        discard builder.storectx(irInstrStoreCrBit, crfD*4+3, unordered)
+            lt = builder.biop(fCmpLesssd, fra, frb)
+            gt = builder.biop(fCmpGreatersd, fra, frb)
+            eq = builder.biop(fCmpEqualsd, fra, frb)
+            unordered = builder.biop(fUnorderedsd, fra, frb)
+        discard builder.storectx(storeCrBit, crfD*4+0, lt)
+        discard builder.storectx(storeCrBit, crfD*4+1, gt)
+        discard builder.storectx(storeCrBit, crfD*4+2, eq)
+        discard builder.storectx(storeCrBit, crfD*4+3, unordered)
     builder.regs.floatInstr = true
 
 proc mffsx*(builder; d, rc: uint32) =
@@ -333,7 +333,7 @@ proc fabsx*(builder; d, b, rc: uint32) =
     else:
         let
             frb = builder.loadfreg(b)
-            val = builder.unop(irInstrFAbssd, frb)
+            val = builder.unop(fAbssd, frb)
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
@@ -354,7 +354,7 @@ proc fnegx*(builder; d, b, rc: uint32) =
     else:
         let
             frb = builder.loadfreg(b)
-            val = builder.unop(irInstrFNegsd, frb)
+            val = builder.unop(fNegsd, frb)
         builder.storefregLowOnly d, val
     builder.regs.floatInstr = true
 
@@ -366,7 +366,7 @@ proc ps_div*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOpPair(builder.biop(irInstrFDivpd, fra, frb))
+            val = builder.postSingleOpPair(builder.biop(fDivpd, fra, frb))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -379,7 +379,7 @@ proc ps_sub*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOpPair(builder.biop(irInstrFSubpd, fra, frb))
+            val = builder.postSingleOpPair(builder.biop(fSubpd, fra, frb))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -392,7 +392,7 @@ proc ps_add*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.postSingleOpPair(builder.biop(irInstrFAddpd, fra, frb))
+            val = builder.postSingleOpPair(builder.biop(fAddpd, fra, frb))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -413,7 +413,7 @@ proc ps_mul*(builder; d, a, c, rc: uint32) =
             fra = builder.loadfreg(a)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.biop(irInstrFMulpd, fra, frc))
+            val = builder.postSingleOpPair(builder.biop(fMulpd, fra, frc))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -431,7 +431,7 @@ proc ps_msub*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.triop(irInstrFMsubpd, fra, frb, frc))
+            val = builder.postSingleOpPair(builder.triop(fMsubpd, fra, frb, frc))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -445,7 +445,7 @@ proc ps_madd*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.triop(irInstrFMaddpd, fra, frb, frc))
+            val = builder.postSingleOpPair(builder.triop(fMaddpd, fra, frb, frc))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -459,7 +459,7 @@ proc ps_nmsub*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.triop(irInstrFNmsubpd, fra, frb, frc))
+            val = builder.postSingleOpPair(builder.triop(fNmsubpd, fra, frb, frc))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -473,7 +473,7 @@ proc ps_nmadd*(builder; d, a, b, c, rc : uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.triop(irInstrFNmaddpd, fra, frb, frc))
+            val = builder.postSingleOpPair(builder.triop(fNmaddpd, fra, frb, frc))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -484,7 +484,7 @@ proc ps_neg*(builder; d, b, rc: uint32) =
     else:
         let
             frb = builder.loadfreg(b)
-            val = builder.unop(irInstrFNegpd, frb)
+            val = builder.unop(fNegpd, frb)
         builder.storefregp d, val
     builder.regs.floatInstr = true
 
@@ -512,8 +512,8 @@ proc ps_sum0*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            sumpart = builder.biop(irInstrFAddsd, fra, builder.unop(irInstrFSwizzleD11, frb))
-            merged = builder.biop(irInstrFMergeD01, sumpart, frc)
+            sumpart = builder.biop(fAddsd, fra, builder.unop(fSwizzleD11, frb))
+            merged = builder.biop(fMergeD01, sumpart, frc)
 
         builder.storefregp d, merged
     builder.regs.floatInstr = true
@@ -527,8 +527,8 @@ proc ps_sum1*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            sumpart = builder.biop(irInstrFAddpd, builder.unop(irInstrFSwizzleD00, fra), frb)
-            merged = builder.biop(irInstrFMergeD01, frc, sumpart)
+            sumpart = builder.biop(fAddpd, builder.unop(fSwizzleD00, fra), frb)
+            merged = builder.biop(fMergeD01, frc, sumpart)
 
         builder.storefregp d, merged
     builder.regs.floatInstr = true
@@ -541,7 +541,7 @@ proc ps_muls0*(builder; d, a, c, rc: uint32) =
             fra = builder.loadfreg(a)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.biop(irInstrFMulpd, fra, builder.unop(irInstrFSwizzleD00, frc)))
+            val = builder.postSingleOpPair(builder.biop(fMulpd, fra, builder.unop(fSwizzleD00, frc)))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -554,7 +554,7 @@ proc ps_muls1*(builder; d, a, c, rc: uint32) =
             fra = builder.loadfreg(a)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.biop(irInstrFMulpd, fra, builder.unop(irInstrFSwizzleD11, frc)))
+            val = builder.postSingleOpPair(builder.biop(fMulpd, fra, builder.unop(fSwizzleD11, frc)))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -568,7 +568,7 @@ proc ps_madds0*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.triop(irInstrFMaddpd, fra, frb, builder.unop(irInstrFSwizzleD00, frc)))
+            val = builder.postSingleOpPair(builder.triop(fMaddpd, fra, frb, builder.unop(fSwizzleD00, frc)))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -582,7 +582,7 @@ proc ps_madds1*(builder; d, a, b, c, rc: uint32) =
             frb = builder.loadfreg(b)
             frc = builder.loadfreg(c)
 
-            val = builder.postSingleOpPair(builder.triop(irInstrFMaddpd, fra, frb, builder.unop(irInstrFSwizzleD11, frc)))
+            val = builder.postSingleOpPair(builder.triop(fMaddpd, fra, frb, builder.unop(fSwizzleD11, frc)))
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -611,7 +611,7 @@ proc ps_merge00*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD00, fra, frb)
+            val = builder.biop(fMergeD00, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -624,7 +624,7 @@ proc ps_merge01*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD01, fra, frb)
+            val = builder.biop(fMergeD01, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -637,7 +637,7 @@ proc ps_merge10*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD10, fra, frb)
+            val = builder.biop(fMergeD10, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true
@@ -650,7 +650,7 @@ proc ps_merge11*(builder; d, a, b, rc: uint32) =
             fra = builder.loadfreg(a)
             frb = builder.loadfreg(b)
 
-            val = builder.biop(irInstrFMergeD11, fra, frb)
+            val = builder.biop(fMergeD11, fra, frb)
 
         builder.storefregp d, val
     builder.regs.floatInstr = true

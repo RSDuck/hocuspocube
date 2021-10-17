@@ -22,15 +22,15 @@ proc incAdrReg(state; reg, m: int) =
         state.adrReg[reg] = incAdr(state.adrReg[reg], state.wrapReg[reg], cast[int16](state.incReg[reg]))
 
 proc mv*(state; d, s: uint16) =
-    state.writeReg dspRegX0.succ(int d),
+    state.writeReg x0.succ(int d),
         case range[0..3](s)
-        of 0..1: state.readReg(dspRegA0.succ(int s))
+        of 0..1: state.readReg(a0.succ(int s))
         of 2..3: state.storeAccum(int s - 2)
 
 proc st*(state; s, m, r: uint16) =
     let
         val = case range[0..3](s)
-            of 0..1: state.readReg(dspRegA0.succ(int s))
+            of 0..1: state.readReg(a0.succ(int s))
             of 2..3: state.storeAccum(int s - 2)
     dataWrite(state.adrReg[r], val)
 
@@ -42,7 +42,7 @@ proc ld*(state; d, m, r: uint16) =
     state.incAdrReg(int r, int m)
 
     case range[0..7](d)
-    of 0..5: state.writeReg dspRegX0.succ(int d), val
+    of 0..5: state.writeReg x0.succ(int d), val
     of 6..7: state.loadAccum(int d - 6, val)
 
 proc ls*(state; d, m, n, k, s: uint16) =
@@ -50,7 +50,7 @@ proc ls*(state; d, m, n, k, s: uint16) =
         (loadReg, storeReg) = if k == 0: (0, 3) else: (3, 0)
         storeVal = state.storeAccum(int s)
 
-    state.writeReg(dspRegX0.succ(int d), dataRead(state.adrReg[loadReg]))
+    state.writeReg(x0.succ(int d), dataRead(state.adrReg[loadReg]))
     dataWrite(state.adrReg[storeReg], storeVal)
 
     state.incAdrReg(0, int n)
@@ -62,11 +62,11 @@ proc ldd*(state; d, m, n, r: uint16) =
             if r == 3:
                 # ldd2
                 if (d and 1) == 0:
-                    (dspRegX1, dspRegX0, int(d shr 1))
+                    (x1, x0, int(d shr 1))
                 else:
-                    (dspRegY1, dspRegY0, int(d shr 1))
+                    (y1, y0, int(d shr 1))
             else:
-                (dspRegX0.succ(int(d shr 1) * 2), dspRegY0.succ(int(d and 1) * 2), int(r))
+                (x0.succ(int(d shr 1) * 2), y0.succ(int(d and 1) * 2), int(r))
 
     state.writeReg(d1, dataRead(state.adrReg[adr]))
     state.writeReg(d2, dataRead(state.adrReg[3]))

@@ -8,37 +8,37 @@ type
         branch*, floatInstr*: bool
 
 proc loadreg*(builder: var IrBlockBuilder[PpcIrRegState], a: uint32): IrInstrRef =
-    builder.loadctx(irInstrLoadPpcReg, a)
+    builder.loadctx(loadPpcReg, a)
 
 proc storereg*(builder: var IrBlockBuilder[PpcIrRegState], d: uint32, val: IrInstrRef) =
-    discard builder.storectx(irInstrStorePpcReg, d, val)
+    discard builder.storectx(storePpcReg, d, val)
 
 proc loadfreg*(builder: var IrBlockBuilder[PpcIrRegState], a: uint32): IrInstrRef =
-    builder.loadctx(irInstrLoadFprPair, a)
+    builder.loadctx(loadFprPair, a)
 
 proc storefregLowOnly*(builder: var IrBlockBuilder[PpcIrRegState], d: uint32, val: IrInstrRef) =
-    discard builder.storectx(irInstrStoreFprPair, d, builder.biop(irInstrFMergeD01, val, builder.loadfreg(d)))
+    discard builder.storectx(storeFprPair, d, builder.biop(fMergeD01, val, builder.loadfreg(d)))
 
 proc storefregReplicate*(builder: var IrBlockBuilder[PpcIrRegState], d: uint32, val: IrInstrRef) =
-    discard builder.storectx(irInstrStoreFprPair, d, builder.unop(irInstrFSwizzleD00, val))
+    discard builder.storectx(storeFprPair, d, builder.unop(fSwizzleD00, val))
 
 proc storefregp*(builder: var IrBlockBuilder[PpcIrRegState], d: uint32, val: IrInstrRef) =
-    discard builder.storectx(irInstrStoreFprPair, d, val)
+    discard builder.storectx(storeFprPair, d, val)
 
 proc loadregs*(builder: var IrBlockBuilder[PpcIrRegState], a, b: uint32): (IrInstrRef, IrInstrRef) =
-    (builder.loadctx(irInstrLoadPpcReg, a), builder.loadctx(irInstrLoadPpcReg, b))
+    (builder.loadctx(loadPpcReg, a), builder.loadctx(loadPpcReg, b))
 
 proc loadregcarry*(builder: var IrBlockBuilder[PpcIrRegState], a: uint32): (IrInstrRef, IrInstrRef) =
-    (builder.loadctx(irInstrLoadPpcReg, a),
-        builder.loadctx(irInstrLoadXer, irXerNumCa.uint32))
+    (builder.loadctx(loadPpcReg, a),
+        builder.loadctx(loadXer, irXerNumCa.uint32))
 
 proc loadregscarry*(builder: var IrBlockBuilder[PpcIrRegState], a, b: uint32): (IrInstrRef, IrInstrRef, IrInstrRef) =
-    (builder.loadctx(irInstrLoadPpcReg, a),
-        builder.loadctx(irInstrLoadPpcReg, b),
-        builder.loadctx(irInstrLoadXer, irXerNumCa.uint32))
+    (builder.loadctx(loadPpcReg, a),
+        builder.loadctx(loadPpcReg, b),
+        builder.loadctx(loadXer, irXerNumCa.uint32))
 
 proc postSingleOp*(builder: var IrBlockBuilder[PpcIrRegState], val: IrInstrRef): IrInstrRef =
-    builder.unop(irInstrCvtss2sd, builder.unop(irInstrCvtsd2ss, val))
+    builder.unop(cvtss2sd, builder.unop(cvtsd2ss, val))
 
 proc postSingleOpPair*(builder: var IrBlockBuilder[PpcIrRegState], val: IrInstrRef): IrInstrRef =
-    builder.unop(irInstrCvtps2pd, builder.unop(irInstrCvtpd2ps, val))
+    builder.unop(cvtps2pd, builder.unop(cvtpd2ps, val))

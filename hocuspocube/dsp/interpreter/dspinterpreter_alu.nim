@@ -103,13 +103,13 @@ proc asfi*(state; d, i: uint16) =
 
 template logicOp(doOp, parallel: untyped) =
     let
-        reg {.inject.} = state.readReg(dspRegA1.succ(int d))
+        reg {.inject.} = state.readReg(a1.succ(int d))
         val = doOp
-        top = state.readReg(dspRegA2.succ(int d))
+        top = state.readReg(a2.succ(int d))
 
     parallel
 
-    state.writeReg(dspRegA1.succ(int d), val)
+    state.writeReg(a1.succ(int d), val)
 
     state.status.ca = false
     state.status.ov = false
@@ -149,19 +149,19 @@ proc max*(state; d, s: uint16) =
     raiseAssert "unimplemented dsp instr max"
 
 proc lsfn*(state; d, s: uint16) =
-    shiftOp(true, -cast[int16](state.readReg(dspRegX1.succ(int s)))):
+    shiftOp(true, -cast[int16](state.readReg(x1.succ(int s)))):
         discard
 
 proc lsfn2*(state; d: uint16) =
-    shiftOp(true, -cast[int16](state.readReg(dspRegB1.pred(int d)))):
+    shiftOp(true, -cast[int16](state.readReg(b1.pred(int d)))):
         discard
 
 proc asfn*(state; d, s: uint16) =
-    shiftOp(false, -cast[int16](state.readReg(dspRegX1.succ(int s)))):
+    shiftOp(false, -cast[int16](state.readReg(x1.succ(int s)))):
         discard
 
 proc asfn2*(state; d: uint16) =
-    shiftOp(false, -cast[int16](state.readReg(dspRegB1.pred(int d)))):
+    shiftOp(false, -cast[int16](state.readReg(b1.pred(int d)))):
         discard
 
 proc mv*(state; d, s: uint16) =
@@ -169,10 +169,10 @@ proc mv*(state; d, s: uint16) =
 
 proc mvsi*(state; d, i: uint16) =
     if d <= 5:
-        state.writeReg(dspRegX0.succ(int d), signExtend(i, 8))
+        state.writeReg(x0.succ(int d), signExtend(i, 8))
     else:
         state.loadAccum(int d - 6, signExtend(i, 8))
-    #echo &"loading short {d} {signExtend(i, 8)} {state.pc:02X} {state.r[dspRegB1]:02X}"
+    #echo &"loading short {d} {signExtend(i, 8)} {state.pc:02X} {state.r[b1]:02X}"
 
 proc mvli*(state; d: uint16) =
     state.writeReg DspReg(d), fetchFollowingImm
@@ -185,28 +185,28 @@ proc setpsr*(state; b: uint16) =
 
 proc btstl*(state; d: uint16) =
     let mask = fetchFollowingImm
-    state.status.tb = (state.readReg(dspRegA1.succ(int d)) and mask) == 0
+    state.status.tb = (state.readReg(a1.succ(int d)) and mask) == 0
 
 proc btsth*(state; d: uint16) =
     let mask = fetchFollowingImm
-    state.status.tb = (state.readReg(dspRegA1.succ(int d)) and mask) == mask
+    state.status.tb = (state.readReg(a1.succ(int d)) and mask) == mask
 
 proc add*(state; s, d, x: uint16) =
     addAccumOp(int d, case range[0..7](s)
-            of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
+            of 0..3: int64(cast[int16](state.readReg(x0.succ(int s)))) shl 16
             of 4..5: state.readAuxAccum(int s - 4)
             of 6: state.readAccum(int(1 - d))
             of 7: state.readProduct()):
         state.dispatchSecondary(x)
 
 proc addl*(state; s, d, x: uint16) =
-    addAccumOp(int d, int64(state.readReg(dspRegX0.succ(int s)))):
+    addAccumOp(int d, int64(state.readReg(x0.succ(int s)))):
         state.dispatchSecondary(x)
 
 proc sub*(state; s, d, x: uint16) =
     let
         subtrahend = case range[0..7](s)
-            of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
+            of 0..3: int64(cast[int16](state.readReg(x0.succ(int s)))) shl 16
             of 4..5: state.readAuxAccum(int s - 4)
             of 6: state.readAccum(int(1 - d))
             of 7: state.readProduct()
@@ -226,7 +226,7 @@ proc sub*(state; s, d, x: uint16) =
 proc amv*(state; s, d, x: uint16) =
     let
         val = case range[0..7](s)
-            of 0..3: int64(cast[int16](state.readReg(dspRegX0.succ(int s)))) shl 16
+            of 0..3: int64(cast[int16](state.readReg(x0.succ(int s)))) shl 16
             of 4..5: int64(state.readAuxAccum(int s - 4))
             of 6: state.readAccum(int(1 - d))
             of 7: state.readProduct()
@@ -243,7 +243,7 @@ proc amv*(state; s, d, x: uint16) =
 proc cmp*(state; s, d, x: uint16) =
     let
         a = state.readAccum(int d)
-        b = int64(cast[int16](state.readReg(dspRegX1.succ(int s)))) shl 16
+        b = int64(cast[int16](state.readReg(x1.succ(int s)))) shl 16
         diff = a - b
 
     state.dispatchSecondary(x)
@@ -376,7 +376,7 @@ proc tst*(state; s, x: uint16) =
     state.setU1(cast[uint64](accum))
 
 proc tst2*(state; s, x: uint16) =
-    let accum = int64(cast[int16](state.readReg(dspRegX1.succ(int s)))) shl 16
+    let accum = int64(cast[int16](state.readReg(x1.succ(int s)))) shl 16
 
     state.dispatchSecondary(x)
 
@@ -405,7 +405,7 @@ proc asr16*(state; d, x: uint16) =
 proc addp*(state; s, d, x: uint16) =
     let
         prod = cast[int64](signExtend(cast[uint64](state.readProduct()), 32))
-        addend = int64(cast[int32](state.readReg(dspRegX1.succ(int s)))) shl 16
+        addend = int64(cast[int32](state.readReg(x1.succ(int s)))) shl 16
         sum = prod + addend
 
     state.dispatchSecondary(x)
@@ -447,16 +447,16 @@ proc setxl*(state; x: uint16) =
 
 proc getMulOperands(state; s: uint16): (uint16, uint16, bool, bool) =
     case range[2..11](s)
-    of 2: (state.readReg(dspRegX1), state.readReg(dspRegX0), false, false)
-    of 3: (state.readReg(dspRegY1), state.readReg(dspRegY0), false, false)
-    of 4: (state.readReg(dspRegX0), state.readReg(dspRegY0), true, true)
-    of 5: (state.readReg(dspRegX0), state.readReg(dspRegY1), true, false)
-    of 6: (state.readReg(dspRegX1), state.readReg(dspRegY0), false, true)
-    of 7: (state.readReg(dspRegX1), state.readReg(dspRegY1), false, false)
-    of 8: (state.readReg(dspRegA1), state.readReg(dspRegX1), false, false)
-    of 9: (state.readReg(dspRegA1), state.readReg(dspRegY1), false, false)
-    of 10: (state.readReg(dspRegB1), state.readReg(dspRegX1), false, false)
-    of 11: (state.readReg(dspRegB1), state.readReg(dspRegY1), false, false)
+    of 2: (state.readReg(x1), state.readReg(x0), false, false)
+    of 3: (state.readReg(y1), state.readReg(y0), false, false)
+    of 4: (state.readReg(x0), state.readReg(y0), true, true)
+    of 5: (state.readReg(x0), state.readReg(y1), true, false)
+    of 6: (state.readReg(x1), state.readReg(y0), false, true)
+    of 7: (state.readReg(x1), state.readReg(y1), false, false)
+    of 8: (state.readReg(a1), state.readReg(x1), false, false)
+    of 9: (state.readReg(a1), state.readReg(y1), false, false)
+    of 10: (state.readReg(b1), state.readReg(x1), false, false)
+    of 11: (state.readReg(b1), state.readReg(y1), false, false)
 
 proc mpy*(state; s, x: uint16) =
     let
@@ -473,7 +473,7 @@ proc mpy*(state; s, x: uint16) =
 
 proc mpy2*(state; x: uint16) =
     let
-        factor = int64(cast[int16](state.readReg(dspRegX1)))
+        factor = int64(cast[int16](state.readReg(x1)))
         prod = factor * (if state.status.im: factor * 2 else: factor)
 
     state.dispatchSecondary(x)
@@ -493,22 +493,22 @@ template macOp(a, b: untyped, negate: bool): untyped =
     state.writeProduct(sum)
 
 proc mac*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegX0.succ(int(s.getBit(1))*2)), state.readReg(dspRegY0.succ(int(s.getBit(0))*2)), false)
+    macOp(state.readReg(x0.succ(int(s.getBit(1))*2)), state.readReg(y0.succ(int(s.getBit(0))*2)), false)
 
 proc mac2*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegA1.succ(int s.getBit(1))), state.readReg(dspRegX1.succ(int s.getBit(0))), false)
+    macOp(state.readReg(a1.succ(int s.getBit(1))), state.readReg(x1.succ(int s.getBit(0))), false)
 
 proc mac3*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegX1.succ(int s)), state.readReg(dspRegX0.succ(int s)), false)
+    macOp(state.readReg(x1.succ(int s)), state.readReg(x0.succ(int s)), false)
 
 proc macn*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegX0.succ(int(s.getBit(1))*2)), state.readReg(dspRegY0.succ(int(s.getBit(0))*2)), true)
+    macOp(state.readReg(x0.succ(int(s.getBit(1))*2)), state.readReg(y0.succ(int(s.getBit(0))*2)), true)
 
 proc macn2*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegA1.succ(int s.getBit(1))), state.readReg(dspRegX1.succ(int s.getBit(0))), true)
+    macOp(state.readReg(a1.succ(int s.getBit(1))), state.readReg(x1.succ(int s.getBit(0))), true)
 
 proc macn3*(state; s, x: uint16) =
-    macOp(state.readReg(dspRegX1.succ(int s)), state.readReg(dspRegX0.succ(int s)), true)
+    macOp(state.readReg(x1.succ(int s)), state.readReg(x0.succ(int s)), true)
 
 proc mvmpy*(state; s, d, x: uint16) =
     let
@@ -577,41 +577,41 @@ proc nnot*(state; d, x: uint16) =
         state.dispatchSecondary(x)
 
 proc xxor*(state; s, d, x: uint16) =
-    logicOp(reg xor state.readReg(dspRegX1.succ(int s))):
+    logicOp(reg xor state.readReg(x1.succ(int s))):
         state.dispatchSecondary(x)
 
 proc xxor2*(state; d, x: uint16) =
-    logicOp(reg xor state.readReg(dspRegB1.pred(int d))):
+    logicOp(reg xor state.readReg(b1.pred(int d))):
         state.dispatchSecondary(x)
 
 proc aand*(state; s, d, x: uint16) =
-    logicOp(reg and state.readReg(dspRegX1.succ(int s))):
+    logicOp(reg and state.readReg(x1.succ(int s))):
         state.dispatchSecondary(x)
 
 proc aand2*(state; d, x: uint16) =
-    logicOp(reg and state.readReg(dspRegB1.pred(int d))):
+    logicOp(reg and state.readReg(b1.pred(int d))):
         state.dispatchSecondary(x)
 
 proc oor*(state; s, d, x: uint16) =
-    logicOp(reg or state.readReg(dspRegX1.succ(int s))):
+    logicOp(reg or state.readReg(x1.succ(int s))):
         state.dispatchSecondary(x)
 
 proc oor2*(state; d, x: uint16) =
-    logicOp(reg or state.readReg(dspRegB1.pred(int d))):
+    logicOp(reg or state.readReg(b1.pred(int d))):
         state.dispatchSecondary(x)
 
 proc lsf*(state; s, d, x: uint16) =
-    shiftOp(true, cast[int16](state.readReg(dspRegX1.succ(int s)))):
+    shiftOp(true, cast[int16](state.readReg(x1.succ(int s)))):
         state.dispatchSecondary(x)
 
 proc lsf2*(state; d, x: uint16) =
-    shiftOp(true, cast[int16](state.readReg(dspRegB1.pred(int d)))):
+    shiftOp(true, cast[int16](state.readReg(b1.pred(int d)))):
         state.dispatchSecondary(x)
 
 proc asf*(state; s, d, x: uint16) =
-    shiftOp(false, cast[int16](state.readReg(dspRegX1.succ(int s)))):
+    shiftOp(false, cast[int16](state.readReg(x1.succ(int s)))):
         state.dispatchSecondary(x)
 
 proc asf2*(state; d, x: uint16) =
-    shiftOp(false, cast[int16](state.readReg(dspRegB1.pred(int d)))):
+    shiftOp(false, cast[int16](state.readReg(b1.pred(int d)))):
         state.dispatchSecondary(x)

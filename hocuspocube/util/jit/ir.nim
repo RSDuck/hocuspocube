@@ -8,9 +8,9 @@ import
     stuff I liked I picked up from other projects (dynarmic, xenia, ...).
 
     The entire IR is implicitly typed and a reference to an IR instruction
-    also refers to it's value. Every value is either an integer, a boolean value
-    or a floating point value. Booleans are just integers which are either 0
-    or 1.
+    also refers to it's value. Every value is either an integer or a
+    floating point value. Booleans are just integers which have to be
+    either 0 or 1.
 
     Unless marked with an X in the name integer instructions use only the lower
     32-bit of the source values. If they produce an integer value as a result,
@@ -23,7 +23,6 @@ type
         identity = "ident"
 
         loadImmI = "loadi"
-        loadImmB = "loadb"
 
         # PowerPC reg load/store instructions
         loadPpcReg = "ldrreg_ppc"
@@ -256,8 +255,6 @@ type
         dspCallInterpreter = "interpretdsp"
 
 const
-    LoadImmInstrs* = {
-        loadImmI, loadImmB}
     CtxLoadInstrs* = {
         loadPpcReg, loadCrBit, loadXer, loadSpr, loadFpr, loadFprPair,
         loadAccum, loadStatusBit, loadDspReg}
@@ -437,8 +434,6 @@ type
         case kind*: InstrKind
         of loadImmI:
             immValI*: uint64
-        of loadImmB:
-            immValB*: bool
         of ppcCallInterpreter, dspCallInterpreter:
             instr*, pc*: uint32
             target*: pointer
@@ -566,7 +561,7 @@ const
 
 proc numSources*(instr: IrInstr): int =
     case instr.kind
-    of LoadImmInstrs, CtxLoadInstrs, ppcCallInterpreter, dspCallInterpreter:
+    of loadImmI, CtxLoadInstrs, ppcCallInterpreter, dspCallInterpreter:
         0
     of CtxStoreInstrs, UnopInstrs:
         1
@@ -601,8 +596,6 @@ func `==`*(a, b: IrInstr): bool =
         case a.kind
         of loadImmI:
             a.immValI == b.immValI
-        of loadImmB:
-            a.immValB == b.immValB
         of ppcCallInterpreter, dspCallInterpreter:
             a.instr == b.instr and a.pc == b.pc and
                 a.target == b.target
@@ -628,8 +621,6 @@ func hash*(instr: IrInstr): Hash =
     case instr.kind
     of loadImmI:
         result = result !& hash(instr.immValI)
-    of loadImmB:
-        result = result !& hash(instr.immValB)
     of ppcCallInterpreter, dspCallInterpreter:
         result = result !& hash(instr.instr)
         result = result !& hash(instr.pc)
@@ -651,7 +642,7 @@ func hash*(instr: IrInstr): Hash =
 
 iterator msources*(instr: var IrInstr): var IrInstrRef =
     case instr.kind
-    of CtxLoadInstrs, LoadImmInstrs:
+    of CtxLoadInstrs, loadImmI:
         discard
     else:
         var i = 0
@@ -680,7 +671,7 @@ proc makeImm*(val: uint64): IrInstr {.inline.} =
     IrInstr(kind: loadImmI, immValI: val)
 
 proc makeImm*(val: bool): IrInstr {.inline.} =
-    IrInstr(kind: loadImmB, immValB: val)
+    IrInstr(kind: loadImmI, immValI: uint64(val))
 
 proc makeLoadctx*(kind: InstrKind, idx: uint32): IrInstr {.inline.} =
     case kind
@@ -801,7 +792,10 @@ template interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, tar
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)
-    instr.kind == loadImmB and instr.immValB == imm
+    if instr.kind == loadImmI:
+        bool(instr.immValI)
+    else:
+        false
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint32): bool =
     let instr = blk.getInstr(iref)
@@ -827,8 +821,8 @@ proc isImmValIX*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint64] =
 
 proc isImmValB*(blk: IrBasicBlock, iref: IrInstrRef): Option[bool] =
     let instr = blk.getInstr(iref)
-    if instr.kind == loadImmB:
-        some(instr.immValB)
+    if instr.kind == loadImmI:
+        some(bool instr.immValI)
     else:
         none(bool)
 
@@ -868,8 +862,6 @@ proc `$`*(blk: IrBasicBlock): string =
         case instr.kind
         of loadImmI:
             result &= &"{instr.immValI:016X}"
-        of loadImmB:
-            result &= $instr.immValB
         of CtxLoadInstrs:
             result &= &"{instr.ctxLoadIdx}"
         of CtxStoreInstrs:

@@ -34,7 +34,7 @@ proc run*() =
     while frontendRunning:
         gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
         ppcfrontend.gekkoRun gekkoTimestamp, gekkoTarget
-        dspfrontend.dspRun dspTimestamp, gekkoTimestamp
+        dspinterpreter.dspRun dspTimestamp, gekkoTimestamp
 
         cpRun()
 

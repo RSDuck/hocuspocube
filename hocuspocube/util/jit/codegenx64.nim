@@ -161,20 +161,17 @@ proc prepareHostRead[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
                 reg.idx = targetReg
                 return i
 
-    if (let instr = blk.getInstr(iref); instr.kind in LoadImmInstrs):
+    if (let instr = blk.getInstr(iref); instr.kind == loadImmI):
         assert T isnot HostFRegRange
 
         let targetReg = allocHostReg(regalloc, s, blk, lockedRegs)
 
-        if instr.kind == loadImmB:
-            s.mov(reg(targetReg.toReg()), int32(instr.immValB))
+        if (instr.immValI and 0xFFFF_FFFF_0000_0000'u64) == 0:
+            s.mov(reg(targetReg.toReg()), cast[int32](instr.immValI))
+        elif (instr.immValI and 0xFFFF_FFFF_0000_0000'u64) == 0xFFFF_FFFF_0000_0000'u64:
+            s.mov(reg(targetReg.toReg64()), cast[int32](instr.immValI))
         else:
-            if (instr.immValI and 0xFFFF_FFFF_0000_0000'u64) == 0:
-                s.mov(reg(targetReg.toReg()), cast[int32](instr.immValI))
-            elif (instr.immValI and 0xFFFF_FFFF_0000_0000'u64) == 0xFFFF_FFFF_0000_0000'u64:
-                s.mov(reg(targetReg.toReg64()), cast[int32](instr.immValI))
-            else:
-                s.mov(targetReg.toReg64(), cast[int64](instr.immValI))
+            s.mov(targetReg.toReg64(), cast[int64](instr.immValI))
 
         regalloc.activeRegs.add(ActiveReg(location: regLocHostGprRegImm, val: iref, idx: targetReg))
         return regalloc.activeRegs.len-1
@@ -419,8 +416,6 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
         of identity, loadCrBit, storeCrBit, extractLo..mergeHi:
             raiseAssert(&"should have been lowered {instr.kind}")
         of loadImmI:
-            discard
-        of loadImmB:
             discard
         of ppcCallInterpreter:
             s.mov(mem32(rcpu, int32(offsetof(PpcState, pc))), cast[int32](instr.pc))

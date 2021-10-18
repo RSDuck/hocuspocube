@@ -98,10 +98,8 @@ proc writeReg*(builder; reg: DspReg, val: IrInstrRef) =
             builder.biop(mergeHi, builder.loadctx(loadAccum, dspAccumProd.uint32),
             builder.unop(extsb, val)))
 
-proc incAdr*(builder; adr: IrInstrRef, n: uint32): IrInstrRef =
+proc incAdr*(builder; adr, wrap: IrInstrRef): IrInstrRef =
     let
-        wrap = builder.readReg(l0.succ int(n))
-
         nextAdr = builder.biop(iAdd, adr, builder.imm(1))
         altAdr = builder.biop(iSub, adr, wrap)
 
@@ -113,10 +111,8 @@ proc incAdr*(builder; adr: IrInstrRef, n: uint32): IrInstrRef =
             altAdr, nextAdr, builder.biop(iCmpGreaterU, leftHand, rightHand)),
         builder.imm(0xFFFF))
 
-proc decAdr*(builder; adr: IrInstrRef, n: uint32): IrInstrRef =
+proc decAdr*(builder; adr, wrap: IrInstrRef): IrInstrRef =
     let
-        wrap = builder.readReg(l0.succ int(n))
-
         nextAdr = builder.biop(iAdd, adr, wrap)
         altAdr = builder.biop(iSub, adr, builder.imm(1))
 
@@ -127,6 +123,12 @@ proc decAdr*(builder; adr: IrInstrRef, n: uint32): IrInstrRef =
         builder.triop(csel,
             altAdr, nextAdr, builder.biop(iCmpGreaterU, builder.biop(bitOr, leftHand, rightHand), wrap)),
         builder.imm(0xFFFF))
+
+proc incAdr*(builder; adr, wrap, inc: IrInstrRef): IrInstrRef =
+    discard
+
+proc decAdr*(builder; adr, wrap, inc: IrInstrRef): IrInstrRef =
+    discard
 
 proc loadAccum*(builder; num: uint32, val: IrInstrRef) =
     let
@@ -139,3 +141,11 @@ proc loadAccum*(builder; num: uint32, val: IrInstrRef) =
 
 proc writeAccumSignExtend*(builder; num: uint32, val: IrInstrRef) =
     builder.writeAccum(num, builder.biop(asrX, builder.biop(lslX, val, builder.imm(24)), builder.imm(24)))
+
+proc setE1*(builder; val: IrInstrRef) =
+    builder.writeStatus dspStatusBitExt, builder.biop(iCmpEqualX, val, builder.unop(extsw, val))
+
+proc setU1*(builder; val: IrInstrRef) =
+    builder.writeStatus dspStatusBitUnnorm, builder.biop(lsr,
+        builder.unop(bitNot, builder.biop(bitXor, val, builder.biop(lsl, val, builder.imm(1)))),
+        builder.imm(31))

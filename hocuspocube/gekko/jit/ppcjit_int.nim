@@ -212,7 +212,7 @@ proc mulli*(builder; d, a, imm: uint32) =
     when interpretInt or interpretMulDiv:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mulli)
     else:
-        builder.storereg(d, builder.biop(imul, builder.loadreg(a), builder.imm(signExtend[uint32](imm, 16))))
+        builder.storereg(d, builder.biop(iMul, builder.loadreg(a), builder.imm(signExtend[uint32](imm, 16))))
 
 proc mullwx*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretMulDiv:
@@ -220,7 +220,7 @@ proc mullwx*(builder; d, a, b, oe, rc: uint32) =
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
-            val = builder.biop(imul, ra, rb)
+            val = builder.biop(iMul, ra, rb)
 
         builder.updateOv(block:
             let upperResult = builder.biop(iMulhS, ra, rb)

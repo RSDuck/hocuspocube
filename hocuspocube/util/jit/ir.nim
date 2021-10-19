@@ -66,7 +66,7 @@ type
         iAddExtended = "iaddext"
         iSubExtended = "isubext"
 
-        imul = "mul"
+        iMul = "mul"
         iMulhS = "mulhs"
         iMulhU = "mulhu"
 
@@ -173,6 +173,7 @@ type
         fMergeS10 = "mergefs10"
         fMergeS11 = "mergefs11"
 
+        # the upper bits of scalar operations are undefined
         cvtsd2ss = "cvtsd2ss"
         cvtss2sd = "cvtss2sd"
 
@@ -306,7 +307,7 @@ const
         iAdd, iSub,
         iAddX, iSubX,
 
-        imul, iMulhS, iMulhU,
+        iMul, iMulhS, iMulhU,
 
         iDivS, iDivU,
 

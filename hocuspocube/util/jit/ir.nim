@@ -20,248 +20,245 @@ import
 
 type
     InstrKind* = enum
-        identity = "ident"
+        identity
+        loadImmI
 
-        loadImmI = "loadi"
+        ctxLoad8
+        ctxLoad16
+        ctxLoadU32
+        ctxLoadS32
+        ctxLoad64
+        ctxLoadFpr
+        ctxLoadFprPair
+        ctxStore8
+        ctxStore16
+        ctxStore32
+        ctxStore64
+        ctxStoreFpr
+        ctxStoreFprPair
 
-        # PowerPC reg load/store instructions
-        loadPpcReg = "ldrreg_ppc"
-        storePpcReg = "strreg_ppc"
-        loadCrBit = "ldrcr"
-        storeCrBit = "strcr"
-        loadXer = "ldrxer"
-        storeXer = "strxer"
-        loadSpr = "ldrspr"
-        storeSpr = "strspr"
-        loadFpr = "ldrfreg"
-        storeFpr = "strfreg"
-        loadFprPair = "ldrfregp"
-        storeFprPair = "strfregp"
+        # for registers with a special side effects
+        sprLoad32
+        sprStore32
 
-        # DSP reg load/store instructions
-        loadAccum = "ldraccum"
-        storeAccum = "straccum"
-        loadStatusBit = "ldrstat"
-        storeStatusBit = "strstat"
-        loadDspReg = "ldrreg_dsp"
-        storeDspReg = "strreg_dsp"
-
+        extractBit
+        mergeBit
         # used for DSP partial loads/stores to dsp accumulators
-        extractLo = "extrlo"
-        extractMid = "extrmid"
-        extractHi = "extrhi"
-        mergeLo = "mergelo"
-        mergeMid = "mergemid"
-        mergeHi = "mergehi"
+        extractLo
+        extractMid
+        extractHi
+        mergeLo
+        mergeMid
+        mergeHi
+        mergeMidHi
 
-        csel = "csel"
-        cselX = "cselx"
+        csel
+        cselX
 
-        iAdd = "iadd"
-        iSub = "isub"
+        iAdd
+        iSub
 
-        iAddX = "iaddx"
-        iSubX = "isubx"
+        iAddX
+        iSubX
 
-        iAddExtended = "iaddext"
-        iSubExtended = "isubext"
+        iAddExtended
+        iSubExtended
 
-        iMul = "mul"
-        iMulhS = "mulhs"
-        iMulhU = "mulhu"
+        iMul
+        iMulhS
+        iMulhU
 
-        iDivS = "divs"
-        iDivU = "divu"
+        iDivS
+        iDivU
 
-        bitAnd = "bitand"
-        bitOr = "bitor"
-        bitXor = "bitxor"
-        bitNot = "bitnot"
+        bitAnd
+        bitOr
+        bitXor
+        bitNot
 
-        bitAndX = "bitandx"
-        bitOrX = "bitorx"
-        bitXorX = "bitxorx"
-        bitNotX = "bitnotx"
+        bitAndX
+        bitOrX
+        bitXorX
+        bitNotX
 
-        lsl = "lsl"
-        lsr = "lsr"
-        asr = "asr"
-        rol = "rol"
+        lsl
+        lsr
+        asr
+        rol
 
-        lslX = "lslx"
-        lsrX = "lsrx"
-        asrX = "asrx"
+        lslX
+        lsrX
+        asrX
 
-        clz = "clz"
+        clz
 
-        extsb = "extsb"
-        extsh = "extsh"
+        extsb
+        extsh
 
-        extzw = "extzw"
-        extsw = "extsw"
+        extsbX
+        extshX
 
-        condAnd = "condand"
-        condOr = "condor"
-        condXor = "condxor"
-        condNot = "condnot"
+        extzwX
+        extswX
 
-        overflowAdd = "addov"
-        overflowSub = "subov"
+        condAnd
+        condOr
+        condXor
+        condNot
 
-        overflowAddX = "addovx"
-        overflowSubX = "subovx"
+        overflowAdd
+        overflowSub
 
-        carryAdd = "addca"
-        carrySub = "subca"
+        overflowAddX
+        overflowSubX
 
-        carryAddX = "addcax"
-        carrySubX = "subcax"
+        carryAdd
+        carrySub
 
-        overflowAddExtended = "addextov"
-        overflowSubExtended = "subextov"
+        carryAddX
+        carrySubX
 
-        carryAddExtended = "addextca"
-        carrySubExtended = "subextca"
+        overflowAddExtended
+        overflowSubExtended
 
-        iCmpEqual = "cmpieq"
-        iCmpGreaterU = "cmpigtu"
-        iCmpLessU = "cmpiltu"
-        iCmpGreaterS = "cmpgts"
-        iCmpLessS = "cmplts"
+        carryAddExtended
+        carrySubExtended
 
-        iCmpEqualX = "cmpieqx"
-        iCmpGreaterUX = "cmpigtux"
-        iCmpLessUX = "cmpiltux"
-        iCmpGreaterSX = "cmpgtsx"
-        iCmpLessSX = "cmpltsx"
+        iCmpEqual
+        iCmpGreaterU
+        iCmpLessU
+        iCmpGreaterS
+        iCmpLessS
 
-        ppcLoadU8 = "ldrb"
-        ppcLoadU16 = "ldrh"
-        ppcLoadS16 = "ldrsh"
-        ppcLoad32 = "ldr"
-        ppcLoadFss = "ldrfss"
-        ppcLoadFsd = "ldrfsd"
-        ppcLoadFsq = "ldrfsq"
-        ppcLoadFpq = "ldrfpq"
+        iCmpEqualX
+        iCmpGreaterUX
+        iCmpLessUX
+        iCmpGreaterSX
+        iCmpLessSX
 
-        ppcStore8 = "strb"
-        ppcStore16 = "strh"
-        ppcStore32 = "str"
-        ppcStoreFss = "strfss"
-        ppcStoreFsd = "strfsd"
-        ppcStoreFsq = "strfsq"
-        ppcStoreFpq = "strfpq"
+        ppcLoadU8
+        ppcLoadU16
+        ppcLoadS16
+        ppcLoad32
+        ppcLoadFss
+        ppcLoadFsd
+        ppcLoadFsq
+        ppcLoadFpq
 
-        ppcBranch = "b_ppc"
-        ppcSyscall = "sc_ppc"
+        ppcStore8
+        ppcStore16
+        ppcStore32
+        ppcStoreFss
+        ppcStoreFsd
+        ppcStoreFsq
+        ppcStoreFpq
 
-        dspBranch = "b_dsp"
+        ppcBranch
+        ppcSyscall
 
-        fSwizzleD00 = "swizzlefd00"
-        fSwizzleD11 = "swizzlefd11"
+        dspBranch
 
-        fSwizzleS00 = "swizzlefs00"
-        fSwizzleS11 = "swizzlefs11"
+        fSwizzleD00
+        fSwizzleD11
 
-        fMergeD00 = "mergefd00"
-        fMergeD01 = "mergefd01"
-        fMergeD10 = "mergefd10"
-        fMergeD11 = "mergefd11"
+        fSwizzleS00
+        fSwizzleS11
 
-        fMergeS00 = "mergefs00"
-        fMergeS01 = "mergefs01"
-        fMergeS10 = "mergefs10"
-        fMergeS11 = "mergefs11"
+        fMergeD00
+        fMergeD01
+        fMergeD10
+        fMergeD11
+
+        fMergeS00
+        fMergeS01
+        fMergeS10
+        fMergeS11
 
         # the upper bits of scalar operations are undefined
-        cvtsd2ss = "cvtsd2ss"
-        cvtss2sd = "cvtss2sd"
+        cvtsd2ss
+        cvtss2sd
 
-        cvtpd2ps = "cvtpd2ps"
-        cvtps2pd = "cvtps2pd"
+        cvtpd2ps
+        cvtps2pd
 
-        cvtsd2intTrunc = "cvtsd2intTrunc"
-        cvtss2intTrunc = "cvtss2intTrunc"
+        cvtsd2intTrunc
+        cvtss2intTrunc
 
-        fRessd = "fressd"
-        fRsqrtsd = "frsqrtsd"
+        fRessd
+        fRsqrtsd
 
-        fResss = "fresss"
-        fRsqrtss = "frsqrtss"
+        fResss
+        fRsqrtss
 
-        fRespd = "frespd"
-        fRsqrtpd = "frsqrtpd"
+        fRespd
+        fRsqrtpd
 
-        fResps = "fresps"
-        fRsqrtps = "frsqrtps"
+        fResps
+        fRsqrtps
 
-        fNegsd = "fnegsd"
-        fAbssd = "fabssd"
+        fNegsd
+        fAbssd
 
-        fNegss = "fnegss"
-        fAbsss = "fabsss"
+        fNegss
+        fAbsss
 
-        fNegpd = "fnegpd"
-        fAbspd = "fabspd"
+        fNegpd
+        fAbspd
 
-        fNegps = "fnegps"
-        fAbsps = "fabsps"
+        fNegps
+        fAbsps
 
-        fAddsd = "faddsd"
-        fSubsd = "fsubsd"
-        fMulsd = "fmulsd"
-        fDivsd = "fdivsd"
+        fAddsd
+        fSubsd
+        fMulsd
+        fDivsd
 
-        fAddss = "faddss"
-        fSubss = "fsubss"
-        fMulss = "fmulss"
-        fDivss = "fdivss"
+        fAddss
+        fSubss
+        fMulss
+        fDivss
 
-        fAddpd = "faddpd"
-        fSubpd = "fsubpd"
-        fMulpd = "fmulpd"
-        fDivpd = "fdivpd"
+        fAddpd
+        fSubpd
+        fMulpd
+        fDivpd
 
-        fAddps = "faddpds"
-        fSubps = "fsubpds"
-        fMulps = "fmulpds"
-        fDivps = "fdivpds"
+        fAddps
+        fSubps
+        fMulps
+        fDivps
 
-        fMaddsd = "fmaddsd"
-        fMsubsd = "fmsubsd"
-        fNmaddsd = "fnmaddsd"
-        fNmsubsd = "fnmsubsd"
+        fMaddsd
+        fMsubsd
+        fNmaddsd
+        fNmsubsd
 
-        fMaddss = "fmaddss"
-        fMsubss = "fmsubss"
-        fNmaddss = "fnmaddss"
-        fNmsubss = "fnmsubss"
+        fMaddss
+        fMsubss
+        fNmaddss
+        fNmsubss
 
-        fMaddpd = "fmaddpd"
-        fMsubpd = "fmsubpd"
-        fNmaddpd = "fnmaddpd"
-        fNmsubpd = "fnmsubpd"
+        fMaddpd
+        fMsubpd
+        fNmaddpd
+        fNmsubpd
 
-        fMaddps = "fmaddps"
-        fMsubps = "fmsubps"
-        fNmaddps = "fnmaddps"
-        fNmsubps = "fnmsubps"
+        fMaddps
+        fMsubps
+        fNmaddps
+        fNmsubps
 
-        fCmpEqualsd = "cmpfeq"
-        fCmpGreatersd = "cmpfgt"
-        fCmpLesssd = "cmpflt"
-        fUnorderedsd = "cmpfunord"
+        fCmpEqualsd
+        fCmpGreatersd
+        fCmpLesssd
+        fUnorderedsd
 
-        ppcCallInterpreter = "interpretppc"
-        dspCallInterpreter = "interpretdsp"
+        ppcCallInterpreter
+        dspCallInterpreter
 
 const
-    CtxLoadInstrs* = {
-        loadPpcReg, loadCrBit, loadXer, loadSpr, loadFpr, loadFprPair,
-        loadAccum, loadStatusBit, loadDspReg}
-    CtxStoreInstrs* = {
-        storePpcReg, storeCrBit, storeXer, storeSpr, storeFpr, storeFprPair,
-        storeAccum, storeStatusBit, storeDspReg}
+    CtxLoadInstrs* = {ctxLoad8..ctxLoadFprPair}
+    CtxStoreInstrs* = {ctxStore8..ctxStoreFprPair}
     UnOpInstrs* = {
         identity,
 
@@ -272,7 +269,8 @@ const
         clz,
 
         extsb, extsh,
-        extsw, extzw,
+        extsbX, extshX,
+        extswX, extzwX,
 
         ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32,
         ppcLoadFss, ppcLoadFsd,
@@ -302,7 +300,7 @@ const
         fNegss, fAbsss,
         fNegps, fAbsps}
     BiOpInstrs* = {
-        mergeLo, mergeMid, mergeHi,
+        mergeLo, mergeMid, mergeHi, mergeMidHi,
 
         iAdd, iSub,
         iAddX, iSubX,
@@ -364,11 +362,8 @@ const
         fMaddps, fMsubps, fNmaddps, fNmsubps}
 
     ResultlessOps* = {
-        storePpcReg,
-        storeCrBit, storeXer, storeSpr,
-        storeFpr, storeFprPair,
-        ppcStore8, ppcStore16, ppcStore32,
-        ppcStoreFss, ppcStoreFsd, ppcStoreFsq, ppcStoreFpq,
+        ctxStore8..ctxStoreFprPair,
+        sprStore32,
 
         ppcBranch,
         ppcSyscall,
@@ -378,10 +373,8 @@ const
         ppcCallInterpreter,
         dspCallInterpreter}
 
-    SideEffectOps* = {
-        storePpcReg, storeCrBit, storeXer,
-        storeSpr, storeFpr, storeFprPair,
-        storeAccum, storeStatusBit, storeDspReg,
+    SideEffectOps* = CtxStoreInstrs + {
+        sprStore32,
 
         ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32,
         ppcLoadFss, ppcLoadFsd, ppcLoadFsq, ppcLoadFpq,
@@ -392,10 +385,7 @@ const
         ppcBranch, ppcSyscall,
         dspBranch,
         ppcCallInterpreter, dspCallInterpreter}
-    StrictSideEffectOps* = SideEffectOps + {
-        loadPpcReg, loadCrBit, loadXer, loadSpr,
-        loadFpr, loadFprPair,
-        loadAccum, loadStatusBit, loadDspReg}
+    StrictSideEffectOps* = SideEffectOps + CtxLoadInstrs + {sprLoad32}
 
     FpScalarOps* = {
         ppcStoreFsd, ppcStoreFss,
@@ -412,7 +402,7 @@ const
         fMaddsd, fMsubsd, fNmaddsd, fNmsubsd,
         fMaddss, fMsubss, fNmaddss, fNmsubss,
         fCmpEqualsd, fCmpGreatersd, fCmpLesssd, fUnorderedsd}
-    FpPairOps* = {
+    FpAllSrcsReadPair* = {
         fSwizzleD11, fMergeD11,
         cvtpd2ps, cvtps2pd,
         fRespd, fRsqrtpd,
@@ -421,15 +411,16 @@ const
         fMaddpd, fMsubpd, fNmaddpd, fNmsubpd}
 
     HasWideResult* = {
-        loadAccum,
-        mergeLo, mergeMid, mergeHi,
+        ctxLoad64,
+        mergeLo, mergeMid, mergeHi, mergeMidHi,
         iAddX, iSubX,
         bitAndX, bitOrX, bitXorX, bitNotX,
         lslX, lsrX, asrX,
-        extsw}
+        extsbX, extshX,
+        extswX}
 
 type
-    IrInstrRef* = distinct int32
+    IrInstrRef* = distinct uint32
 
     IrInstr* = object
         case kind*: InstrKind
@@ -438,10 +429,12 @@ type
         of ppcCallInterpreter, dspCallInterpreter:
             instr*, pc*: uint32
             target*: pointer
-        of CtxLoadInstrs:
-            ctxLoadIdx*: uint32
-        of CtxStoreInstrs:
-            ctxStoreIdx*: uint32
+        of CtxLoadInstrs, CtxStoreInstrs:
+            ctxOffset*: uint32
+        of extractBit, mergeBit:
+            bit*: uint32
+        of sprStore32, sprLoad32:
+            spr*: Spr
         else: discard
 
         srcRegular: array[3, IrInstrRef]
@@ -459,114 +452,28 @@ type
 
         regs*: T
 
-    IrXerNum* = enum
-        irXerNumOv
-        irXerNumCa
-        irXerNumSo
-
-    IrSprNum* = enum
-        irSprNumCr
-        irSprNumXer
-        irSprNumLr
-        irSprNumCtr
-
-        irSprNumMsr
-
-        irSprNumSrr0
-        irSprNumSrr1
-
-        irSprNumDsisr
-        irSprNumDar
-
-        irSprNumSprg0
-        irSprNumSprg1
-        irSprNumSprg2
-        irSprNumSprg3
-
-        irSprNumHid0
-        irSprNumHid1
-        irSprNumHid2
-
-        irSprNumTbU
-        irSprNumTbL
-
-        irSprNumDec
-
-        irSprNumL2cr
-
-        irSprNumMmcr0
-        irSprNumMmcr1
-
-        irSprNumPmc0
-        irSprNumPmc1
-        irSprNumPmc2
-        irSprNumPmc3
-
-        irSprNumWpar
-        irSprNumDmaL
-        irSprNumDmaU
-
-        irSprNumGqr0
-        irSprNumGqr1
-        irSprNumGqr2
-        irSprNumGqr3
-        irSprNumGqr4
-        irSprNumGqr5
-        irSprNumGqr6
-        irSprNumGqr7
-
-        irSprNumIBatL0
-        irSprNumIBatL1
-        irSprNumIBatL2
-        irSprNumIBatL3
-        irSprNumIBatU0
-        irSprNumIBatU1
-        irSprNumIBatU2
-        irSprNumIBatU3
-        irSprNumDBatL0
-        irSprNumDBatL1
-        irSprNumDBatL2
-        irSprNumDBatL3
-        irSprNumDBatU0
-        irSprNumDBatU1
-        irSprNumDBatU2
-        irSprNumDBatU3
-
-    DspAccum* = enum
-        dspAccumA
-        dspAccumB
-        dspAccumX
-        dspAccumY
-        dspAccumProd
-
-    DspStatusBit* = enum
-        dspStatusBitCa
-        dspStatusBitOv
-        dspStatusBitZr
-        dspStatusBitMi
-        dspStatusBitExt
-        dspStatusBitUnnorm
-        dspStatusBitTb
-        dspStatusBitSv
-        dspStatusBitTe0
-        dspStatusBitTe1
-        dspStatusBitTe2
-        dspStatusBitTe3
-        dspStatusBitEt
-        dspStatusBitIm
-        dspStatusBitXl
-        dspStatusBitDp
+    Spr* = enum
+        tbL
+        tbU
+        decrementer
+        dmaL
+        wpar
+        hid0
+        pcs
+        pss
+        eas
+        lcs
 
 const
-    InvalidIrInstrRef* = IrInstrRef(-1)
+    InvalidIrInstrRef* = IrInstrRef(0)
 
 proc numSources*(instr: IrInstr): int =
     case instr.kind
-    of loadImmI, CtxLoadInstrs, ppcCallInterpreter, dspCallInterpreter:
+    of loadImmI, sprLoad32, CtxLoadInstrs, ppcCallInterpreter, dspCallInterpreter:
         0
-    of CtxStoreInstrs, UnopInstrs:
+    of CtxStoreInstrs, sprStore32, extractBit, UnopInstrs:
         1
-    of BiOpInstrs:
+    of BiOpInstrs, mergeBit:
         2
     of TriOpInstrs:
         3
@@ -597,14 +504,23 @@ func `==`*(a, b: IrInstr): bool =
         case a.kind
         of loadImmI:
             a.immValI == b.immValI
+        of sprLoad32:
+            a.spr == b.spr
+        of sprStore32:
+            a.spr == b.spr and a.srcRegular[0] == b.srcRegular[0]
         of ppcCallInterpreter, dspCallInterpreter:
             a.instr == b.instr and a.pc == b.pc and
                 a.target == b.target
         of CtxLoadInstrs:
-            a.ctxLoadIdx == b.ctxLoadIdx
+            a.ctxOffset == b.ctxOffset
         of CtxStoreInstrs:
-            a.ctxStoreIdx == b.ctxStoreIdx and
+            a.ctxOffset == b.ctxOffset and
                 a.srcRegular[0] == b.srcRegular[0]
+        of extractBit:
+            a.bit == b.bit and a.srcRegular[0] == b.srcRegular[0]
+        of mergeBit:
+            a.bit == b.bit and a.srcRegular[0] == b.srcRegular[0] and
+                a.srcRegular[1] == b.srcRegular[1]
         of UnopInstrs:
             a.srcRegular[0] == b.srcRegular[0]
         of BiOpInstrs:
@@ -622,15 +538,27 @@ func hash*(instr: IrInstr): Hash =
     case instr.kind
     of loadImmI:
         result = result !& hash(instr.immValI)
+    of sprLoad32:
+        result = result !& hash(instr.spr)
+    of sprStore32:
+        result = result !& hash(instr.spr)
+        result = result !& hash(instr.srcRegular[0])
     of ppcCallInterpreter, dspCallInterpreter:
         result = result !& hash(instr.instr)
         result = result !& hash(instr.pc)
         result = result !& hash(instr.target)
     of CtxLoadInstrs:
-        result = result !& hash(instr.ctxLoadIdx)
+        result = result !& hash(instr.ctxOffset)
     of CtxStoreInstrs:
-        result = result !& hash(instr.ctxStoreIdx)
+        result = result !& hash(instr.ctxOffset)
         result = result !& hash(instr.srcRegular[0])
+    of extractBit:
+        result = result !& hash(instr.bit)
+        result = result !& hash(instr.srcRegular[0])
+    of mergeBit:
+        result = result !& hash(instr.bit)
+        result = result !& hash(instr.srcRegular[0])
+        result = result !& hash(instr.srcRegular[1])
     of UnopInstrs:
         result = result !& hash(instr.srcRegular[0])
     of BiOpInstrs:
@@ -655,7 +583,7 @@ proc allocInstr(blk: IrBasicBlock): IrInstrRef =
     if blk.freeInstrs.len > 0:
         blk.freeInstrs.pop()
     else:
-        let instr = IrInstrRef blk.instrPool.len
+        let instr = IrInstrRef(blk.instrPool.len + 1)
         blk.instrPool.setLen(blk.instrPool.len + 1)
         instr
 
@@ -666,7 +594,7 @@ proc allocInstr(blk: IrBasicBlock): IrInstrRef =
 #
 # see https://github.com/nim-lang/Nim/issues/18683
 template getInstr*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr =
-    blk.instrPool[int iref]
+    blk.instrPool[int(iref)-1]
 
 proc makeImm*(val: uint64): IrInstr {.inline.} =
     IrInstr(kind: loadImmI, immValI: val)
@@ -674,17 +602,18 @@ proc makeImm*(val: uint64): IrInstr {.inline.} =
 proc makeImm*(val: bool): IrInstr {.inline.} =
     IrInstr(kind: loadImmI, immValI: uint64(val))
 
-proc makeLoadctx*(kind: InstrKind, idx: uint32): IrInstr {.inline.} =
+proc makeLoadctx*(kind: InstrKind, offset: uint32): IrInstr {.inline.} =
     case kind
     of CtxLoadInstrs:
-        IrInstr(kind: kind, ctxLoadIdx: idx)
+        IrInstr(kind: kind, ctxOffset: offset)
     else:
         raiseAssert(&"invalid context load kind {kind}")
 
-proc makeStorectx*(kind: InstrKind, idx: uint32, val: IrInstrRef): IrInstr {.inline.} =
+proc makeStorectx*(kind: InstrKind, offset: uint32, val: IrInstrRef): IrInstr {.inline.} =
     case kind
     of CtxStoreInstrs:
-        IrInstr(kind: kind, ctxStoreIdx: idx, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
+        assert val != InvalidIrInstrRef
+        IrInstr(kind: kind, ctxOffset: offset, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
     else:
         raiseAssert(&"invalid context store kind {kind}")
 
@@ -709,12 +638,24 @@ proc makeTriop*(kind: InstrKind, a, b, c: IrInstrRef): IrInstr {.inline.} =
     else:
         raiseAssert(&"invalid triop kind {kind}")
 
+proc makeExtractBit*(val: IrInstrRef, bit: uint32): IrInstr {.inline.} =
+    IrInstr(kind: extractBit, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef], bit: bit)
+
+proc makeMergeBit*(val, mergeval: IrInstrRef, bit: uint32): IrInstr {.inline.} =
+    IrInstr(kind: mergeBit, srcRegular: [val, mergeval, InvalidIrInstrRef], bit: bit)
+
+proc makeLoadSpr*(spr: Spr): IrInstr {.inline.} =
+    IrInstr(kind: sprLoad32, spr: spr)
+
+proc makeStoreSpr*(spr: Spr, val: IrInstrRef): IrInstr {.inline.} =
+    IrInstr(kind: sprStore32, spr: spr, srcRegular: [val, InvalidIrInstrRef, InvalidIrInstrRef])
+
 proc makeIdentity*(iref: IrInstrRef): IrInstr {.inline.} =
     makeUnop(identity, iref)
 
 proc narrowIdentity*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr {.inline.} =
     if blk.getInstr(iref).kind in HasWideResult:
-        makeUnop(extzw, iref)
+        makeUnop(extzwX, iref)
     else:
         makeIdentity(iref)
 
@@ -743,12 +684,12 @@ proc loadctx*(blk: IrBasicBlock, kind: InstrKind, idx: uint32): IrInstrRef =
 template loadctx*[T](builder: IrBlockBuilder[T], kind: InstrKind, idx: uint32): IrInstrRef =
     loadctx(builder.blk, kind, idx)
 
-proc storectx*(blk: IrBasicBlock, kind: InstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
-    result = blk.allocInstr()
+proc storectx*(blk: IrBasicBlock, kind: InstrKind, idx: uint32, val: IrInstrRef) =
+    let result = blk.allocInstr()
     blk.getInstr(result) = makeStorectx(kind, idx, val)
     add(blk.instrs, result)
 
-template storectx*[T](builder: IrBlockBuilder[T], kind: InstrKind, idx: uint32, val: IrInstrRef): IrInstrRef =
+template storectx*[T](builder: IrBlockBuilder[T], kind: InstrKind, idx: uint32, val: IrInstrRef) =
     storectx(builder.blk, kind, idx, val)
 
 proc unop*(blk: IrBasicBlock, kind: InstrKind, val: IrInstrRef): IrInstrRef =
@@ -775,21 +716,53 @@ proc triop*(blk: IrBasicBlock, kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef
 template triop*[T](builder: IrBlockBuilder[T], kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef =
     triop(builder.blk, kind, a, b, c)
 
-proc interpretppc*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
-    result = blk.allocInstr()
+proc interpretppc*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer) =
+    let result = blk.allocInstr()
     blk.getInstr(result) = IrInstr(kind: ppcCallInterpreter, target: target, instr: instrcode, pc: pc)
     add(blk.instrs, result)
 
 template interpreter*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
-    discard interpretppc(builder.blk, instrcode, pc, target)
+    interpretppc(builder.blk, instrcode, pc, target)
 
-proc interpretdsp*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer): IrInstrRef =
-    result = blk.allocInstr()
+proc interpretdsp*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer) =
+    let result = blk.allocInstr()
     blk.getInstr(result) = IrInstr(kind: dspCallInterpreter, target: target, instr: instrcode, pc: pc)
     add(blk.instrs, result)
 
 template interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
-    discard interpretdsp(builder.blk, instrcode, pc, target)
+    interpretdsp(builder.blk, instrcode, pc, target)
+
+proc extractBit*(blk: IrBasicBlock, val: IrInstrRef, bit: uint32): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeExtractBit(val, bit)
+    add(blk.instrs, result)
+
+template extractBit*[T](builder: IrBlockBuilder[T], val: IrInstrRef, bit: uint32): IrInstrRef =
+    extractBit(builder.blk, val, bit)
+
+proc mergeBit*(blk: IrBasicBlock, val, mergeVal: IrInstrRef, bit: uint32): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeMergeBit(val, mergeVal, bit)
+    add(blk.instrs, result)
+
+template mergeBit*[T](builder: IrBlockBuilder[T], val, mergeVal: IrInstrRef, bit: uint32): IrInstrRef =
+    mergeBit(builder.blk, val, mergeVal, bit)
+
+proc loadSpr*(blk: IrBasicBlock, spr: Spr): IrInstrRef =
+    result = blk.allocInstr()
+    blk.getInstr(result) = makeLoadSpr(spr)
+    add(blk.instrs, result)
+
+template loadSpr*[T](builder: IrBlockBuilder[T], spr: Spr): IrInstrRef =
+    loadSpr(builder.blk, spr)
+
+proc storeSpr*(blk: IrBasicBlock, spr: Spr, val: IrInstrRef) =
+    let result = blk.allocInstr()
+    blk.getInstr(result) = makeStoreSpr(spr, val)
+    add(blk.instrs, result)
+
+template storeSpr*[T](builder: IrBlockBuilder[T], spr: Spr, val: IrInstrRef) =
+    storeSpr(builder.blk, spr, val)
 
 proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
     let instr = blk.getInstr(iref)
@@ -852,7 +825,13 @@ proc `$`*(blk: IrBasicBlock): string =
         if instr.kind notin ResultlessOps:
             result &= &"${int(iref)}"
 
-        while (result.len-lineStartLen) < 9:
+        const maxInstrNameLen = (proc(): int =
+                var maxLen = 0
+                for kind in InstrKind:
+                    maxLen = max(maxLen, len($kind))
+                maxLen)()
+
+        while (result.len-lineStartLen) < maxInstrNameLen+1:
             result &= ' '
 
         if instr.kind in ResultlessOps:
@@ -864,9 +843,17 @@ proc `$`*(blk: IrBasicBlock): string =
         of loadImmI:
             result &= &"{instr.immValI:016X}"
         of CtxLoadInstrs:
-            result &= &"{instr.ctxLoadIdx}"
+            result &= &"{instr.ctxOffset}"
         of CtxStoreInstrs:
-            result &= &"{instr.ctxStoreIdx}, ${int(instr.source(0))}"
+            result &= &"{instr.ctxOffset}, ${int(instr.source(0))}"
+        of extractBit:
+            result &= &"{instr.bit}"
+        of mergeBit:
+            result &= &"{instr.bit}, {instr.source(0)}, {instr.source(1)}"
+        of sprLoad32:
+            result &= &"{instr.spr}"
+        of sprStore32:
+            result &= &"{instr.spr}, {instr.source(0)}"
         of dspCallInterpreter, ppcCallInterpreter:
             result &= &"{instr.instr:08X}"
         else:

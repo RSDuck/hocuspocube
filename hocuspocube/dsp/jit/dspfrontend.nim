@@ -39,7 +39,9 @@ proc compileBlock(): BlockEntryFunc =
             discard builder.triop(dspBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
+    #echo "dsp block: \n", builder.blk
     builder.blk.dspOpts()
+    #echo "dsp block (after op): \n", builder.blk
     builder.blk.calcLiveIntervals()
     builder.blk.verify()
 

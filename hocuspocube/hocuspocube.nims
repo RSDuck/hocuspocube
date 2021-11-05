@@ -1,4 +1,3 @@
 --gc:arc
---exceptions:goto
 --d:swapBytesBuiltin
 --experimental:overloadableEnums

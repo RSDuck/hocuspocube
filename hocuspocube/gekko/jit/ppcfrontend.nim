@@ -4,6 +4,7 @@ import
     ".."/[gekko, ppcdef, memory, ppccommon],
     ../../util/jit/[ir, codegenx64, iropt],
     ppcfrontendcommon, gekkoblockcache,
+    ../ppcstate,
 
     ppcjit_int,
     ppcjit_loadstore,
@@ -48,6 +49,8 @@ proc compileBlock(): BlockEntryFunc =
 
     builder.blk.ctxLoadStoreEliminiate()
     builder.blk.removeIdentities()
+    builder.blk.mergeExtractEliminate()
+    builder.blk.removeIdentities()
     builder.blk.floatOpts()
     builder.blk.foldConstants()
     builder.blk.removeIdentities()
@@ -80,3 +83,5 @@ proc gekkoRun*(timestamp: var int64, target: var int64) =
         else:
             #echo "skipping idle loop!"
             timestamp = target
+
+    #echo &"slice finished {gekkoState.pc:08X}"

@@ -21,10 +21,7 @@ proc setCr(builder; signed: bool, cond: uint32, a, b: IrInstrRef) =
             else:
                 (builder.biop(iCmpLessU, a, b), builder.biop(iCmpGreaterU, a, b))
         eq = builder.biop(iCmpEqual, a, b)
-    discard builder.storectx(storeCrBit, cond*4+0, lt)
-    discard builder.storectx(storeCrBit, cond*4+1, gt)
-    discard builder.storectx(storeCrBit, cond*4+2, eq)
-    discard builder.storectx(storeCrBit, cond*4+3, builder.loadctx(loadXer, irXerNumSo.uint32))
+    builder.storeCrBits(cond, lt, gt, eq, builder.loadSo())
 
 proc handleRc(builder; val: IrInstrRef, rc: uint32) =
     if rc != 0:
@@ -32,9 +29,8 @@ proc handleRc(builder; val: IrInstrRef, rc: uint32) =
 
 template updateOv(builder; val: IrInstrRef, oe: uint32) =
     if oe != 0:
-        discard builder.storectx(storeXer, irXerNumOv.uint32, val)
-        discard builder.storectx(storeXer, irXerNumSo.uint32,
-            builder.biop(condOr, builder.loadctx(loadXer, irXerNumSo.uint32), val))
+        builder.storeOv(val)
+        builder.storeSo(builder.biop(condOr, val, builder.loadSo()))
 
 proc addx*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretAdd:
@@ -57,7 +53,7 @@ proc addcx*(builder; d, a, b, oe, rc: uint32) =
             (ra, rb) = builder.loadregs(a, b)
             val = builder.biop(iAdd, ra, rb)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.biop(carryAdd, ra, rb))
+        builder.storeCa(builder.biop(carryAdd, ra, rb))
         builder.updateOv(builder.biop(overflowAdd, rb, ra), oe)
         builder.handleRc(val, rc)
 
@@ -71,7 +67,7 @@ proc addex*(builder; d, a, b, oe, rc: uint32) =
             (ra, rb, carry) = builder.loadregscarry(a, b)
             val = builder.triop(iAddExtended, ra, rb, carry)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.triop(carryAddExtended, ra, rb, carry))
+        builder.storeCa(builder.triop(carryAddExtended, ra, rb, carry))
         builder.updateOv(builder.triop(overflowAddExtended, ra, rb, carry), oe)
 
         builder.storereg(d, val)
@@ -95,7 +91,7 @@ proc addic*(builder; d, a, imm: uint32) =
             ra = builder.loadreg(a)
             val = builder.biop(iAdd, ra, imm)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.biop(carryAdd, ra, imm))
+        builder.storeCa(builder.biop(carryAdd, ra, imm))
 
         builder.storereg d, val
 
@@ -109,7 +105,7 @@ proc addicdot*(builder; d, a, imm: uint32) =
             val = builder.biop(iAdd, ra, imm)
 
         builder.handleRc(val, 1)
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.biop(carryAdd, ra, imm))
+        builder.storeCa(builder.biop(carryAdd, ra, imm))
 
         builder.storereg d, val
 
@@ -132,7 +128,7 @@ proc addmex*(builder; d, a, oe, rc: uint32) =
             minusOne = builder.imm(0xFFFF_FFFF'u32)
             val = builder.triop(iAddExtended, ra, minusOne, carry)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.triop(carryAddExtended, ra, minusOne, carry))
+        builder.storeCa(builder.triop(carryAddExtended, ra, minusOne, carry))
         builder.updateOv(builder.triop(overflowAddExtended, ra, minusOne, carry), oe)
         builder.handleRc(val, rc)
 
@@ -146,7 +142,7 @@ proc addzex*(builder; d, a, oe, rc: uint32) =
             (ra, carry) = builder.loadregcarry(a)
             val = builder.biop(iAdd, ra, carry)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.biop(carryAdd, ra, carry))
+        builder.storeCa(builder.biop(carryAdd, ra, carry))
         builder.updateOv(builder.biop(overflowAdd, ra, carry), oe)
         builder.handleRc(val, rc)
 
@@ -267,7 +263,7 @@ proc subfcx*(builder; d, a, b, oe, rc: uint32) =
             (ra, rb) = builder.loadregs(a, b)
             val = builder.biop(iSub, rb, ra)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.biop(carrySub, rb, ra))
+        builder.storeCa(builder.biop(carrySub, rb, ra))
         builder.updateOv(builder.biop(overflowSub, rb, ra), oe)
         builder.handleRc(val, rc)
 
@@ -281,7 +277,7 @@ proc subfex*(builder; d, a, b, oe, rc: uint32) =
             (ra, rb, carry) = builder.loadregscarry(a, b)
             val = builder.triop(iSubExtended, rb, ra, carry)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.triop(carrySubExtended, rb, ra, carry))
+        builder.storeCa(builder.triop(carrySubExtended, rb, ra, carry))
         builder.updateOv(builder.triop(overflowSubExtended, rb, ra, carry), oe)
         builder.handleRc(val, rc)
 
@@ -296,7 +292,7 @@ proc subfic*(builder; d, a, imm: uint32) =
             ra = builder.loadreg(a)
             val = builder.biop(iSub, imm, ra)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.biop(carrySub, imm, ra))
+        builder.storeCa(builder.biop(carrySub, imm, ra))
 
         builder.storereg d, val
 
@@ -309,7 +305,7 @@ proc subfmex*(builder; d, a, oe, rc: uint32) =
             (ra, carry) = builder.loadregcarry(a)
             val = builder.triop(iSubExtended, minusOne, ra, carry)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.triop(carrySubExtended, minusOne, ra, carry))
+        builder.storeCa(builder.triop(carrySubExtended, minusOne, ra, carry))
         builder.updateOv(builder.triop(overflowSubExtended, minusOne, ra, carry), oe)
         builder.handleRc(val, rc)
 
@@ -324,7 +320,7 @@ proc subfzex*(builder; d, a, oe, rc: uint32) =
             (ra, carry) = builder.loadregcarry(a)
             val = builder.triop(iSubExtended, zero, ra, carry)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32, builder.triop(carrySubExtended, zero, ra, carry))
+        builder.storeCa(builder.triop(carrySubExtended, zero, ra, carry))
         builder.updateOv(builder.triop(overflowSubExtended, zero, ra, carry), oe)
         builder.handleRc(val, rc)
 
@@ -545,7 +541,7 @@ proc slwx*(builder; s, a, b, rc: uint32) =
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
-            val = builder.unop(extzw, builder.biop(lslX, rs, rb))
+            val = builder.unop(extzwX, builder.biop(lslX, rs, rb))
 
         builder.handleRc(val, rc)
 
@@ -557,19 +553,18 @@ proc srawx*(builder; s, a, b, rc: uint32) =
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
-            val = builder.unop(extzw, builder.biop(asrX, builder.unop(extsw, rs), rb))
+            val = builder.unop(extzwX, builder.biop(asrX, builder.unop(extswX, rs), rb))
 
         builder.handleRc(val, rc)
-        
-        discard builder.storectx(storeXer, irXerNumCa.uint32,
-            builder.biop(condAnd,
-                builder.biop(iCmpLessS, rs, builder.imm(0)),
-                builder.unop(condNot,
-                    builder.biop(iCmpEqual,
-                        builder.biop(bitAnd,
-                            rs,
-                            builder.unop(bitNot, builder.biop(lsl, builder.imm(0xFFFFFFFF'u32), rb))),
-                        builder.imm(0)))))
+
+        builder.storeCa(builder.biop(condAnd,
+            builder.biop(iCmpLessS, rs, builder.imm(0)),
+            builder.unop(condNot,
+                builder.biop(iCmpEqual,
+                    builder.biop(bitAnd,
+                        rs,
+                        builder.unop(bitNot, builder.biop(lsl, builder.imm(0xFFFFFFFF'u32), rb))),
+                    builder.imm(0)))))
 
         builder.storereg a, val
 
@@ -583,15 +578,14 @@ proc srawix*(builder; s, a, sh, rc: uint32) =
 
         builder.handleRc(val, rc)
 
-        discard builder.storectx(storeXer, irXerNumCa.uint32,
-            builder.biop(condAnd,
-                builder.biop(iCmpLessS, rs, builder.imm(0)),
-                builder.unop(condNot,
-                    builder.biop(iCmpEqual,
-                        builder.biop(bitAnd,
-                            builder.imm((0..int(sh)-1).toMask[:uint32]()),
-                            rs),
-                        builder.imm(0)))))
+        builder.storeCa(builder.biop(condAnd,
+            builder.biop(iCmpLessS, rs, builder.imm(0)),
+            builder.unop(condNot,
+                builder.biop(iCmpEqual,
+                    builder.biop(bitAnd,
+                        builder.imm((0..int(sh)-1).toMask[:uint32]()),
+                        rs),
+                    builder.imm(0)))))
 
 
         builder.storereg a, val
@@ -602,7 +596,7 @@ proc srwx*(builder; s, a, b, rc: uint32) =
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
-            val = builder.unop(extzw, builder.biop(lsrX, rs, rb))
+            val = builder.unop(extzwX, builder.biop(lsrX, rs, rb))
 
         builder.handleRc(val, rc)
 
@@ -610,9 +604,10 @@ proc srwx*(builder; s, a, b, rc: uint32) =
 
 template crOp(genOp: untyped): untyped =
     let
-        crbA {.inject.} = builder.loadctx(loadCrBit, crbA)
-        crbB {.inject.} = builder.loadctx(loadCrBit, crbB)
-    discard builder.storectx(storeCrBit, crbD, genOp)
+        cr = builder.loadCr()
+        crbA {.inject.} = builder.extractBit(cr, 31-crbA)
+        crbB {.inject.} = builder.extractBit(cr, 31-crbB)
+    builder.storeCr(builder.mergeBit(cr, genOp, 31-crbD))
 
 proc crand*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
@@ -666,7 +661,8 @@ proc mcrf*(builder; crfD, crfS: uint32) =
     when interpretInt:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mcrf)
     else:
-        discard builder.storectx(storeCrBit, crfD*4+0, builder.loadctx(loadCrBit, crfS*4+0))
-        discard builder.storectx(storeCrBit, crfD*4+1, builder.loadctx(loadCrBit, crfS*4+1))
-        discard builder.storectx(storeCrBit, crfD*4+2, builder.loadctx(loadCrBit, crfS*4+2))
-        discard builder.storectx(storeCrBit, crfD*4+3, builder.loadctx(loadCrBit, crfS*4+3))
+        builder.storeCrBits(crfD,
+            builder.loadCrBit(crfS*4+0),
+            builder.loadCrBit(crfS*4+1),
+            builder.loadCrBit(crfS*4+2),
+            builder.loadCrBit(crfS*4+3))

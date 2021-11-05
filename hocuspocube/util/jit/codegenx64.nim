@@ -274,56 +274,6 @@ var
 
 doAssert reprotectMemory(addr codeMemory[0], sizeof(codeMemory), {memperm_R, memperm_W, memperm_X})
 
-proc getSprOffset(num: IrSprNum): int32 =
-    int32(case num
-    of irSprNumCr: offsetof(PpcState, cr)
-    of irSprNumXer: offsetof(PpcState, xer)
-    of irSprNumLr: offsetof(PpcState, lr)
-    of irSprNumCtr: offsetof(PpcState, ctr)
-    of irSprNumMsr: offsetof(PpcState, msr)
-    of irSprNumDsisr: offsetof(PpcState, dsisr)
-    of irSprNumDar: offsetof(PpcState, dar)
-    of irSprNumSrr0: offsetof(PpcState, srr0)
-    of irSprNumSrr1: offsetof(PpcState, srr1)
-    of irSprNumHid0: offsetof(PpcState, hid0)
-    of irSprNumHid1: offsetof(PpcState, hid1)
-    of irSprNumHid2: offsetof(PpcState, hid2)
-    of irSprNumL2cr: offsetof(PpcState, l2cr)
-    of irSprNumMmcr0: offsetof(PpcState, mmcr0)
-    of irSprNumMmcr1: offsetof(PpcState, mmcr1)
-    of irSprNumWpar: offsetof(PpcState, wpar)
-    of irSprNumDmaU: offsetof(PpcState, dmaU)
-    of irSprNumDmaL: offsetof(PpcState, dmaL)
-    of irSprNumSprg0..irSprNumSprg3: offsetof(PpcState, sprg)+(int(num)-irSprNumSprg0.ord)*4
-    of irSprNumPmc0..irSprNumPmc3: offsetof(PpcState, pmc)+(int(num)-irSprNumPmc0.ord)*4
-    of irSprNumIBatL0..irSprNumIBatL3: offsetof(PpcState, ibatLo)+(int(num)-irSprNumIBatL0.ord)*4
-    of irSprNumIBatU0..irSprNumIBatU3: offsetof(PpcState, ibatHi)+(int(num)-irSprNumIBatU0.ord)*4
-    of irSprNumDBatL0..irSprNumDBatL3: offsetof(PpcState, dbatLo)+(int(num)-irSprNumDBatL0.ord)*4
-    of irSprNumDBatU0..irSprNumDBatU3: offsetof(PpcState, dbatHi)+(int(num)-irSprNumDBatU0.ord)*4
-    of irSprNumGqr0..irSprNumGqr7: offsetof(PpcState, gqr)+(int(num)-irSprNumGqr0.ord)*4
-    else: raiseAssert("shouldn't be handled here"))
-
-proc getDspRegOffset(num: DspReg): int32 =
-    case num
-    of r0..r3: int32(offsetof(DspState, adrReg) + (ord(num) - ord(r0)) * 2)
-    of m0..m3: int32(offsetof(DspState, incReg) + (ord(num) - ord(m0)) * 2)
-    of l0..l3: int32(offsetof(DspState, incReg) + (ord(num) - ord(l0)) * 2)
-    of x0..y0: int32(offsetof(DspState, auxAccum) + (ord(num) - ord(x0)) * 4)
-    of x1..y1: int32(offsetof(DspState, auxAccum) + (ord(num) - ord(x0)) * 4 + 2)
-    of a0..b0: int32(offsetof(DspState, mainAccum) + (ord(num) - ord(a0)) * 4)
-    of a1..b1: int32(offsetof(DspState, mainAccum) + (ord(num) - ord(a1)) * 4 + 2)
-    of a2..b2: int32(offsetof(DspState, mainAccum) + (ord(num) - ord(a2)) * 4 + 4)
-    of dpp: int32(offsetof(DspState, dpp))
-    of DspReg.ps0: int32(offsetof(DspState, prod))
-    of DspReg.ps1: int32(offsetof(DspState, prod) + 2)
-    of ps2: int32(offsetof(DspState, prod) + 4)
-    of DspReg.pc1: int32(offsetof(DspState, prodcarry))
-    of psr: int32(offsetof(DspState, status))
-    else: raiseAssert(&"blah {num}")
-
-proc getPpcRegOffset(num: uint32): int32 =
-    int32(offsetof(PpcState, r)) + 4'i32*int32(num)
-
 proc initRegAlloc[T](spillLocs: ptr set[0..maxSpill-1]): RegAlloc[T] =
     RegAlloc[T](freeRegs: fullSet(T), freeSpillLocs: spillLocs)
 
@@ -413,10 +363,68 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
         #echo &"processing instr {i} {regalloc}"
 
         case instr.kind
-        of identity, loadCrBit, storeCrBit, extractLo..mergeHi:
+        of identity, extractBit, mergeBit, extractLo..mergeMidHi:
             raiseAssert(&"should have been lowered {instr.kind}")
         of loadImmI:
             discard
+        of ctxLoad8, ctxLoad16, ctxLoadU32, ctxLoadS32, ctxLoad64:
+            let dst = regalloc.allocOpW1R0(s, iref, blk)
+            case instr.kind
+            of ctxLoad8: s.movzx(dst.toReg, mem8(rcpu, int32 instr.ctxOffset))
+            of ctxLoad16: s.movzx(dst.toReg, mem16(rcpu, int32 instr.ctxOffset))
+            of ctxLoadU32: s.mov(dst.toReg, mem32(rcpu, int32 instr.ctxOffset))
+            of ctxLoadS32: s.movsxd(dst.toReg64, mem32(rcpu, int32 instr.ctxOffset))
+            of ctxLoad64: s.mov(dst.toReg64, mem64(rcpu, int32 instr.ctxOffset))
+            else: raiseAssert("should not happen")
+        of ctxLoadFpr, ctxLoadFprPair:
+            let dst = xmmRegalloc.allocOpW1R0(s, iref, blk)
+            case instr.kind
+            of ctxLoadFpr: s.movsd(dst.toXmm, memXmm(rcpu, int32 instr.ctxOffset))
+            of ctxLoadFprPair: s.movapd(dst.toXmm, memXmm(rcpu, int32 instr.ctxOffset))
+            else: raiseAssert("should not happen")
+        of ctxStore8, ctxStore16, ctxStore32, ctxStore64:
+            let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
+            case instr.kind
+            of ctxStore8: s.mov(mem8(rcpu, int32 instr.ctxOffset), Register8 src.toReg.ord)
+            of ctxStore16: s.mov(mem16(rcpu, int32 instr.ctxOffset), Register16 src.toReg.ord)
+            of ctxStore32: s.mov(mem32(rcpu, int32 instr.ctxOffset), src.toReg)
+            of ctxStore64: s.mov(mem64(rcpu, int32 instr.ctxOffset), src.toReg64)
+            else: raiseAssert("should not happen")
+        of ctxStoreFpr, ctxStoreFprPair:
+            let src = xmmRegalloc.allocOpW0R1(s, instr.source(0), blk)
+            case instr.kind
+            of ctxStoreFpr: s.movsd(memXmm(rcpu, int32 instr.ctxOffset), src.toXmm)
+            of ctxStoreFprPair: s.movapd(memXmm(rcpu, int32 instr.ctxOffset), src.toXmm)
+            else: raiseAssert("should not happen")
+        of sprLoad32:
+            let dst = regalloc.allocOpW1R0(s, iref, blk)
+            s.mov(reg(param1), rcpu)
+            beforeCall()
+            case instr.spr
+            of tbL, tbU:
+                s.call(currentTb)
+                if instr.spr == tbU:
+                    s.sshr(reg(regRax), 32)
+            of decrementer:
+                s.call(getDecrementer)
+            else:
+                raiseAssert("shouldn't need this code path")
+            s.mov(dst.toReg, reg(regEax))
+            setFlagUnk()
+        of sprStore32:
+            let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
+            s.mov(reg(param1), rcpu)
+            s.mov(reg(Register32 param2.ord), src.toReg)
+            beforeCall()
+            case instr.spr
+            of tbL: s.call(setTbl)
+            of tbU: s.call(setTbu)
+            of decrementer: s.call(setupDecrementer)
+            of wpar: s.call(setWpar)
+            of dmaL: s.call(setDmaL)
+            of hid0: s.call(setHid0)
+            else: raiseAssert(&"cannot generate spr store for {instr.spr}")
+            setFlagUnk()
         of ppcCallInterpreter:
             s.mov(mem32(rcpu, int32(offsetof(PpcState, pc))), cast[int32](instr.pc))
             s.mov(reg(param1), rcpu)
@@ -431,129 +439,6 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             beforeCall()
             s.call(instr.target)
             setFlagUnk()
-        of loadPpcReg:
-            let
-                offset = getPpcRegOffset(instr.ctxLoadIdx)
-                dst = regalloc.allocOpW1R0(s, iref, blk)
-            s.mov(dst.toReg, mem32(rcpu, int32(offset)))
-        of storePpcReg:
-            let offset = getPpcRegOffset(instr.ctxStoreIdx)
-            if (let imm = blk.isImmValI(instr.source(0)); imm.isSome()):
-                s.mov(mem32(rcpu, int32(offset)), cast[int32](imm.get))
-            else:
-                let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
-                s.mov(mem32(rcpu, int32(offset)), src.toReg)
-        of loadXer:
-            let
-                dst = regalloc.allocOpW1R0(s, iref, blk)
-                bitidx = case IrXerNum(instr.ctxLoadIdx)
-                    of irXerNumCa: 29
-                    of irXerNumOv: 30
-                    of irXerNumSo: 31
-            s.test(mem32(rcpu, int32 offsetof(PpcState, xer)), cast[int32](1'u32 shl bitidx))
-            s.setcc(reg(Register8(dst.toReg.ord)), condNotZero)
-            s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
-            setFlagUnk()
-        of storeXer:
-            let
-                src = regalloc.allocOpW0R1(s, instr.source(0), blk)
-                bitidx = case IrXerNum(instr.ctxStoreIdx)
-                    of irXerNumCa: 29
-                    of irXerNumOv: 30
-                    of irXerNumSo: 31
-            s.mov(regEax, mem32(rcpu, int32 offsetof(PpcState, xer)))
-            s.aand(reg(regEax), cast[int32](not(1'u32 shl bitidx)))
-            s.mov(reg(regEcx), src.toReg)
-            s.sshl(reg(regEcx), int8 bitidx)
-            s.oor(reg(regEax), regEcx)
-            s.mov(mem32(rcpu, int32 offsetof(PpcState, xer)), regEax)
-            setFlagUnk()
-        of loadSpr:
-            let dst = regalloc.allocOpW1R0(s, iref, blk)
-            if IrSprNum(instr.ctxLoadIdx) in {irSprNumTbL, irSprNumTbU}:
-                s.mov(reg(param1), rcpu)
-                beforeCall()
-                s.call(currentTb)
-                if IrSprNum(instr.ctxLoadIdx) == irSprNumTbU:
-                    s.sshr(reg(regRax), 32)
-                s.mov(reg(dst.toReg), regEax)
-                setFlagUnk()
-            elif IrSprNum(instr.ctxLoadIdx) == irSprNumDec:
-                s.mov(reg(param1), rcpu)
-                beforeCall()
-                s.call(getDecrementer)
-                s.mov(reg(dst.toReg), regEax)
-                setFlagUnk()
-            else:
-                let offset = getSprOffset(IrSprNum instr.ctxLoadIdx)
-                s.mov(dst.toReg, mem32(rcpu, int32(offset)))
-        of storeSpr:
-            let num = IrSprNum instr.ctxStoreIdx
-            if num in {irSprNumTbL, irSprNumTbU, irSprNumDec, irSprNumWpar, irSprNumHid0, irSprNumDmaL}:
-                s.mov(reg(param1), rcpu)
-                s.mov(reg(Register32(param2.ord)), regalloc.allocOpW0R1(s, instr.source(0), blk).toReg)
-                beforeCall()
-                case num
-                of irSprNumDec: s.call(setupDecrementer)
-                of irSprNumTbL: s.call(setTbl)
-                of irSprNumTbU: s.call(setTbu)
-                of irSprNumHid0: s.call(setHid0)
-                of irSprNumWpar: s.call(setWpar)
-                of irSprNumDmaL: s.call(setDmaL)
-                else: raiseAssert("welp!")
-
-                setFlagUnk()
-            else:
-                let offset = getSprOffset(num)
-                if (let imm = blk.isImmValI(instr.source(0)); imm.isSome()):
-                    s.mov(mem32(rcpu, int32(offset)), cast[int32](imm.get))
-                else:
-                    let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
-                    s.mov(mem32(rcpu, int32(offset)), src.toReg)
-        of loadAccum:
-            let dst = regalloc.allocOpW1R0(s, iref, blk)
-            case DspAccum(instr.ctxLoadIdx)
-            of dspAccumA: s.mov(dst.toReg64, mem64(rcpu, int32(offsetof(DspState, mainAccum))))
-            of dspAccumB: s.mov(dst.toReg64, mem64(rcpu, int32(offsetof(DspState, mainAccum) + 8)))
-            of dspAccumX: s.movsxd(dst.toReg64, mem32(rcpu, int32(offsetof(DspState, auxAccum))))
-            of dspAccumY: s.movsxd(dst.toReg64, mem32(rcpu, int32(offsetof(DspState, auxAccum) + 4)))
-            of dspAccumProd: s.mov(dst.toReg64, mem64(rcpu, int32(offsetof(DspState, prod))))
-        of storeAccum:
-            let src = regalloc.allocOpW0R1(s, instr.source(0), blk)
-            case DspAccum(instr.ctxStoreIdx)
-            of dspAccumA: s.mov(mem64(rcpu, int32(offsetof(DspState, mainAccum))), src.toReg64)
-            of dspAccumB: s.mov(mem64(rcpu, int32(offsetof(DspState, mainAccum) + 8)), src.toReg64)
-            of dspAccumX: s.mov(mem32(rcpu, int32(offsetof(DspState, auxAccum))), src.toReg)
-            of dspAccumY: s.mov(mem32(rcpu, int32(offsetof(DspState, auxAccum) + 4)), src.toReg)
-            of dspAccumProd: s.mov(mem64(rcpu, int32(offsetof(DspState, prod))), src.toReg64)
-        of loadStatusBit:
-            let dst = regalloc.allocOpW1R0(s, iref, blk)
-            s.movzx(dst.toReg, mem16(rcpu, int32(offsetof(DspState, status))))
-            s.sshr(reg(dst.toReg), int8(instr.ctxLoadIdx))
-            s.aand(reg(dst.toReg), 1)
-        of storeStatusBit:
-            let
-                src = regalloc.allocOpW0R1(s, instr.source(0), blk)
-            s.movzx(regEax, mem16(rcpu, int32 offsetof(DspState, status)))
-            s.aand(reg(regEax), cast[int32](not(1'u32 shl instr.ctxStoreIdx)))
-            s.mov(reg(regEcx), src.toReg)
-            s.sshl(reg(regEcx), int8 instr.ctxStoreIdx)
-            s.oor(reg(regEax), regEcx)
-            s.mov(mem16(rcpu, int32 offsetof(DspState, status)), regAx)
-            setFlagUnk()
-        of loadDspReg:
-            let
-                dst = regalloc.allocOpW1R0(s, iref, blk)
-                offset = getDspRegOffset(DspReg instr.ctxLoadIdx)
-            s.movzx(dst.toReg, mem16(rcpu, int32(offset)))
-        of storeDspReg:
-            let
-                dst = regalloc.allocOpW0R1(s, instr.source(0), blk)
-                offset = getDspRegOffset(DspReg instr.ctxStoreIdx)
-            if DspReg(instr.ctxStoreIdx) in {a2, b2, ps2}:
-                s.mov(mem32(rcpu, int32(offset)), dst.toReg)
-            else:
-                s.mov(mem16(rcpu, int32(offset)), Register16(ord(dst.toReg)))
         of csel:
             let (dst, src0, src1, src2) = regalloc.allocOpW1R3(s, iref, instr.source(0), instr.source(1), instr.source(2), i, blk)
             s.test(reg(src2.toReg), src2.toReg)
@@ -802,13 +687,15 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             s.cmov(dst.toReg, reg(regEax), condNotZero)
             s.xxor(reg(dst.toReg), 0x1F)
             setFlagUnk()
-        of extsb, extsh, extsw, extzw:
+        of extsb, extsh, extsbX, extshX, extswX, extzwX:
             let (dst, src) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
             case instr.kind
             of extsb: s.movsx(dst.toReg, reg(Register8(src.toReg.ord)))
             of extsh: s.movsx(dst.toReg, reg(Register16(src.toReg.ord)))
-            of extsw: s.movsxd(dst.toReg64, reg(src.toReg))
-            of extzw: s.mov(dst.toReg, reg(src.toReg))
+            of extsbX: s.movsx(dst.toReg64, reg(Register8(src.toReg.ord)))
+            of extshX: s.movsx(dst.toReg64, reg(Register16(src.toReg.ord)))
+            of extswX: s.movsxd(dst.toReg64, reg(src.toReg))
+            of extzwX: s.mov(dst.toReg, reg(src.toReg))
             else: raiseAssert("shouldn't happen")
         of condAnd, condOr, condXor:
             let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk, true)
@@ -1104,18 +991,6 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             beforeCall()
             s.call(systemCall)
             setFlagUnk()
-        of loadFpr:
-            let dst = xmmRegalloc.allocOpW1R0(s, iref, blk)
-            s.movsd(dst.toXmm, memXmm(rcpu, int32 offsetof(PpcState, fr) + 8*2*int32(instr.ctxLoadIdx)))
-        of storeFpr:
-            let src = xmmRegalloc.allocOpW0R1(s, instr.source(0), blk)
-            s.movsd(memXmm(rcpu, int32 offsetof(PpcState, fr) + 8*2*int32(instr.ctxStoreIdx)), src.toXmm())
-        of loadFprPair:
-            let dst = xmmRegalloc.allocOpW1R0(s, iref, blk)
-            s.movapd(dst.toXmm, memXmm(rcpu, int32 offsetof(PpcState, fr) + 8*2*int32(instr.ctxLoadIdx)))
-        of storeFprPair:
-            let src = xmmRegalloc.allocOpW0R1(s, instr.source(0), blk)
-            s.movapd(memXmm(rcpu, int32 offsetof(PpcState, fr) + 8*2*int32(instr.ctxStoreIdx)), src.toXmm())
         of fSwizzleD00:
             let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
             s.movddup(dst.toXmm, reg(src.toXmm))

@@ -4,7 +4,11 @@ import
     dsp/[interpreter/dspinterpreter, jit/dspfrontend],
     flipper/[rasterinterface, cp],
     util/dolfile,
-    cycletiming
+    cycletiming,
+
+    vi,
+
+    std/monotimes, times
 
 when defined(nintendoswitch):
     import frontend/switch
@@ -33,8 +37,13 @@ proc run*() =
     rasterinterface.init()
     while frontendRunning:
         gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
+        let gekkoStart = getMonoTime()
         ppcfrontend.gekkoRun gekkoTimestamp, gekkoTarget
-        dspinterpreter.dspRun dspTimestamp, gekkoTimestamp
+        let dspStart = getMonoTime()
+        dspfrontend.dspRun dspTimestamp, gekkoTimestamp
+        let dspEnd = getMonoTime()
+        gekkoTime += dspStart - gekkoStart
+        dspTime += dspEnd - dspStart
 
         cpRun()
 

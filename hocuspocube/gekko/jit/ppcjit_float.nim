@@ -287,10 +287,7 @@ proc fcmpo*(builder; crfD, a, b: uint32) =
             gt = builder.biop(fCmpGreatersd, fra, frb)
             eq = builder.biop(fCmpEqualsd, fra, frb)
             unordered = builder.biop(fUnorderedsd, fra, frb)
-        discard builder.storectx(storeCrBit, crfD*4+0, lt)
-        discard builder.storectx(storeCrBit, crfD*4+1, gt)
-        discard builder.storectx(storeCrBit, crfD*4+2, eq)
-        discard builder.storectx(storeCrBit, crfD*4+3, unordered)
+        builder.storeCrBits(crfD, lt, gt, eq, unordered)
     builder.regs.floatInstr = true
 
 proc fcmpu*(builder; crfD, a, b: uint32) =
@@ -306,10 +303,7 @@ proc fcmpu*(builder; crfD, a, b: uint32) =
             gt = builder.biop(fCmpGreatersd, fra, frb)
             eq = builder.biop(fCmpEqualsd, fra, frb)
             unordered = builder.biop(fUnorderedsd, fra, frb)
-        discard builder.storectx(storeCrBit, crfD*4+0, lt)
-        discard builder.storectx(storeCrBit, crfD*4+1, gt)
-        discard builder.storectx(storeCrBit, crfD*4+2, eq)
-        discard builder.storectx(storeCrBit, crfD*4+3, unordered)
+        builder.storeCrBits(crfD, lt, gt, eq, unordered)
     builder.regs.floatInstr = true
 
 proc mffsx*(builder; d, rc: uint32) =

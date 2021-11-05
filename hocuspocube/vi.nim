@@ -4,7 +4,7 @@ import
     gekko/gekko, si/si,
     gekko/ppcstate,
 
-    strformat
+    strformat, std/monotimes, times
 
 when defined(nintendoswitch):
     import frontend/switch
@@ -103,6 +103,9 @@ var
     hsw: Hsw
 
     visel: Visel
+
+    lastFieldTime = getMonoTime()
+    gekkoTime*, dspTime*: Duration
 
 proc cyclesPerSample(): int64 =
     gekkoCyclesPerViCycle[viclk.s] * 2
@@ -224,7 +227,14 @@ proc readOutField(odd: bool) =
         if not odd and vto.prb == vte.prb - 1:
             frameAdr -= frameStride
 
-    echo &"field read out {frameAdr:08X} {frameWidth}*{frameHeight} {uint32(tfbl):08X} {uint32(bfbl):08X} {calcFramebufferAddr(false):08X} {calcFramebufferAddr(true):08X} stride {frameStride}"
+    let
+        timeNow = getMonoTime()
+        timeDiff = timeNow - lastFieldTime
+    lastFieldTime = timeNow
+
+    echo &"field read out {frameAdr:08X} {float(timeDiff.inNanoseconds)/(1_000_000.0)} {float(gekkoTime.inNanoseconds)/(1_000_000.0)} {float(dspTime.inNanoseconds)/(1_000_000.0)} {frameWidth}*{frameHeight}"
+    reset(gekkoTime)
+    reset(dspTime)
 
     var
         frameDataRgba = newSeq[uint32](frameWidth * frameHeight)

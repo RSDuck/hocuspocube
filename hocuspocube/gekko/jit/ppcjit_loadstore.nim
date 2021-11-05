@@ -1,7 +1,8 @@
 import
     ../../util/aluhelper,
     ../../util/jit/ir, ppcfrontendcommon,
-    fallbacks
+    fallbacks,
+    ../ppcstate
 
 using builder: var IrBlockBuilder[PpcIrRegState]
 
@@ -429,7 +430,7 @@ proc quantload(builder; adr: IrInstrRef, d, w, i: uint32) =
     builder.storefregp d, builder.unop(cvtps2pd,
         builder.biop(if w == 1: ppcLoadFsq else: ppcLoadFpq,
             adr,
-            builder.loadctx(loadSpr, irSprNumGqr0.succ(int w).uint32)))
+            builder.loadctx(ctxLoadU32, uint32(offsetof(PpcState, gqr)) + i*4)))
 
 proc quantstore(builder; adr: IrInstrRef, s, w, i: uint32) =
     let
@@ -442,7 +443,7 @@ proc quantstore(builder; adr: IrInstrRef, s, w, i: uint32) =
     discard builder.triop(if w == 1: ppcStoreFsq else: ppcStoreFpq,
         adr,
         storeval,
-        builder.loadctx(loadSpr, irSprNumGqr0.succ(int w).uint32))
+        builder.loadctx(ctxLoadU32, uint32(offsetof(PpcState, gqr)) + i*4))
 
 proc psq_lx*(builder; d, a, b, w, i: uint32) =
     when interpretLoadStore or interpretQuantLoadStore:

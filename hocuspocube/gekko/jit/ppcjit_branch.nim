@@ -13,7 +13,7 @@ proc bx*(builder; li, aa, lk: uint32) =
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.bx)
     else:
         if lk == 1:
-            discard builder.storectx(storeSpr, irSprNumLr.uint32, builder.imm(builder.regs.pc + 4))
+            builder.storeLr(builder.imm(builder.regs.pc + 4))
 
         let target =
             (if aa == 1:
@@ -31,8 +31,8 @@ proc handleCondAndCtr(builder; bo, bi: uint32): IrInstrRef =
             (if bo.getBit(2):
                 builder.imm(true)
             else:
-                let ctr = builder.biop(iSub, builder.loadctx(loadSpr, irSprNumCtr.uint32), builder.imm(1))
-                discard builder.storectx(storeSpr, irSprNumCtr.uint32, ctr)
+                let ctr = builder.biop(iSub, builder.loadCtr(), builder.imm(1))
+                builder.storeCtr(ctr)
                 let isZero = builder.biop(iCmpEqual, ctr, builder.imm(0))
                 if bo.getBit(1):
                     isZero
@@ -42,7 +42,7 @@ proc handleCondAndCtr(builder; bo, bi: uint32): IrInstrRef =
             (if bo.getBit(4):
                 builder.imm(true)
             else:
-                let crBit = builder.loadctx(loadCrBit, bi)
+                let crBit = builder.loadCrBit(bi)
                 if bo.getBit(3):
                     crBit
                 else:
@@ -64,8 +64,7 @@ proc bcx*(builder; bo, bi, bd, aa, lk: uint32) =
             prevNia = builder.imm(builder.regs.pc + 4)
 
         if lk == 1:
-            discard builder.storectx(storeSpr, irSprNumLr.uint32, 
-                builder.triop(csel, prevNia, builder.loadctx(loadSpr, irSprNumLr.uint32), cond))
+            builder.storeLr(builder.triop(csel, prevNia, builder.loadLr(), cond))
 
         discard builder.triop(ppcBranch, cond, builder.imm(target), prevNia)
 
@@ -80,10 +79,9 @@ proc bcctrx*(builder; bo, bi, lk: uint32) =
             prevNia = builder.imm(builder.regs.pc + 4)
 
         if lk == 1:
-            discard builder.storectx(storeSpr, irSprNumLr.uint32,
-                builder.triop(csel, prevNia, builder.loadctx(loadSpr, irSprNumLr.uint32), cond))
+            builder.storeLr(builder.triop(csel, prevNia, builder.loadLr(), cond))
 
-        discard builder.triop(ppcBranch, cond, builder.loadctx(loadSpr, irSprNumCtr.uint32), prevNia)
+        discard builder.triop(ppcBranch, cond, builder.loadCtr(), prevNia)
 
     builder.regs.branch = true
 
@@ -93,12 +91,11 @@ proc bclrx*(builder; bo, bi, lk: uint32) =
     else:
         let
             cond = builder.handleCondAndCtr(bo, bi)
-            lr = builder.loadctx(loadSpr, irSprNumLr.uint32)
+            lr = builder.loadLr()
             prevNia = builder.imm(builder.regs.pc + 4)
 
         if lk == 1:
-            discard builder.storectx(storeSpr, irSprNumLr.uint32,
-                builder.triop(csel, prevNia, lr, cond))
+            builder.storeLr(builder.triop(csel, prevNia, lr, cond))
 
         discard builder.triop(ppcBranch, cond, lr, prevNia)
 

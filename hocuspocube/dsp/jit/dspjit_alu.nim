@@ -21,18 +21,11 @@ proc addAccumOp(builder; accumN: uint32, addend: IrInstrRef, secondary: Option[u
         ca = builder.biop(carryAddX, accum, addend)
         zero = builder.biop(iCmpEqualX, sum, builder.imm(0))
         mi = builder.biop(iCmpLessSX, sum, builder.imm(0))
-        ext = builder.biop(iCmpEqualX, sum, builder.unop(extsw, sum))
-        unnorm = builder.biop(lsr,
-            builder.unop(bitNot,
-                builder.biop(bitXor, sum, builder.biop(lsl, sum, builder.imm(1)))),
-            builder.imm(31))
 
     builder.writeStatus(dspStatusBitOv, ov)
     builder.writeStatus(dspStatusBitCa, ca)
     builder.writeStatus(dspStatusBitZr, zero)
     builder.writeStatus(dspStatusBitMi, mi)
-    builder.writeStatus(dspStatusBitExt, ext)
-    builder.writeStatus(dspStatusBitUnnorm, unnorm)
     builder.setE1(sum)
     builder.setU1(sum)
 
@@ -71,25 +64,20 @@ proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, second
         res = builder.biop(op, accum, operand)
         zero = builder.biop(iCmpEqualX, res, builder.imm(0))
         mi = builder.biop(iCmpLessSX, res, builder.imm(0))
-        ext = builder.biop(iCmpEqualX, res, builder.unop(extsw, res))
-        unnorm = builder.biop(lsr,
-            builder.unop(bitNot,
-                builder.biop(bitXor, res, builder.biop(lsl, res, builder.imm(1)))),
-            builder.imm(31))
 
     builder.writeStatus(dspStatusBitOv, builder.imm(false))
     builder.writeStatus(dspStatusBitCa, builder.imm(false))
     builder.writeStatus(dspStatusBitZr, zero)
     builder.writeStatus(dspStatusBitMi, mi)
-    builder.writeStatus(dspStatusBitExt, ext)
-    builder.writeStatus(dspStatusBitUnnorm, unnorm)
+    builder.setE1(res)
+    builder.setU1(res)
 
     builder.writeAccum(accumN, res)
 
 proc mr*(builder; m, r: uint16) =
-    when interpretAlu:
+    #when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mr)
-    else:
+    #[else:
         if m != 0:
             let
                 adr = builder.readReg(r0.succ(int r))
@@ -99,7 +87,7 @@ proc mr*(builder; m, r: uint16) =
             of 1: builder.writeReg r0.succ(int r), builder.decAdr(adr, wrap)
             of 2: builder.writeReg r0.succ(int r), builder.incAdr(adr, wrap)
             of 3: builder.writeReg r0.succ(int r), builder.decAdr(adr, wrap, builder.readReg(m0.succ(int r)))
-            of 4..7: builder.writeReg r0.succ(int r), builder.incAdr(adr, wrap, builder.readReg(m0.succ(int m-4)))
+            of 4..7: builder.writeReg r0.succ(int r), builder.incAdr(adr, wrap, builder.readReg(m0.succ(int m-4)))]#
 
 proc adsi*(builder; d, i: uint16) =
     when interpretAlu:
@@ -185,8 +173,8 @@ proc asfn2*(builder; d: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfn2)
 
 proc mv*(builder; d, s: uint16) =
-    if interpretAlu or DspReg(d) in pcs..lcs or
-        DspReg(s) in pcs..lcs:
+    if interpretAlu or DspReg(d) in DspReg.pcs..DspReg.lcs or
+        DspReg(s) in DspReg.pcs..DspReg.lcs:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mv)
     else:
         builder.writeReg(DspReg d, builder.readReg(DspReg s))
@@ -247,7 +235,7 @@ proc getAddSubParam(builder; d, s: uint16): IrInstrRef =
     of 2..3: builder.biop(bitAnd, builder.readAuxAccum(s-2), builder.imm(not 0xFFFF'u64))
     of 4..5: builder.readAuxAccum(s - 4)
     of 6: builder.readAccum(1 - d)
-    of 7: builder.readProd()
+    of 7: builder.readFoldedProd()
 
 proc add*(builder; s, d, x: uint16) =
     when interpretAlu:

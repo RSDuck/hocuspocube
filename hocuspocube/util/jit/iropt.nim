@@ -3,104 +3,37 @@ import
     tables,
     stew/bitseqs,
     ../aluhelper,
-    ../../dsp/dspstate,
+    ../../gekko/ppcstate,
     ir
 
 proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
-    # lift registers
+    # context loads/stores may not alias until after this pass
     type RegState = object
         curVal, lastStore: IrInstrRef
-    var
-        regs: array[32, RegState]
-        crs: array[32, RegState]
-        fprs: array[32, RegState]
-    for i in 0..<32:
-        regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-        crs[i] = regs[i]
-        fprs[i] = regs[i]
 
-    proc doLoad(states: var RegState, blk: IrBasicBlock, iref: IrInstrRef) =
-        if states.curVal == InvalidIrInstrRef:
-            states.curVal = iref
-        else:
-            blk.getInstr(iref) = makeIdentity(states.curVal)
-    proc doStore(states: var RegState, blk: IrBasicBlock, iref, val: IrInstrRef) =
-        if states.lastStore != InvalidIrInstrRef:
-            blk.getInstr(states.lastStore) = makeIdentity(InvalidIrInstrRef)
-        states = RegState(curVal: val, lastStore: iref)
+    var regState: Table[uint32, RegState]
 
     for i in 0..<blk.instrs.len:
         let
             iref = blk.instrs[i]
             instr = blk.getInstr(iref)
+
         case instr.kind
-        of ppcCallInterpreter:
-            for i in 0..<32:
-                regs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-                crs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-                fprs[i] = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-        of loadPpcReg:
-            doLoad(regs[instr.ctxLoadIdx], blk, iref)
-        of loadCrBit:
-            doLoad(crs[instr.ctxLoadIdx], blk, iref)
-        of loadFprPair:
-            doLoad(fprs[instr.ctxLoadIdx], blk, iref)
-        of storePpcReg:
-            doStore(regs[instr.ctxStoreIdx], blk, iref, instr.source(0))
-        of storeCrBit:
-            doStore(crs[instr.ctxStoreIdx], blk, iref, instr.source(0))
-        of storeFprPair:
-            doStore(fprs[instr.ctxStoreIdx], blk, iref, instr.source(0))
-        of loadSpr:
-            if instr.ctxLoadIdx == irSprNumCr.uint32:
-                for i in 0..<32:
-                    crs[i].lastStore = InvalidIrInstrRef
-        of storeSpr:
-            if instr.ctxStoreIdx == irSprNumCr.uint32:
-                for i in 0..<32:
-                    if crs[i].lastStore != InvalidIrInstrRef:
-                        blk.getInstr(crs[i].lastStore) = makeIdentity(InvalidIrInstrRef)
-                        crs[i].lastStore = InvalidIrInstrRef
-                    crs[i].curVal = InvalidIrInstrRef
+        of CtxLoadInstrs:
+            let val = regState.mgetOrPut(instr.ctxOffset, RegState(curVal: iref, lastStore: InvalidIrInstrRef))
+            if val.curVal != iref:
+                blk.getInstr(iref) = makeIdentity(val.curVal)
+        of CtxStoreInstrs:
+            let
+                val = addr regState.mgetOrPut(instr.ctxOffset, RegState())
+                storeVal = instr.source(0)
+            if val.lastStore != InvalidIrInstrRef:
+                blk.getInstr(val.lastStore) = makeIdentity(InvalidIrInstrRef)
+            val.lastStore = iref
+            val.curVal = storeVal
+        of ppcCallInterpreter, dspCallInterpreter:
+            regState.clear()
         else: discard
-
-    let oldInstrs = move blk.instrs
-    var cr = RegState(curVal: InvalidIrInstrRef, lastStore: InvalidIrInstrRef)
-
-    assert blk.instrs.len == 0
-
-    # lower loadCrBit/storeCrBit and simultaenously lift cr reads/writes
-    for iref in oldInstrs:
-        let instr = blk.getInstr(iref)
-        case instr.kind
-        of loadCrBit:
-            if cr.curVal == InvalidIrInstrRef:
-                cr.curVal = blk.loadctx(loadSpr, irSprNumCr.uint32)
-
-            blk.getInstr(iref) = makeBiop(bitAnd,
-                blk.biop(lsr, cr.curVal, blk.imm(31-instr.ctxLoadIdx)),
-                blk.imm(1))
-        of storeCrBit:
-            if cr.curVal == InvalidIrInstrRef:
-                cr.curVal = blk.loadctx(loadSpr, irSprNumCr.uint32)
-
-            let newCr = blk.biop(bitOr,
-                blk.biop(lsl, instr.source(0), blk.imm(31'u32-instr.ctxStoreIdx)),
-                blk.biop(bitAnd, cr.curVal, blk.imm(not(1'u32 shl (31-instr.ctxStoreIdx)))))
-            blk.getInstr(iref) = makeStorectx(storeSpr, irSprNumCr.uint32, newCr)
-
-            if cr.lastStore != InvalidIrInstrRef:
-                blk.getInstr(cr.lastStore) = makeIdentity(InvalidIrInstrRef)
-            cr = RegState(curVal: newCr, lastStore: iref)
-        of loadSpr:
-            if instr.ctxLoadIdx == irSprNumCr.uint32:
-                doLoad(cr, blk, iref)
-        of storeSpr:
-            if instr.ctxStoreIdx == irSprNumCr.uint32:
-                doStore(cr, blk, iref, instr.source(0))
-        else: discard
-
-        blk.instrs.add iref
 
 proc floatOpts*(blk: IrBasicBlock) =
     #[
@@ -132,21 +65,21 @@ proc floatOpts*(blk: IrBasicBlock) =
             for source in msources blk.getInstr(iref):
                 while blk.getInstr(source).kind in {fSwizzleD00, fMergeD00, fMergeD01}:
                     source = blk.getInstr(source).source(0)
-        of loadFprPair:
+        of ctxLoadFprPair:
             pairLoads.add iref
-        of storeFprPair:
+        of ctxStoreFprPair:
             block replaced:
                 let
                     instr = blk.getInstr(iref)
                     srcInstr = blk.getInstr(instr.source(0)) 
                 if srcInstr.kind == fMergeD01:
                     let srcSrcInstr = blk.getInstr(srcInstr.source(1))
-                    if srcSrcInstr.kind == loadFprPair and srcSrcInstr.ctxLoadIdx == instr.ctxStoreIdx:
-                        blk.getInstr(iref) = makeStorectx(storeFpr, instr.ctxStoreIdx, instr.source(0))
+                    if srcSrcInstr.kind == ctxLoadFprPair and srcSrcInstr.ctxOffset == instr.ctxOffset:
+                        blk.getInstr(iref) = makeStorectx(ctxStoreFpr, instr.ctxOffset, instr.source(0))
                         break replaced
 
                 pairLoadUpperUsed.setBit(int(instr.source(0)))
-        of FpPairOps:
+        of FpAllSrcsReadPair:
             for source in sources blk.getInstr(iref):
                 pairLoadUpperUsed.setBit(int(source))
         of fMergeD01:
@@ -171,7 +104,84 @@ proc floatOpts*(blk: IrBasicBlock) =
 
     for pairLoad in pairLoads:
         if not pairLoadUpperUsed[int(pairLoad)]:
-            blk.getInstr(pairLoad) = IrInstr(kind: loadFpr, ctxLoadIdx: blk.getInstr(pairLoad).ctxLoadIdx)
+            blk.getInstr(pairLoad) = makeLoadctx(ctxLoadFpr, blk.getInstr(pairLoad).ctxOffset)
+
+proc mergeExtractEliminate*(blk: IrBasicBlock) =
+    #[
+        this pass is more or less a glorified lowering + optimisation at once
+        of mergeBit and extractBit instructions.
+
+        - extractBit instructions which extracts a value which was merged in previously
+            are replaced by just that value. Otherwise it's just straightforwardly lowered.
+        - every single mergeBit instruction in a mergeBit chain is lowered to
+            independent constructions of the current value of the chain at that point.
+
+            Example:
+                $2 = mergebit $1, $..., 28
+                $3 = mergebit $2, $..., 29
+
+            is turned into:
+                $2 = ($1 & ~((1<<28))) | ($... << 28)
+                $3 = ($1 & ~((1<<28)|(1<<29))) | ($... << 28) | ($... << 29)
+
+            this produces a lot of garbage which will be left to dead code removal,
+                but has two advantages:
+            - if two merges in a chain merge in at the same bit position, but in the end
+                only a value containing the bit from the last merge is read,
+                this way the other merge is completely optimised away.
+            - the lowering is more optimised as it considers multiple merges at once
+                (just a single and instead of one per merge).
+    ]#
+    type PartialBitValue = object
+        bits: array[32, IrInstrRef]
+        chainStart: IrInstrRef
+
+    let oldInstrs = move blk.instrs
+    var partialValues: Table[IrInstrRef, PartialBitValue]
+
+    for iref in oldInstrs:
+        let instr = blk.getInstr(iref)
+        case instr.kind
+        of mergeBit:
+            var newVal = partialValues.getOrDefault(instr.source(0), PartialBitValue(chainStart: instr.source(0)))
+            newVal.bits[instr.bit] = instr.source(1)
+            partialValues[iref] = newVal
+
+            var
+                mask = 0xFFFF_FFFF'u32
+                op = InvalidIrInstrRef
+            for i in 0..<32:
+                if newVal.bits[i] != InvalidIrInstrRef:
+                    mask.clearBit(i)
+                    let shiftedBit = blk.biop(lsl, newVal.bits[i], blk.imm(uint64 i))
+                    op =
+                        if op != InvalidIrInstrRef: 
+                            blk.biop(bitOr, op, shiftedBit)
+                        else:
+                            shiftedBit
+            blk.getInstr(iref) = makeBiop(bitOr, op, blk.biop(bitAnd, newVal.chainStart, blk.imm(mask)))
+        of extractBit:
+            block replaced:
+                partialValues.withValue(instr.source(0), val):
+                    if (let bit = val.bits[instr.bit]; bit != InvalidIrInstrRef):
+                        blk.getInstr(iref) = makeIdentity(bit)
+                        break replaced
+
+                blk.getInstr(iref) = makeBiop(bitAnd, blk.biop(lsr, instr.source(0), blk.imm(instr.bit)), blk.imm(1))
+        else: discard
+
+        blk.instrs.add iref
+
+#[      for iref in oldInstrs:
+        let instr = blk.getInstr(iref)
+        case instr.kind
+        of mergeBit:
+            blk.getInstr(iref) = makeBiop(bitOr, blk.biop(lsl, instr.source(1), blk.imm(instr.bit)), blk.biop(bitAnd, instr.source(0), blk.imm(not(1'u32 shl instr.bit))))
+        of extractBit:
+            blk.getInstr(iref) = makeBiop(bitAnd, blk.biop(lsr, instr.source(0), blk.imm(instr.bit)), blk.imm(1))
+        else: discard
+
+        blk.instrs.add iref]#
 
 proc dspOpts*(blk: IrBasicBlock) =
     let oldInstrs = move blk.instrs
@@ -198,15 +208,14 @@ proc dspOpts*(blk: IrBasicBlock) =
             blk.getInstr(iref) = makeBiop(bitOrX,
                 blk.biop(bitAndX, instr.source(0), blk.imm(not 0xFFFF_0000_0000'u64)),
                 blk.biop(lslX, blk.unop(extsb, instr.source(1)), blk.imm(32)))
-        of loadStatusBit:
-            blk.getInstr(iref) = makeBiop(bitAnd,
-                blk.biop(lsr, blk.loadctx(loadDspReg, psr.uint32), blk.imm(instr.ctxLoadIdx)),
-                blk.imm(1))
-        of storeStatusBit:
-            blk.getInstr(iref) = makeStorectx(storeDspReg, psr.uint32,
-                blk.biop(bitOr,
-                    blk.biop(bitAnd, blk.loadctx(loadDspReg, psr.uint32), blk.imm(not(1'u32 shl instr.ctxStoreIdx))),
-                    blk.biop(lsl, blk.biop(bitAnd, instr.source(0), blk.imm(1)), blk.imm(instr.ctxStoreIdx))))
+        of mergeMidHi:
+            blk.getInstr(iref) = makeBiop(bitOrX,
+                blk.biop(bitAndX, instr.source(0), blk.imm(0xFFFF'u64)),
+                blk.biop(lslX, blk.unop(extshX, instr.source(1)), blk.imm(16)))
+        of mergeBit:
+            blk.getInstr(iref) = makeBiop(bitOr, blk.biop(lsl, instr.source(1), blk.imm(instr.bit)), blk.biop(bitAnd, instr.source(0), blk.imm(not(1'u32 shl instr.bit))))
+        of extractBit:
+            blk.getInstr(iref) = makeBiop(bitAnd, blk.biop(lsr, instr.source(0), blk.imm(instr.bit)), blk.imm(1))
         else:
             discard
 
@@ -439,18 +448,17 @@ proc foldConstants*(blk: IrBasicBlock) =
             let c = blk.isImmValB(instr.source(2))
             if c.isSome:
                 blk.getInstr(iref) = makeIdentity(if c.get: instr.source(0) else: instr.source(1))
-        of extsb, extsh, extzw:
+        of extsb, extsh, extzwX, extswX:
             let val = blk.isImmValI(instr.source(0))
             if val.isSome:
                 blk.getInstr(iref) = makeImm(case instr.kind
-                    of extsh: signExtend(val.get, 16)
-                    of extsb: signExtend(val.get, 8)
-                    of extzw: val.get
+                    of extsh: uint64 signExtend(val.get, 16)
+                    of extsb: uint64 signExtend(val.get, 8)
+                    of extshX: signExtend(uint64 val.get, 16)
+                    of extsbX: signExtend(uint64 val.get, 8)
+                    of extzwX: uint64 val.get
+                    of extswX: signExtend(uint64(val.get), 32)
                     else: raiseAssert("should not happen"))
-        of extsw:
-            let val = blk.isImmValI(instr.source(0))
-            if val.isSome:
-                blk.getInstr(iref) = makeImm(signExtend(val.get, 32))
         else: discard # no optimisations for you :(
 
 proc removeIdentities*(blk: IrBasicBlock) =
@@ -461,6 +469,7 @@ proc removeIdentities*(blk: IrBasicBlock) =
             for source in msources blk.getInstr(iref):
                 while blk.getInstr(source).kind == identity:
                     source = blk.getInstr(source).source(0)
+                    assert source != InvalidIrInstrRef
 
             newInstrs.add iref
         else:
@@ -519,9 +528,9 @@ proc verify*(blk: IrBasicBlock) =
 
         for source in sources instr:
             assert blk.getInstr(source).kind notin ResultlessOps
-            assert instrsEncountered[int(source)], &"instr {i} (${int(iref)}) has invalid source ${int(source)}\n{blk}"
+            assert instrsEncountered[int(source)-1], &"instr {i} (${int(iref)}) has invalid source ${int(source)}\n{blk}"
 
-        instrsEncountered.setBit(int(iref))
+        instrsEncountered.setBit(int(iref)-1)
 
         if i == blk.instrs.len - 1:
             assert instr.kind in {ppcBranch, ppcSyscall, ppcCallInterpreter,
@@ -539,15 +548,20 @@ proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAd
             let instr = blk.getInstr(blk.instrs[i])
             case instr.kind
             of ppcSyscall, ppcStore8, ppcStore16, ppcStore32,
-                ppcStoreFss, ppcStoreFsd, ppcStoreFsq, ppcStoreFpq,
-                loadSpr, storeSpr, ppcCallInterpreter:
+                ppcStoreFss, ppcStoreFsd, ppcStoreFsq, sprStore32,
+                ppcCallInterpreter:
                 return false
-            of loadPpcReg:
-                regsRead.incl instr.ctxLoadIdx
-            of storePpcReg:
-                if instr.ctxStoreIdx in regsRead:
+            of CtxLoadInstrs:
+                if instr.ctxOffset-uint32(offsetof(PpcState, r)) < 32*4:
+                    regsRead.incl (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
+            of CtxStoreInstrs:
+                if instr.ctxOffset-uint32(offsetof(PpcState, r)) >= 32*4:
+                    continue
+                let reg = (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
+
+                if reg in regsRead:
                     return false
-                regsWritten.incl instr.ctxStoreIdx
+                regsWritten.incl reg
             else: discard
 
         return true

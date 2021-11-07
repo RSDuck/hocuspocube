@@ -75,19 +75,19 @@ proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, second
     builder.writeAccum(accumN, res)
 
 proc mr*(builder; m, r: uint16) =
-    #when interpretAlu:
+    when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mr)
-    #[else:
+    else:
         if m != 0:
             let
-                adr = builder.readReg(r0.succ(int r))
-                wrap = builder.readReg(l0.succ(int r))
+                adr = builder.readAdr(r)
+                wrap = builder.readAdrLen(r)
             case range[0..7](m)
             of 0: discard
-            of 1: builder.writeReg r0.succ(int r), builder.decAdr(adr, wrap)
-            of 2: builder.writeReg r0.succ(int r), builder.incAdr(adr, wrap)
-            of 3: builder.writeReg r0.succ(int r), builder.decAdr(adr, wrap, builder.readReg(m0.succ(int r)))
-            of 4..7: builder.writeReg r0.succ(int r), builder.incAdr(adr, wrap, builder.readReg(m0.succ(int m-4)))]#
+            of 1: builder.writeAdr r, builder.decAdr(adr, wrap)
+            of 2: builder.writeAdr r, builder.incAdr(adr, wrap)
+            of 3: builder.writeAdr r, builder.decAdr(adr, wrap, builder.readAdrMod(r))
+            of 4..7: builder.writeAdr r, builder.incAdr(adr, wrap, builder.readAdrMod(m-4))
 
 proc adsi*(builder; d, i: uint16) =
     when interpretAlu:

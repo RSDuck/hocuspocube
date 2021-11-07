@@ -215,10 +215,52 @@ proc decAdr*(builder; adr, wrap: IrInstrRef): IrInstrRef =
         builder.imm(0xFFFF))
 
 proc incAdr*(builder; adr, wrap, inc: IrInstrRef): IrInstrRef =
-    discard
+    let
+        inc = builder.unop(extsh, inc)
+        nextAdr = builder.biop(iAdd, adr, inc)
+        mask = builder.biop(bitOr, builder.biop(lsl, wrap, builder.imm(1)), builder.imm(0x2))
+        dadr = builder.biop(bitAnd, builder.biop(bitXor, builder.biop(bitXor, adr, nextAdr), inc), mask)
+
+        wrapPlus1 = builder.biop(iAdd, wrap, builder.imm(1))
+
+        nextAdrA = builder.biop(iSub, nextAdr, wrapPlus1)
+        nextAdrB = builder.biop(iAdd, nextAdr, wrapPlus1)
+
+    builder.biop(bitAnd, builder.triop(csel,
+            builder.triop(csel, nextAdr, nextAdrB,
+                builder.biop(iCmpGreaterU, builder.biop(bitAnd, builder.biop(bitXor, nextAdrB, nextAdr), dadr), wrap)),
+            builder.triop(csel, nextAdrA, nextAdr, builder.biop(iCmpGreaterU, dadr, wrap)),
+            builder.biop(iCmpLessS, inc, builder.imm(0))),
+        builder.imm(0xFFFF))
 
 proc decAdr*(builder; adr, wrap, inc: IrInstrRef): IrInstrRef =
-    discard
+    let
+        inc = builder.unop(extsh, inc)
+        nextAdr = builder.biop(iSub, adr, inc)
+        mask = builder.biop(bitOr, builder.biop(lsl, wrap, builder.imm(1)), builder.imm(0x2))
+        dadr = builder.biop(bitAnd,
+            builder.biop(bitXor, builder.biop(bitXor, adr, nextAdr), builder.unop(bitNot, inc)),
+            mask)
+
+        wrapPlus1 = builder.biop(iAdd, wrap, builder.imm(1))
+
+        nextAdrA = builder.biop(iSub, nextAdr, wrapPlus1)
+        nextAdrB = builder.biop(iAdd, nextAdr, wrapPlus1)
+
+    builder.biop(bitAnd,
+        builder.triop(csel,
+            builder.triop(csel, nextAdrA, nextAdr, builder.biop(iCmpGreaterU, dadr, wrap)),
+            builder.triop(csel, nextAdr, nextAdrB,
+                builder.biop(iCmpGreaterU, builder.biop(bitAnd, builder.biop(bitXor, nextAdrB, nextAdr), dadr), wrap)),
+            builder.biop(iCmpGreaterU, inc, builder.imm(0xFFFF8000'u32))),
+        builder.imm(0xFFFF))
+
+func loadStoreAdrInc*(builder; adr: IrInstrRef, m: uint32, rn: uint32) =
+    case range[0..3](m)
+    of 0: discard
+    of 1: builder.writeAdr rn, builder.decAdr(adr, builder.readAdrLen(rn))
+    of 2: builder.writeAdr rn, builder.incAdr(adr, builder.readAdrLen(rn))
+    of 3: builder.writeAdr rn, builder.incAdr(adr, builder.readAdrLen(rn), builder.readAdrMod(rn))
 
 proc loadAccum*(builder; num: uint32, val: IrInstrRef) =
     let
@@ -229,8 +271,23 @@ proc loadAccum*(builder; num: uint32, val: IrInstrRef) =
 
     builder.writeAccum(num, builder.triop(cselX, signExtendedVal, mergeVal, xl))
 
+proc storeAccum*(builder; num: uint32): IrInstrRef =
+    let
+        xl = builder.readStatus(dspStatusBitXl)
+        accum = builder.readAccum(num)
+
+        clampVal = builder.triop(csel,
+            builder.imm(0x8000),
+            builder.imm(0x7FFF),
+            builder.biop(iCmpLessS, accum, builder.imm(0)))
+
+    builder.triop(csel,
+        clampVal,
+        builder.unop(extractMid, accum),
+        builder.biop(condAnd, xl, builder.unop(condNot, builder.biop(iCmpEqualX, accum, builder.unop(extswX, accum)))))
+
 proc writeAccumSignExtend*(builder; num: uint32, val: IrInstrRef) =
-    builder.writeAccum(num, builder.biop(asrX, builder.biop(lslX, val, builder.imm(24)), builder.imm(24)))
+    builder.writeAccum(num, builder.signExt40(val))
 
 proc setE1*(builder; val: IrInstrRef) =
     builder.writeStatus dspStatusBitExt, builder.biop(iCmpEqualX, val, builder.unop(extswX, val))
@@ -239,3 +296,6 @@ proc setU1*(builder; val: IrInstrRef) =
     builder.writeStatus dspStatusBitUnnorm, builder.biop(lsr,
         builder.unop(bitNot, builder.biop(bitXor, val, builder.biop(lsl, val, builder.imm(1)))),
         builder.imm(31))
+
+proc dppAdr*(builder; imm: uint32): IrInstrRef =
+    builder.biop(bitOr, builder.biop(lsl, builder.readDpp(), builder.imm(8)), builder.imm(imm))

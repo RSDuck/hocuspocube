@@ -167,11 +167,11 @@ func decAdr*(adr, wrap: uint16, inc: int16): uint16 =
         adr = uint32 adr
         wrap = uint32 wrap
         inc = int32 inc
-    var nextAdr = adr + cast[uint32](inc)
+    var nextAdr = adr - cast[uint32](inc)
     let
         mask = (wrap or 1) shl 1
         dadr = (adr xor nextAdr xor not(cast[uint32](inc))) and mask
-    if cast[uint16](inc) >= 0x8000:
+    if cast[uint32](inc) > 0xFFFF8000'u32:
         if dadr > wrap:
             nextAdr -= wrap + 1
     else:

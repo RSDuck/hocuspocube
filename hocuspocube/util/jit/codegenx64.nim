@@ -3,7 +3,7 @@ import
     catnip/[x64assembler, reprotect],
     ../../util/setminmax,
     ../../gekko/[ppcstate, ppccommon, memory, jit/gekkoblockcache],
-    ../../dsp/[dspstate, jit/dspblockcache],
+    ../../dsp/[dspstate, jit/dspblockcache], ../../dsp/dsp,
     ir
 
 when defined(windows):
@@ -952,6 +952,25 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 s.ror(reg(param3), 32)
                 s.call(jitWriteMemory[uint64])
             else: raiseAssert("welp")
+            setFlagUnk()
+        of dspLoadIMem, dspLoadDMem:
+            let (dst, adr) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
+            s.movzx(Register32(param1.ord), reg(Register16(adr.toReg.ord)))
+            beforeCall()
+            case instr.kind
+            of dspLoadIMem:
+                s.call(dsp.instrRead)
+            of dspLoadDMem:
+                s.call(dsp.dataRead)
+            else: raiseAssert("welp")
+            s.movzx(dst.toReg, reg(regAx))
+            setFlagUnk()
+        of dspStoreDMem:
+            let (adr, val) = regalloc.allocOpW0R2(s, instr.source(0), instr.source(1), blk)
+            beforeCall()
+            s.movzx(Register32(param1.ord), reg(Register16(adr.toReg.ord)))
+            s.movzx(Register32(param2.ord), reg(Register16(val.toReg.ord)))
+            s.call(dsp.dataWrite)
             setFlagUnk()
         of ppcBranch, dspBranch:
             #assert blk.isImmVal(instr.source(0), false), "should have been lowered before"

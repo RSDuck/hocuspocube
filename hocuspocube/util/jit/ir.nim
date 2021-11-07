@@ -153,6 +153,10 @@ type
         ppcStoreFsq
         ppcStoreFpq
 
+        dspLoadIMem
+        dspLoadDMem
+        dspStoreDMem
+
         ppcBranch
         ppcSyscall
 
@@ -275,6 +279,8 @@ const
         ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32,
         ppcLoadFss, ppcLoadFsd,
 
+        dspLoadIMem, dspLoadDMem,
+
         ppcSyscall,
 
         fSwizzleD00,
@@ -336,6 +342,8 @@ const
 
         ppcLoadFsq, ppcLoadFpq,
 
+        dspStoreDMem,
+
         fMergeD00, fMergeD01, fMergeD10, fMergeD11,
         fMergeS00, fMergeS01, fMergeS10, fMergeS11,
 
@@ -365,6 +373,9 @@ const
         ctxStore8..ctxStoreFprPair,
         sprStore32,
 
+        ppcStore8..ppcStoreFpq,
+        dspStoreDMem,
+
         ppcBranch,
         ppcSyscall,
 
@@ -376,11 +387,7 @@ const
     SideEffectOps* = CtxStoreInstrs + {
         sprStore32,
 
-        ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32,
-        ppcLoadFss, ppcLoadFsd, ppcLoadFsq, ppcLoadFpq,
-
-        ppcStore8, ppcStore16, ppcStore32,
-        ppcStoreFss, ppcStoreFsd, ppcStoreFsq, ppcStoreFpq,
+        ppcLoadU8..dspStoreDMem,
 
         ppcBranch, ppcSyscall,
         dspBranch,

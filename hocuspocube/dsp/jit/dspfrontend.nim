@@ -40,7 +40,14 @@ proc compileBlock(): BlockEntryFunc =
             break
 
     #echo "dsp block: \n", builder.blk
+    builder.blk.ctxLoadStoreEliminiate()
+    builder.blk.removeIdentities()
+    builder.blk.mergeExtractEliminate()
+    builder.blk.removeIdentities()
     builder.blk.dspOpts()
+    builder.blk.foldConstants()
+    builder.blk.removeIdentities()
+    builder.blk.removeDeadCode()
     #echo "dsp block (after op): \n", builder.blk
     builder.blk.calcLiveIntervals()
     builder.blk.verify()

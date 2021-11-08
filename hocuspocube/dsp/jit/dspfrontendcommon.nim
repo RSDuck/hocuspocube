@@ -31,7 +31,8 @@ type
 using builder: var IrBlockBuilder[DspIrState]
 
 proc signExt40*(builder; val: IrInstrRef): IrInstrRef =
-    builder.biop(asrX, builder.biop(lslX, val, builder.imm(24)), builder.imm(24))
+    let i24 = builder.imm(24)
+    builder.biop(asrX, builder.biop(lslX, val, i24), i24)
 
 proc fetchFollowingImm*(builder): uint16 =
     builder.regs.pc += 1

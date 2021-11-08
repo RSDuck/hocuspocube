@@ -132,20 +132,34 @@ proc mergeExtractEliminate*(blk: IrBasicBlock) =
             - the lowering is more optimised as it considers multiple merges at once
                 (just a single and instead of one per merge).
     ]#
-    type PartialBitValue = object
-        bits: array[32, IrInstrRef]
-        chainStart: IrInstrRef
+    type
+        PartialBitValue = object
+            bits: array[32, IrInstrRef]
+            chainStart: IrInstrRef
+        #[PartialAccum = object
+            parts: array[3, IrInstrRef]
+            chainStart: IrInstrRef
+            topIsMiddle: bool]#
 
     let oldInstrs = move blk.instrs
-    var partialValues: Table[IrInstrRef, PartialBitValue]
+    var
+        partialBits: Table[IrInstrRef, PartialBitValue]
+        #partialAccums: Table[IrInstrRef, PartialAccum]
 
     for iref in oldInstrs:
         let instr = blk.getInstr(iref)
         case instr.kind
+        #[of mergeLo, mergeMid :
+            var newVal = partialAccums.getOrDefault(instr.source(0), PartialAccum(chainStart: instr.source(0)))
+            case instr.kind
+            of merge
+
+        of extractHi, extractMid, extractLo:
+            discard]#
         of mergeBit:
-            var newVal = partialValues.getOrDefault(instr.source(0), PartialBitValue(chainStart: instr.source(0)))
+            var newVal = partialBits.getOrDefault(instr.source(0), PartialBitValue(chainStart: instr.source(0)))
             newVal.bits[instr.bit] = instr.source(1)
-            partialValues[iref] = newVal
+            partialBits[iref] = newVal
 
             var
                 mask = 0xFFFF_FFFF'u32
@@ -162,7 +176,7 @@ proc mergeExtractEliminate*(blk: IrBasicBlock) =
             blk.getInstr(iref) = makeBiop(bitOr, op, blk.biop(bitAnd, newVal.chainStart, blk.imm(mask)))
         of extractBit:
             block replaced:
-                partialValues.withValue(instr.source(0), val):
+                partialBits.withValue(instr.source(0), val):
                     if (let bit = val.bits[instr.bit]; bit != InvalidIrInstrRef):
                         blk.getInstr(iref) = makeIdentity(bit)
                         break replaced
@@ -212,10 +226,10 @@ proc dspOpts*(blk: IrBasicBlock) =
             blk.getInstr(iref) = makeBiop(bitOrX,
                 blk.biop(bitAndX, instr.source(0), blk.imm(0xFFFF'u64)),
                 blk.biop(lslX, blk.unop(extshX, instr.source(1)), blk.imm(16)))
-        of mergeBit:
+        #[of mergeBit:
             blk.getInstr(iref) = makeBiop(bitOr, blk.biop(lsl, instr.source(1), blk.imm(instr.bit)), blk.biop(bitAnd, instr.source(0), blk.imm(not(1'u32 shl instr.bit))))
         of extractBit:
-            blk.getInstr(iref) = makeBiop(bitAnd, blk.biop(lsr, instr.source(0), blk.imm(instr.bit)), blk.imm(1))
+            blk.getInstr(iref) = makeBiop(bitAnd, blk.biop(lsr, instr.source(0), blk.imm(instr.bit)), blk.imm(1))]#
         else:
             discard
 
@@ -441,13 +455,19 @@ proc foldConstants*(blk: IrBasicBlock) =
             if (let a = blk.isImmValB(instr.source(0)); a.isSome):
                 blk.getInstr(iref) = makeImm(not a.get)
         of csel:
-            let c = blk.isImmValB(instr.source(2))
-            if c.isSome:
-                blk.getInstr(iref) = blk.narrowIdentity(if c.get: instr.source(0) else: instr.source(1))
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = blk.narrowIdentity(instr.source(0))
+            else:
+                let c = blk.isImmValB(instr.source(2))
+                if c.isSome:
+                    blk.getInstr(iref) = blk.narrowIdentity(if c.get: instr.source(0) else: instr.source(1))
         of cselX:
-            let c = blk.isImmValB(instr.source(2))
-            if c.isSome:
-                blk.getInstr(iref) = makeIdentity(if c.get: instr.source(0) else: instr.source(1))
+            if instr.source(0) == instr.source(1):
+                blk.getInstr(iref) = makeIdentity(instr.source(0))
+            else:
+                let c = blk.isImmValB(instr.source(2))
+                if c.isSome:
+                    blk.getInstr(iref) = makeIdentity(if c.get: instr.source(0) else: instr.source(1))
         of extsb, extsh, extzwX, extswX:
             let val = blk.isImmValI(instr.source(0))
             if val.isSome:

@@ -53,7 +53,7 @@ proc subAccumOp(builder; accumN: uint32, subtrahend: IrInstrRef, secondary: Opti
         builder.writeAccum(accumN, diff40)
 
 proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, secondary: Option[uint16]) =
-    let accum = builder.readAccum(accumN)
+    let accum = builder.readAccum(accumN, {a1.succ(int accumN), a2.succ(int accumN)})
 
     if secondary.isSome:
         builder.dispatchSecondary(secondary.get)
@@ -70,7 +70,7 @@ proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, second
     builder.setE1(res)
     builder.setU1(res)
 
-    builder.writeAccum(accumN, res)
+    builder.writeAccum(accumN, res, {a1.succ(int accumN)})
 
 proc mr*(builder; m, r: uint16) =
     when interpretAlu:
@@ -213,7 +213,7 @@ proc btstl*(builder; b: uint16) =
         let mask = builder.imm(uint32(builder.fetchFollowingImm()) shl 16)
         builder.writeStatus(dspStatusBitTb,
             builder.biop(iCmpEqual,
-                builder.biop(bitAnd, builder.readAccum(b), mask),
+                builder.biop(bitAnd, builder.readAccum(b, {a1.succ(int b)}), mask),
                 builder.imm(0)))
 
 proc btsth*(builder; b: uint16) =
@@ -224,7 +224,7 @@ proc btsth*(builder; b: uint16) =
         let mask = builder.imm(uint32(builder.fetchFollowingImm()) shl 16)
         builder.writeStatus(dspStatusBitTb,
             builder.biop(iCmpEqual,
-                builder.biop(bitAnd, builder.readAccum(b), mask),
+                builder.biop(bitAnd, builder.readAccum(b, {a1.succ(int b)}), mask),
                 mask))
 
 proc getAddSubParam(builder; d, s: uint16): IrInstrRef =

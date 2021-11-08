@@ -9,6 +9,9 @@ type
         pc*, instr*: uint16
         cycles*: int32
         branch*: bool
+
+        regsRead*: set[DspReg]
+        regsWritten*: set[DspReg]
     
     DspStatusBit* = enum
         dspStatusBitCa
@@ -39,40 +42,50 @@ proc fetchFollowingImm*(builder): uint16 =
     builder.regs.cycles += int32 gekkoCyclesPerDspCycle
     instrRead(builder.regs.pc)
 
-proc readAccum*(builder; num: uint32): IrInstrRef =
+proc readAccum*(builder; num: uint32, readSet = {a0.succ(int num), a1.succ(int num), a2.succ(int num)}): IrInstrRef =
     assert num < 2
+    builder.regs.regsRead.incl readSet
     builder.loadctx(ctxLoad64, uint32(offsetof(DspState, mainAccum)) + num * 8)
 
-proc readAuxAccum*(builder; num: uint32): IrInstrRef =
+proc readAuxAccum*(builder; num: uint32, readSet = {x0.succ(int num), x1.succ(int num)}): IrInstrRef =
     assert num < 2
+    builder.regs.regsRead.incl readSet
     builder.loadctx(ctxLoadS32, uint32(offsetof(DspState, auxAccum)) + num * 4)
 
 proc readProdParts*(builder): IrInstrRef =
+    builder.regs.regsRead.incl {ps0, ps1, ps2}
     builder.loadctx(ctxLoad64, uint32(offsetof(DspState, prod)))
 
 proc readProdCarry*(builder): IrInstrRef =
+    builder.regs.regsRead.incl pc1
     builder.loadctx(ctxLoad16, uint32(offsetof(DspState, prodCarry)))
 
 proc writeProdCarry*(builder; val: IrInstrRef) =
+    builder.regs.regsWritten.incl pc1
     builder.storectx(ctxStore16, uint32(offsetof(DspState, prodCarry)), val)
 
 proc readProd*(builder): IrInstrRef =
+    builder.regs.regsRead.incl {ps0, ps1, ps2, pc1}
     builder.signExt40(builder.biop(iAddX,
         builder.readProdParts(),
         builder.biop(lsl, builder.readProdCarry(), builder.imm(16))))
 
-proc writeAccum*(builder; num: uint32, val: IrInstrRef) =
+proc writeAccum*(builder; num: uint32, val: IrInstrRef, writeSet = {a0.succ(int num), a1.succ(int num), a2.succ(int num)}) =
     assert num < 2
+    builder.regs.regsWritten.incl writeSet
     builder.storectx(ctxStore64, uint32(offsetof(DspState, mainAccum)) + num * 8, val)
 
-proc writeAuxAccum*(builder; num: uint32, val: IrInstrRef) =
+proc writeAuxAccum*(builder; num: uint32, val: IrInstrRef, writeSet = {x0.succ(int num), x1.succ(int num)}) =
     assert num < 2
+    builder.regs.regsWritten.incl writeSet
     builder.storectx(ctxStore32, uint32(offsetof(DspState, auxAccum)) + num * 4, val)
 
 proc writeProdParts*(builder; val: IrInstrRef) =
+    builder.regs.regsWritten.incl {ps0, ps1, ps2}
     builder.storectx(ctxStore64, uint32(offsetof(DspState, prod)), val)
 
 proc writeProd*(builder; val: IrInstrRef) =
+    builder.regs.regsWritten.incl {ps0, ps1, ps2, pc1}
     builder.storectx(ctxStore64, uint32(offsetof(DspState, prod)), val)
     builder.storectx(ctxStore16, uint32(offsetof(DspState, prodcarry)), builder.imm(0))
 
@@ -90,35 +103,44 @@ proc writeStatus*(builder; bit: DspStatusBit, val: IrInstrRef) =
 
 proc readAdr*(builder; num: uint32): IrInstrRef =
     assert num < 4
+    builder.regs.regsRead.incl r0.succ(int num)
     builder.loadctx(ctxLoad16, uint32(offsetof(DspState, adrReg)) + num*2)
 
 proc writeAdr*(builder; num: uint32, val: IrInstrRef) =
     assert num < 4
+    builder.regs.regsRead.incl m0.succ(int num)
     builder.storectx(ctxStore16, uint32(offsetof(DspState, adrReg)) + num*2, val)
 
 proc readAdrMod*(builder; num: uint32): IrInstrRef =
     assert num < 4
+    builder.regs.regsRead.incl l0.succ(int num)
     builder.loadctx(ctxLoad16, uint32(offsetof(DspState, incReg)) + num*2)
 
 proc writeAdrMod*(builder; num: uint32, val: IrInstrRef) =
     assert num < 4
+    builder.regs.regsWritten.incl m0.succ(int num)
     builder.storectx(ctxStore16, uint32(offsetof(DspState, incReg)) + num*2, val)
 
 proc writeAdrLen*(builder; num: uint32, val: IrInstrRef) =
     assert num < 4
+    builder.regs.regsWritten.incl l0.succ(int num)
     builder.storectx(ctxStore16, uint32(offsetof(DspState, wrapReg)) + num*2, val)
 
 proc readAdrLen*(builder; num: uint32): IrInstrRef =
     assert num < 4
+    builder.regs.regsRead.incl l0.succ(int num)
     builder.loadctx(ctxLoad16, uint32(offsetof(DspState, wrapReg)) + num*2)
 
 proc readDpp*(builder): IrInstrRef =
+    builder.regs.regsRead.incl dpp
     builder.loadctx(ctxLoad16, uint32(offsetof(DspState, dpp)))
 
 proc writeDpp*(builder; val: IrInstrRef) =
+    builder.regs.regsWritten.incl dpp
     builder.storectx(ctxStore16, uint32(offsetof(DspState, dpp)), val)
 
 proc readReg*(builder; reg: DspReg): IrInstrRef =
+    builder.regs.regsRead.incl reg
     case reg
     of r0..r3:
         builder.readAdr(reg.uint32 - r0.uint32)
@@ -152,6 +174,7 @@ proc readReg*(builder; reg: DspReg): IrInstrRef =
         builder.readProdCarry()
 
 proc writeReg*(builder; reg: DspReg, val: IrInstrRef) =
+    builder.regs.regsWritten.incl reg
     case reg
     of r0..r3:
         builder.writeAdr(reg.uint32 - r0.uint32, val)
@@ -267,7 +290,7 @@ proc loadAccum*(builder; num: uint32, val: IrInstrRef) =
     let
         xl = builder.readStatus(dspStatusBitXl)
 
-        mergeVal = builder.biop(mergeMid, builder.readAccum(num), val)
+        mergeVal = builder.biop(mergeMid, builder.readAccum(num, {}), val)
         signExtendedVal = builder.biop(lslX, builder.unop(extsh, val), builder.imm(16))
 
     builder.writeAccum(num, builder.triop(cselX, signExtendedVal, mergeVal, xl))

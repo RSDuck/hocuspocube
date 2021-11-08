@@ -6,7 +6,7 @@ import
     dspfrontendcommon,
     dspblockcache,
 
-    ".."/[dsp, dspdef, dspcommon],
+    ".."/[dsp, dspdef, dspcommon, dspstate],
 
     dspjit_alu,
     dspjit_branch,
@@ -16,11 +16,13 @@ proc undefinedInstr(state: var IrBlockBuilder[DspIrState], instr: uint16) =
     raiseAssert(&"undefined dsp instr {instr:02X}")
 
 proc compileBlock(): BlockEntryFunc =
+    let blockAdr = mDspState.pc
     var
         builder: IrBlockBuilder[DspIrState]
-        blockAdr = mDspState.pc
 
         numInstrs = 0
+
+        instrReadWrites: seq[tuple[read, write: set[DspReg]]]
 
     builder.regs.pc = blockAdr
     builder.blk = IrBasicBlock()
@@ -29,6 +31,10 @@ proc compileBlock(): BlockEntryFunc =
         builder.regs.instr = instrRead(builder.regs.pc)
 
         dspMainDispatch(builder.regs.instr, builder, undefinedInstr)
+
+        instrReadWrites.add (builder.regs.regsRead, builder.regs.regsWritten)
+        reset builder.regs.regsRead
+        reset builder.regs.regsWritten
 
         builder.regs.cycles += int32 gekkoCyclesPerDspCycle
 
@@ -39,7 +45,8 @@ proc compileBlock(): BlockEntryFunc =
             discard builder.triop(dspBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
-    #echo "dsp block: \n", builder.blk
+    let isIdleLoop = builder.blk.checkIdleLoopDsp(instrReadWrites, blockAdr)
+    #echo &"dsp block {blockAdr:04X} (is idle loop: {isIdleLoop}): \n", builder.blk
     builder.blk.ctxLoadStoreEliminiate()
     builder.blk.removeIdentities()
     builder.blk.mergeExtractEliminate()
@@ -52,7 +59,7 @@ proc compileBlock(): BlockEntryFunc =
     builder.blk.calcLiveIntervals()
     builder.blk.verify()
 
-    result = cast[BlockEntryFunc](genCode(builder.blk, builder.regs.cycles, false, false))
+    result = cast[BlockEntryFunc](genCode(builder.blk, builder.regs.cycles, false, isIdleLoop))
     blockEntries[mapBlockEntryAdr(blockAdr)] = result
 
 proc dspRun*(timestamp: var int64, target: int64) =

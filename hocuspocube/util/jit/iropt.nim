@@ -1,9 +1,9 @@
 import
     options, bitops, algorithm, strformat,
-    tables,
+    tables, std/setutils,
     stew/bitseqs,
     ../aluhelper,
-    ../../gekko/ppcstate,
+    ../../gekko/ppcstate, ../../dsp/dspstate,
     ir
 
 proc ctxLoadStoreEliminiate*(blk: IrBasicBlock) =
@@ -136,26 +136,13 @@ proc mergeExtractEliminate*(blk: IrBasicBlock) =
         PartialBitValue = object
             bits: array[32, IrInstrRef]
             chainStart: IrInstrRef
-        #[PartialAccum = object
-            parts: array[3, IrInstrRef]
-            chainStart: IrInstrRef
-            topIsMiddle: bool]#
 
     let oldInstrs = move blk.instrs
-    var
-        partialBits: Table[IrInstrRef, PartialBitValue]
-        #partialAccums: Table[IrInstrRef, PartialAccum]
+    var partialBits: Table[IrInstrRef, PartialBitValue]
 
     for iref in oldInstrs:
         let instr = blk.getInstr(iref)
         case instr.kind
-        #[of mergeLo, mergeMid :
-            var newVal = partialAccums.getOrDefault(instr.source(0), PartialAccum(chainStart: instr.source(0)))
-            case instr.kind
-            of merge
-
-        of extractHi, extractMid, extractLo:
-            discard]#
         of mergeBit:
             var newVal = partialBits.getOrDefault(instr.source(0), PartialBitValue(chainStart: instr.source(0)))
             newVal.bits[instr.bit] = instr.source(1)
@@ -556,15 +543,15 @@ proc verify*(blk: IrBasicBlock) =
             assert instr.kind in {ppcBranch, ppcSyscall, ppcCallInterpreter,
                 dspBranch, dspCallInterpreter}, &"last instruction of IR block not valid\n{blk}"
 
-proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAdr: uint32): bool =
+proc checkIdleLoopPpc*(blk: IrBasicBlock, startAdr: uint32): bool =
     let lastInstr = blk.getInstr(blk.instrs[^1])
     if lastInstr.kind == ppcBranch and
-        (let target = blk.isImmValI(lastInstr.source(1));
-        target.isSome and target.get >= startAdr and target.get < endAdr):
+        (let target = blk.isImmValI(lastInstr.source(1)); target.isSome and target.get == startAdr):
 
         var
-            regsWritten, regsRead: set[0..31]
-        for i in instrIndexes[(target.get - startAdr) div 4]..<blk.instrs.len:
+            regsLocked: set[0..31]
+            regsWritten: set[0..31]
+        for i in 0..<blk.instrs.len-1:
             let instr = blk.getInstr(blk.instrs[i])
             case instr.kind
             of ppcSyscall, ppcStore8, ppcStore16, ppcStore32,
@@ -573,16 +560,38 @@ proc checkIdleLoop*(blk: IrBasicBlock, instrIndexes: seq[int32], startAdr, endAd
                 return false
             of CtxLoadInstrs:
                 if instr.ctxOffset-uint32(offsetof(PpcState, r)) < 32*4:
-                    regsRead.incl (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
+                    let reg = (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
+
+                    if reg notin regsWritten:
+                        regsLocked.incl reg
             of CtxStoreInstrs:
                 if instr.ctxOffset-uint32(offsetof(PpcState, r)) >= 32*4:
                     continue
                 let reg = (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
 
-                if reg in regsRead:
+                if reg in regsLocked:
                     return false
-                regsWritten.incl reg
+
+                regsLocked.incl reg
             else: discard
+
+        return true
+    return false
+
+proc checkIdleLoopDsp*(blk: IrBasicBlock, instrs: seq[tuple[read, write: set[DspReg]]], startAdr: uint16): bool =
+    let lastInstr = blk.getInstr(blk.instrs[^1])
+    if lastInstr.kind == dspBranch and
+        (let target = blk.isImmValI(lastInstr.source(1));
+        target.isSome and target.get == startAdr):
+
+        var regsLocked, regsWritten: set[DspReg]
+        for instr in instrs:
+            regsLocked.incl instr.read * complement(regsWritten)
+
+            if regsLocked * instr.write != {}:
+                return false
+
+            regsWritten.incl instr.write
 
         return true
     return false

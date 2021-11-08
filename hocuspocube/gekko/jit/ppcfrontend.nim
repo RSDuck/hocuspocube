@@ -16,13 +16,11 @@ proc undefinedInstr(builder: var IrBlockBuilder[PpcIrRegState], instr: uint32) =
     raiseAssert(&"undefined instruction {toBE(instr):08X} at {builder.regs.pc:08X}")
 
 proc compileBlock(): BlockEntryFunc =
+    let blockAdr = gekkoState.translateInstrAddr(gekkoState.pc).get
     var
         builder: IrBlockBuilder[PpcIrRegState]
         cycles = 0'i32
 
-        blockAdr = gekkoState.translateInstrAddr(gekkoState.pc).get
-
-        instrIndexes: seq[int32]
     builder.blk = IrBasicBlock()
     builder.regs.pc = gekkoState.pc
 
@@ -32,7 +30,6 @@ proc compileBlock(): BlockEntryFunc =
 
         #echo &"instr {toBE(instr):08X}"
 
-        instrIndexes.add int32(builder.blk.instrs.len)
         dispatchPpc(instr, builder, undefinedInstr)
 
         builder.regs.pc += 4
@@ -42,7 +39,7 @@ proc compileBlock(): BlockEntryFunc =
             discard builder.triop(ppcBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
-    let isIdleLoop = builder.blk.checkIdleLoop(instrIndexes, gekkoState.pc, builder.regs.pc)
+    let isIdleLoop = builder.blk.checkIdleLoopPpc(gekkoState.pc)
 
     #echo &"block {gekkoState.pc:08X} is idle loop: {isIdleLoop}"
     #echo "preopt\n", builder.blk

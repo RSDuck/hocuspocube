@@ -30,7 +30,7 @@ type
 
 using builder: var IrBlockBuilder[DspIrState]
 
-proc signExt40(builder; val: IrInstrRef): IrInstrRef =
+proc signExt40*(builder; val: IrInstrRef): IrInstrRef =
     builder.biop(asrX, builder.biop(lslX, val, builder.imm(24)), builder.imm(24))
 
 proc fetchFollowingImm*(builder): uint16 =
@@ -46,7 +46,7 @@ proc readAuxAccum*(builder; num: uint32): IrInstrRef =
     assert num < 2
     builder.loadctx(ctxLoadS32, uint32(offsetof(DspState, auxAccum)) + num * 4)
 
-proc readProd*(builder): IrInstrRef =
+proc readProdParts*(builder): IrInstrRef =
     builder.loadctx(ctxLoad64, uint32(offsetof(DspState, prod)))
 
 proc readProdCarry*(builder): IrInstrRef =
@@ -55,9 +55,9 @@ proc readProdCarry*(builder): IrInstrRef =
 proc writeProdCarry*(builder; val: IrInstrRef) =
     builder.storectx(ctxStore16, uint32(offsetof(DspState, prodCarry)), val)
 
-proc readFoldedProd*(builder): IrInstrRef =
+proc readProd*(builder): IrInstrRef =
     builder.signExt40(builder.biop(iAddX,
-        builder.readProd(),
+        builder.readProdParts(),
         builder.biop(lsl, builder.readProdCarry(), builder.imm(16))))
 
 proc writeAccum*(builder; num: uint32, val: IrInstrRef) =
@@ -68,10 +68,10 @@ proc writeAuxAccum*(builder; num: uint32, val: IrInstrRef) =
     assert num < 2
     builder.storectx(ctxStore32, uint32(offsetof(DspState, auxAccum)) + num * 4, val)
 
-proc writeProd*(builder; val: IrInstrRef) =
+proc writeProdParts*(builder; val: IrInstrRef) =
     builder.storectx(ctxStore64, uint32(offsetof(DspState, prod)), val)
 
-proc writeFoldedProd*(builder; val: IrInstrRef) =
+proc writeProd*(builder; val: IrInstrRef) =
     builder.storectx(ctxStore64, uint32(offsetof(DspState, prod)), val)
     builder.storectx(ctxStore16, uint32(offsetof(DspState, prodcarry)), builder.imm(0))
 
@@ -142,11 +142,11 @@ proc readReg*(builder; reg: DspReg): IrInstrRef =
     of x1..y1:
         builder.unop(extractMid, builder.readAuxAccum(reg.uint32 - x1.uint32))
     of ps0:
-        builder.unop(extractLo, builder.readProd())
+        builder.unop(extractLo, builder.readProdParts())
     of ps1:
-        builder.unop(extractMid, builder.readProd())
+        builder.unop(extractMid, builder.readProdParts())
     of ps2:
-        builder.unop(extractHi, builder.readProd())
+        builder.unop(extractHi, builder.readProdParts())
     of pc1:
         builder.readProdCarry()
 
@@ -180,11 +180,11 @@ proc writeReg*(builder; reg: DspReg, val: IrInstrRef) =
         let accum = reg.uint32 - x1.uint32
         builder.writeAuxAccum(accum, builder.biop(mergeMidHi, builder.readAuxAccum(accum), val))
     of ps0:
-        builder.writeProd(builder.biop(mergeLo, builder.readProd(), val))
+        builder.writeProdParts(builder.biop(mergeLo, builder.readProdParts(), val))
     of ps1:
-        builder.writeProd(builder.biop(mergeMid, builder.readProd(), val))
+        builder.writeProdParts(builder.biop(mergeMid, builder.readProdParts(), val))
     of ps2:
-        builder.writeProd(builder.biop(mergeHi, builder.readProd(), val))
+        builder.writeProdParts(builder.biop(mergeHi, builder.readProdParts(), val))
     of pc1:
         builder.writeProdCarry(val)
 
@@ -286,8 +286,17 @@ proc storeAccum*(builder; num: uint32): IrInstrRef =
         builder.unop(extractMid, accum),
         builder.biop(condAnd, xl, builder.unop(condNot, builder.biop(iCmpEqualX, accum, builder.unop(extswX, accum)))))
 
-proc writeAccumSignExtend*(builder; num: uint32, val: IrInstrRef) =
-    builder.writeAccum(num, builder.signExt40(val))
+proc setZ1*(builder; val: IrInstrRef) =
+    builder.writeStatus dspStatusBitZr, builder.biop(iCmpEqualX, val, builder.imm(0))
+
+proc setZ2*(builder; val: IrInstrRef) =
+    builder.writeStatus dspStatusBitZr, builder.biop(iCmpEqual, builder.biop(bitAnd, val, builder.imm(0xFFFF0000'u32)), builder.imm(0))
+
+proc setN1*(builder; val: IrInstrRef) =
+    builder.writeStatus dspStatusBitMi, builder.biop(iCmpLessSX, val, builder.imm(0))
+
+proc setN2*(builder; val: IrInstrRef) =
+    builder.writeStatus dspStatusBitMi, builder.biop(iCmpLessS, val, builder.imm(0))
 
 proc setE1*(builder; val: IrInstrRef) =
     builder.writeStatus dspStatusBitExt, builder.biop(iCmpEqualX, val, builder.unop(extswX, val))

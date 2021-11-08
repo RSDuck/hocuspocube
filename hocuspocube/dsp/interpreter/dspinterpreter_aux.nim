@@ -116,7 +116,7 @@ func readProduct*(state): int64 {.inline.} =
     cast[int64](signExtend(state.prod + (uint64(state.prodcarry) shl 16), 40))
 
 func writeProduct*(state; val: int64) {.inline.} =
-    state.prod = cast[uint64](val)
+    state.prod = signExtend(cast[uint64](val), 40)
     state.prodcarry = 0
 
 # dsp address increment/decrement

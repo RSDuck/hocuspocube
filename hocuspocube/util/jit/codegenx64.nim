@@ -473,7 +473,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     of bitAnd: s.aand(reg(dst.toReg), cast[int32](imm.get[1]))
                     of bitOr: s.oor(reg(dst.toReg), cast[int32](imm.get[1]))
                     of bitXor: s.xxor(reg(dst.toReg), cast[int32](imm.get[1]))
-                    of InstrKind.iMul: s.iMul(dst.toReg, reg(src.toReg), cast[int32](imm.get[1]))
+                    of InstrKind.iMul: s.imul(dst.toReg, reg(src.toReg), cast[int32](imm.get[1]))
                     else: raiseAssert("shouldn't happen")
             else:
                 var
@@ -485,7 +485,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     of bitAnd: s.aand(reg(dst.toReg), src0.toReg)
                     of bitOr: s.oor(reg(dst.toReg), src0.toReg)
                     of bitXor: s.xxor(reg(dst.toReg), src0.toReg)
-                    of InstrKind.iMul: s.iMul(dst.toReg, reg(src0.toReg))
+                    of InstrKind.iMul: s.imul(dst.toReg, reg(src0.toReg))
                     else: raiseAssert("shouldn't happen")
                 else:
                     if dst != src0: s.mov(reg(dst.toReg), src0.toReg)
@@ -495,14 +495,14 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     of bitAnd: s.aand(reg(dst.toReg), src1.toReg)
                     of bitOr: s.oor(reg(dst.toReg), src1.toReg)
                     of bitXor: s.xxor(reg(dst.toReg), src1.toReg)
-                    of InstrKind.iMul: s.iMul(dst.toReg, reg(src1.toReg))
+                    of InstrKind.iMul: s.imul(dst.toReg, reg(src1.toReg))
                     else: raiseAssert("shouldn't happen")
 
                 if comparesToZero:
                     setFlagCmpZero(iref)
                 elif destroysFlags:
                     setFlagUnk()
-        of iAddX, bitAndX, bitOrX, bitXorX:
+        of iAddX, bitAndX, bitOrX, bitXorX, iMulX:
             if (let imm = blk.isEitherImmIX(instr.source(0), instr.source(1)); imm.isSome and cast[int32](imm.get[1]) == cast[int64](imm.get[1])):
                 let (dst, src) = regalloc.allocOpW1R1(s, iref, imm.get[0], i, blk)
 
@@ -517,6 +517,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     of bitAndX: s.aand(reg(dst.toReg64), cast[int32](imm.get[1]))
                     of bitOrX: s.oor(reg(dst.toReg64), cast[int32](imm.get[1]))
                     of bitXorX: s.xxor(reg(dst.toReg64), cast[int32](imm.get[1]))
+                    of iMulX: s.imul(dst.toReg64, reg(src.toReg64), cast[int32](imm.get[1]))
                     else: raiseAssert("shouldn't happen")
             else:
                 let (dst, src0, src1) = regalloc.allocOpW1R2(s, iref, instr.source(0), instr.source(1), i, blk, true)
@@ -526,6 +527,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     of bitAndX: s.aand(reg(dst.toReg64), src0.toReg64)
                     of bitOrX: s.oor(reg(dst.toReg64), src0.toReg64)
                     of bitXorX: s.xxor(reg(dst.toReg64), src0.toReg64)
+                    of iMulX: s.imul(dst.toReg64, reg(src0.toReg64))
                     else: raiseAssert("shouldn't happen")
                 else:
                     if dst != src0: s.mov(reg(dst.toReg64), src0.toReg64)
@@ -535,6 +537,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                     of bitAndX: s.aand(reg(dst.toReg64), src1.toReg64)
                     of bitOrX: s.oor(reg(dst.toReg64), src1.toReg64)
                     of bitXorX: s.xxor(reg(dst.toReg64), src1.toReg64)
+                    of iMulX: s.imul(dst.toReg64, reg(src1.toReg64))
                     else: raiseAssert("shouldn't happen")
 
             setFlagUnk()

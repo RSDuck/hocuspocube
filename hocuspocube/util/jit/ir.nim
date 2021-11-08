@@ -67,6 +67,7 @@ type
         iMul
         iMulhS
         iMulhU
+        iMulX
 
         iDivS
         iDivU
@@ -311,7 +312,7 @@ const
         iAdd, iSub,
         iAddX, iSubX,
 
-        iMul, iMulhS, iMulhU,
+        iMul, iMulhS, iMulhU, iMulX,
 
         iDivS, iDivU,
 

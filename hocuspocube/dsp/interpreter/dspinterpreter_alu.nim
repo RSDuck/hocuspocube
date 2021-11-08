@@ -458,14 +458,17 @@ proc getMulOperands(state; s: uint16): (uint16, uint16, bool, bool) =
     of 10: (state.readReg(b1), state.readReg(x1), false, false)
     of 11: (state.readReg(b1), state.readReg(y1), false, false)
 
+proc doMul(state; a, b: uint16, aDpUnsigned, bDpUnsigned: bool): int64 =
+    let
+        aSigned = if state.status.dp and aDpUnsigned: int64(a) else: int64(cast[int16](a))
+        bSigned = if state.status.dp and bDpUnsigned: int64(b) else: int64(cast[int16](b))
+
+    aSigned * (if state.status.im: bSigned else: bSigned * 2)
+
 proc mpy*(state; s, x: uint16) =
     let
-        (a, b, aImUnsigned, bImUnsigned) = state.getMulOperands(s)
-
-        aSigned = if state.status.dp and aImUnsigned: int64(a) else: int64(cast[int16](a))
-        bSigned = if state.status.dp and bImUnsigned: int64(b) else: int64(cast[int16](b))
-
-        prod = aSigned * (if state.status.im: bSigned else: bSigned * 2)
+        (a, b, aDpUnsigned, bDpUnsigned) = state.getMulOperands(s)
+        prod = state.doMul(a, b, aDpUnsigned, bDpUnsigned)
 
     state.dispatchSecondary(x)
 
@@ -473,8 +476,8 @@ proc mpy*(state; s, x: uint16) =
 
 proc mpy2*(state; x: uint16) =
     let
-        factor = int64(cast[int16](state.readReg(x1)))
-        prod = factor * (if state.status.im: factor * 2 else: factor)
+        factor = state.readReg(x1)
+        prod = state.doMul(factor, factor, false, false)
 
     state.dispatchSecondary(x)
 
@@ -522,6 +525,12 @@ proc mvmpy*(state; s, d, x: uint16) =
 
     state.dispatchSecondary(x)
 
+    state.status.ca = false
+    state.status.ov = false
+    state.setZ1(cast[uint64](oldProd))
+    state.setN1(cast[uint64](oldProd))
+    state.setE1(cast[uint64](oldProd))
+    state.setU1(cast[uint64](oldProd))
     state.writeAccum(int d, oldProd)
     state.writeProduct(prod)
 

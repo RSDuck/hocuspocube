@@ -19,17 +19,16 @@ proc addAccumOp(builder; accumN: uint32, addend: IrInstrRef, secondary: Option[u
         sum = builder.biop(iAddX, accum, addend)
         ov = builder.biop(overflowAddX, accum, addend)
         ca = builder.biop(carryAddX, accum, addend)
-        zero = builder.biop(iCmpEqualX, sum, builder.imm(0))
-        mi = builder.biop(iCmpLessSX, sum, builder.imm(0))
-
     builder.writeStatus(dspStatusBitOv, ov)
     builder.writeStatus(dspStatusBitCa, ca)
-    builder.writeStatus(dspStatusBitZr, zero)
-    builder.writeStatus(dspStatusBitMi, mi)
-    builder.setE1(sum)
-    builder.setU1(sum)
 
-    builder.writeAccumSignExtend(accumN, sum)
+    let sum40 = builder.signExt40(sum)
+    builder.setZ1(sum40)
+    builder.setN1(sum40)
+    builder.setE1(sum40)
+    builder.setU1(sum40)
+
+    builder.writeAccum(accumN, sum40)
 
 proc subAccumOp(builder; accumN: uint32, subtrahend: IrInstrRef, secondary: Option[uint16], cmp: bool) =
     let accum = builder.readAccum(accumN)
@@ -41,18 +40,17 @@ proc subAccumOp(builder; accumN: uint32, subtrahend: IrInstrRef, secondary: Opti
         diff = builder.biop(iSubX, accum, subtrahend)
         ov = builder.biop(overflowSubX, accum, subtrahend)
         ca = builder.biop(carrySubX, accum, subtrahend)
-        zero = builder.biop(iCmpEqualX, diff, builder.imm(0))
-        mi = builder.biop(iCmpLessSX, diff, builder.imm(0))
-
     builder.writeStatus(dspStatusBitOv, ov)
     builder.writeStatus(dspStatusBitCa, ca)
-    builder.writeStatus(dspStatusBitZr, zero)
-    builder.writeStatus(dspStatusBitMi, mi)
-    builder.setE1(diff)
-    builder.setU1(diff)
+
+    let diff40 = builder.signExt40(diff)
+    builder.setZ1(diff40)
+    builder.setN1(diff40)
+    builder.setE1(diff40)
+    builder.setU1(diff40)
 
     if not cmp:
-        builder.writeAccumSignExtend(accumN, diff)
+        builder.writeAccum(accumN, diff40)
 
 proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, secondary: Option[uint16]) =
     let accum = builder.readAccum(accumN)
@@ -67,8 +65,8 @@ proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, second
 
     builder.writeStatus(dspStatusBitOv, builder.imm(false))
     builder.writeStatus(dspStatusBitCa, builder.imm(false))
-    builder.writeStatus(dspStatusBitZr, zero)
-    builder.writeStatus(dspStatusBitMi, mi)
+    builder.setZ2(zero)
+    builder.setN2(mi)
     builder.setE1(res)
     builder.setU1(res)
 
@@ -235,7 +233,7 @@ proc getAddSubParam(builder; d, s: uint16): IrInstrRef =
     of 2..3: builder.biop(bitAnd, builder.readAuxAccum(s-2), builder.imm(not 0xFFFF'u64))
     of 4..5: builder.readAuxAccum(s - 4)
     of 6: builder.readAccum(1 - d)
-    of 7: builder.readFoldedProd()
+    of 7: builder.readProd()
 
 proc add*(builder; s, d, x: uint16) =
     when interpretAlu:
@@ -306,7 +304,16 @@ proc clra*(builder; d, x: uint16) =
         builder.writeAccum d, builder.imm(0)
 
 proc clrp*(builder; x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.clrp)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.clrp)
+    else:
+        builder.dispatchSecondary(x)
+
+        builder.writeProdParts(builder.imm(0xFFFF_FFFF_FFF0_0000'u64))
+        builder.writeProdCarry(builder.imm(0x0010))
+
+proc round(builder): IrInstrRef =
+    discard
 
 proc rnd*(builder; d, x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rnd)
@@ -380,38 +387,179 @@ proc setxl*(builder; x: uint16) =
         builder.dispatchSecondary(x)
         builder.writeStatus dspStatusBitXl, builder.imm(true)
 
+proc getMulOperands(builder; s: uint16): (IrInstrRef, IrInstrRef, bool, bool) =
+    case range[2..11](s)
+    of 2: (builder.readReg(x1), builder.readReg(x0), false, false)
+    of 3: (builder.readReg(y1), builder.readReg(y0), false, false)
+    of 4: (builder.readReg(x0), builder.readReg(y0), true, true)
+    of 5: (builder.readReg(x0), builder.readReg(y1), true, false)
+    of 6: (builder.readReg(x1), builder.readReg(y0), false, true)
+    of 7: (builder.readReg(x1), builder.readReg(y1), false, false)
+    of 8: (builder.readReg(a1), builder.readReg(x1), false, false)
+    of 9: (builder.readReg(a1), builder.readReg(y1), false, false)
+    of 10: (builder.readReg(b1), builder.readReg(x1), false, false)
+    of 11: (builder.readReg(b1), builder.readReg(y1), false, false)
+
+proc doMul(builder; a, b: IrInstrRef, aDpUnsigned, bDpUnsigned: bool): IrInstrRef =
+    let
+        dp = builder.readStatus dspStatusBitDp
+
+        aSigned =
+            if aDpUnsigned:
+                builder.triop(cselX, a, builder.unop(extshX, a), dp)
+            else:
+                builder.unop(extshX, a)
+        bSigned =
+            if bDpUnsigned:
+                builder.triop(cselX, b, builder.unop(extshX, b), dp)
+            else:
+                builder.unop(extshX, b)
+
+        im = builder.readStatus dspStatusBitIm
+
+    builder.biop(iMulX, aSigned, builder.triop(cselX, bSigned, builder.biop(lslX, bSigned, builder.imm(1)), im))
+
 proc mpy*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mpy)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mpy)
+    else:
+        let
+            (a, b, aDpUnsigned, bDpUnsigned) = builder.getMulOperands(s)
+            prod = builder.doMul(a, b, aDpUnsigned, bDpUnsigned)
+
+        builder.dispatchSecondary(x)
+
+        builder.writeProd(prod)
 
 proc mpy2*(builder; x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mpy2)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mpy2)
+    else:
+        let
+            factor = builder.readReg(x1)
+            prod = builder.doMul(factor, factor, false, false)
+
+        builder.dispatchSecondary(x)
+
+        builder.writeProd(prod)
+
+proc macOp(builder; a, b: IrInstrRef, negate: bool, x: uint16) =
+    let
+        aVal = builder.unop(extshX, a)
+        bVal = builder.unop(extshX, b)
+
+        im = builder.readStatus dspStatusBitIm
+
+        prod = builder.biop(iMulX, aVal, builder.triop(cselX, bVal, builder.biop(lslX, bVal, builder.imm(1)), im))
+        sum = builder.signExt40(builder.biop(if negate: iSubX else: iAddX, builder.readProd(), prod))
+
+    builder.dispatchSecondary(x)
+
+    builder.writeProd(sum)
 
 proc mac*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mac)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mac)
+    else:
+        builder.macOp(
+            builder.readReg(x0.succ(int(s.getBit(1))*2)),
+            builder.readReg(y0.succ(int(s.getBit(0))*2)),
+            false, x)
 
 proc mac2*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mac2)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mac2)
+    else:
+        builder.macOp(
+            builder.readReg(a1.succ(int s.getBit(1))),
+            builder.readReg(x1.succ(int s.getBit(0))),
+            false, x)
 
 proc mac3*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mac3)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mac3)
+    else:
+        builder.macOp(
+            builder.readReg(x1.succ(int s)),
+            builder.readReg(x0.succ(int s)),
+            false, x)
 
 proc macn*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.macn)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.macn)
+    else:
+        builder.macOp(
+            builder.readReg(x0.succ(int(s.getBit(1))*2)),
+            builder.readReg(y0.succ(int(s.getBit(0))*2)),
+            true, x)
 
 proc macn2*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.macn2)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.macn2)
+    else:
+        builder.macOp(
+            builder.readReg(a1.succ(int s.getBit(1))),
+            builder.readReg(x1.succ(int s.getBit(0))),
+            true, x)
 
 proc macn3*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.macn3)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.macn3)
+    else:
+        builder.macOp(
+            builder.readReg(x1.succ(int s)),
+            builder.readReg(x0.succ(int s)),
+            true, x)
 
 proc mvmpy*(builder; s, d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mvmpy)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mvmpy)
+    else:
+        let
+            oldProd = builder.readProd()
+            (a, b, aDpUnsigned, bDpUnsigned) = builder.getMulOperands(s)
+            prod = builder.doMul(a, b, aDpUnsigned, bDpUnsigned)
+
+        builder.dispatchSecondary(x)
+
+        builder.writeAccum(d, oldProd)
+        builder.writeProd(prod)
+        builder.writeStatus dspStatusBitCa, builder.imm(false)
+        builder.writeStatus dspStatusBitOv, builder.imm(false)
+        builder.setZ1(oldProd)
+        builder.setN1(oldProd)
+        builder.setE1(oldProd)
+        builder.setU1(oldProd)
 
 proc rnmpy*(builder; s, d, x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rnmpy)
 
 proc admpy*(builder; s, d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.admpy)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.admpy)
+    else:
+        let
+            oldProd = builder.readProd()
+            accum = builder.readAccum(d)
+            (a, b, aDpUnsigned, bDpUnsigned) = builder.getMulOperands(s)
+            prod = builder.doMul(a, b, aDpUnsigned, bDpUnsigned)
+
+        builder.dispatchSecondary(x)
+
+        builder.writeProd(prod)
+        let
+            sum = builder.biop(iAddX, accum, oldProd)
+            ov = builder.biop(overflowAddX, accum, oldProd)
+            ca = builder.biop(carryAddX, accum, oldProd)
+        builder.writeStatus(dspStatusBitOv, ov)
+        builder.writeStatus(dspStatusBitCa, ca)
+
+        let sum40 = builder.signExt40(sum)
+        builder.setZ1(sum40)
+        builder.setN1(sum40)
+        builder.setE1(sum40)
+        builder.setU1(sum40)
+        builder.writeAccum(d, sum40)
 
 proc nnot*(builder; d, x: uint16) =
     when interpretAlu:

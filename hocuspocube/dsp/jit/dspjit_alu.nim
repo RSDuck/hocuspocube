@@ -312,14 +312,41 @@ proc clrp*(builder; x: uint16) =
         builder.writeProdParts(builder.imm(0xFFFF_FFFF_FFF0_0000'u64))
         builder.writeProdCarry(builder.imm(0x0010))
 
-proc round(builder): IrInstrRef =
-    discard
+proc round(builder; val: IrInstrRef): (IrInstrRef, IrInstrRef, IrInstrRef) =
+    let
+        ceil = builder.biop(condOr,
+            builder.biop(iCmpGreaterU, builder.unop(extractLo, val), builder.imm(0x8000)),
+            builder.biop(iCmpEqual, builder.biop(bitAnd, val, builder.imm(0x18000)), builder.imm(0x18000)))
+
+        one = builder.imm(0x10000)
+
+        ceilVal = builder.biop(iAddX, val, one)
+        carry = builder.biop(carryAddX, ceilVal, one)
+        overflow = builder.biop(overflowAddX, ceilVal, one)
+
+    (builder.triop(cselX, builder.signExt40(ceilVal), val, ceil), carry, overflow)
 
 proc rnd*(builder; d, x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rnd)
 
 proc rndp*(builder; d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rndp)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rndp)
+    else:
+        let
+            prod = builder.readProd()
+            (roundedProd, carry, overflow) = builder.round(prod)
+
+        builder.dispatchSecondary(x)
+
+        builder.writeStatus(dspStatusBitOv, carry)
+        builder.writeStatus(dspStatusBitCa, overflow)
+        builder.setZ2(roundedProd)
+        builder.setN2(roundedProd)
+        builder.setE1(roundedProd)
+        builder.setU1(roundedProd)
+
+        builder.writeAccum(d, roundedProd)
 
 proc tst*(builder; s, x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.tst)
@@ -522,7 +549,6 @@ proc mvmpy*(builder; s, d, x: uint16) =
 
         builder.dispatchSecondary(x)
 
-        builder.writeAccum(d, oldProd)
         builder.writeProd(prod)
         builder.writeStatus dspStatusBitCa, builder.imm(false)
         builder.writeStatus dspStatusBitOv, builder.imm(false)
@@ -530,9 +556,28 @@ proc mvmpy*(builder; s, d, x: uint16) =
         builder.setN1(oldProd)
         builder.setE1(oldProd)
         builder.setU1(oldProd)
+        builder.writeAccum(d, oldProd)
 
 proc rnmpy*(builder; s, d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rnmpy)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rnmpy)
+    else:
+        let
+            oldProd = builder.readProd()
+            (a, b, aDpUnsigned, bDpUnsigned) = builder.getMulOperands(s)
+            prod = builder.doMul(a, b, aDpUnsigned, bDpUnsigned)
+            (roundedProd, carry, overflow) = builder.round(oldProd)
+
+        builder.dispatchSecondary(x)
+
+        builder.writeProd(prod)
+        builder.writeStatus dspStatusBitCa, carry
+        builder.writeStatus dspStatusBitOv, overflow
+        builder.setZ1(roundedProd)
+        builder.setN1(roundedProd)
+        builder.setE1(roundedProd)
+        builder.setU1(roundedProd)
+        builder.writeAccum(d, roundedProd)
 
 proc admpy*(builder; s, d, x: uint16) =
     when interpretAlu:

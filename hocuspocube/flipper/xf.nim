@@ -155,6 +155,11 @@ proc translateProj*(proj: var array[16, float32]) =
 import
     rasterinterface
 
+template assign(val, newVal, body): untyped =
+    if val != newVal:
+        val = newVal
+        body
+
 proc xfWrite*(adr, val: uint32) =
     case adr
     of 0..0xFF:
@@ -188,40 +193,46 @@ proc xfWrite*(adr, val: uint32) =
         # currently not handled
         discard
     of 0x1009:
-        numColors = val
+        assign numColors, val:
+            vertexShaderDirty = true
     of 0x100A..0x100B:
-        ambColorsRegs[adr - 0x100A] = MatColor val
-        registerUniformDirty = true
+        assign ambColorsRegs[adr - 0x100A], MatColor(val):
+            registerUniformDirty = true
     of 0x100C..0x100D:
-        matColorsRegs[adr - 0x100C] = MatColor val
-        registerUniformDirty = true
+        assign matColorsRegs[adr - 0x100C], MatColor(val):
+            registerUniformDirty = true
     of 0x100E..0x1011:
-        lightCtrls[LightCtrlKind(adr - 0x100E)] = LightCtrl val
+        assign lightCtrls[LightCtrlKind(adr - 0x100E)], LightCtrl(val):
+            vertexShaderDirty = true
     of 0x1012:
-        enableDualTex = (val and 1) != 0
+        assign enableDualTex, (val and 1) != 0:
+            vertexShaderDirty = true
     of 0x1018:
-        matIdxLo = MatIndexLo val
-        registerUniformDirty = true
+        assign matIdxLo, MatIndexLo(val):
+            registerUniformDirty = true
     of 0x1019:
-        matIdxHi = MatIndexHi val
-        registerUniformDirty = true
+        assign matIdxHi, MatIndexHi(val):
+            registerUniformDirty = true
     of 0x101A..0x101F:
         viewport[ViewportItem(adr - 0x101A)] = cast[float32](val)
         rasterStateDirty = true
         xfLog &"viewport val {adr - 0x101A} {cast[float32](val)}"
     of 0x1020..0x1025:
-        xfLog &"loading proj mat val {adr - 0x1020} {cast[float32](val)}"
-        projMat[adr - 0x1020] = cast[float32](val)
-        registerUniformDirty = true
+        assign projMat[adr - 0x1020], cast[float32](val):
+            xfLog &"loading proj mat val {adr - 0x1020} {cast[float32](val)}"
+            registerUniformDirty = true
     of 0x1026:
-        projMatKind = ProjMatKind(val and 1)
-        registerUniformDirty = true
+        assign projMatKind, ProjMatKind(val and 1):
+            registerUniformDirty = true
     of 0x103F:
-        numTexcoordGen = val
+        assign numTexcoordGen, val:
+            vertexShaderDirty = true
     of 0x1040..0x1047:
-        texcoordGen[adr - 0x1040] = TexcoordGen val
+        assign texcoordGen[adr - 0x1040], TexcoordGen val:
+            vertexShaderDirty = true
     of 0x1050..0x1057:
-        dualTex[adr - 0x1050] = DualTex val
-        xfMemoryDirty = true
-        registerUniformDirty = true
+        assign dualTex[adr - 0x1050], DualTex val:
+            xfMemoryDirty = true
+            registerUniformDirty = true
+            vertexShaderDirty = true
     else: echo &"unknown xf write {adr:04X} {val:08X}"

@@ -1,5 +1,5 @@
 import
-    tables, hashes,
+    strformat, tables, hashes,
     opengl/rasterogl,
     rasterinterfacecommon,
     bpcommon
@@ -15,14 +15,29 @@ var
     imageStateDirty*: set[0..7]
     samplerStateDirty*: set[0..7]
 
+    currentVertexShader, currentFragmentShader: NativeShader
+    vertexShaderDirty*, fragmentShaderDirty*: bool
+
     samplers: array[8, NativeSampler]
 
-proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
-    rasterogl.retrieveFrame(data, x, y, width, height)
+    batchPrimitive: PrimitiveKind
+    batchFmt: DynamicVertexFmt
+    batchNumVertices: seq[int]
+
+proc endDraw() =
+    if batchNumVertices.len > 0:
+#        echo &"end draw {numVertices} vertices"
+        rasterogl.draw(batchPrimitive, batchNumVertices, batchFmt, curVertexBuffer.data)
+        batchNumVertices.setLen(0)
+        curVertexBuffer.clear()
 
 proc finishFrame*() =
-    #rasterogl.dispatchBatch()
     discard
+
+proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
+    endDraw()
+
+    rasterogl.retrieveFrame(data, x, y, width, height)
 
 proc clear*(r, g, b, a: uint8, depth: uint32, clearColor, clearAlpha, clearDepth: bool) =
     rasterogl.clear(r, g, b, a, depth, clearColor, clearAlpha, clearDepth)
@@ -136,9 +151,8 @@ proc init*() =
         samplers[i] = rasterogl.createSampler()
         rasterogl.bindSampler(i, samplers[i])
 
-proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt) =
-    assert(genMode.nbmp == 0)
-
+proc startDraw(kind: PrimitiveKind) =
+    assert batchNumVertices.len == 0
     if rasterStateDirty:
         # TODO: clamp scissor to 264 in height when AA is enabled
         let
@@ -163,9 +177,39 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt) =
         rasterogl.setZMode(zmode.enable, zmode.fun, zmode.update and zmode.enable)
         rasterStateDirty = false
 
-    #echo "drawing ", kind, " ", count
     setupTextures()
     setupUniforms()
-    rasterogl.bindShader(getVertexShader(getVtxShaderKey(fmt)), getFragmentShader(getFragShaderKey()))
-    rasterogl.draw(kind, count, fmt, curVertexBuffer.data)
-    curVertexBuffer.clear()
+
+    if vertexShaderDirty:
+        currentVertexShader = getVertexShader(getVtxShaderKey(curVertexBuffer.curFmt))
+    if fragmentShaderDirty:
+        currentFragmentShader = getFragmentShader(getFragShaderKey())
+    if vertexShaderDirty or fragmentShaderDirty:
+        rasterogl.bindShader(currentVertexShader, currentFragmentShader)
+        vertexShaderDirty = false
+        fragmentShaderDirty = false
+
+    batchPrimitive = kind
+    batchFmt = curVertexBuffer.curFmt
+
+#    echo "starting draw"
+
+proc draw*(kind: PrimitiveKind, count: int) =
+    assert(genMode.nbmp == 0)
+
+    if count > 0:
+        if rasterStateDirty or
+            registerUniformDirty or
+            xfMemoryDirty or
+            vertexShaderDirty or
+            fragmentShaderDirty or
+            (imageStateDirty * usedTextures()) != {} or
+            (samplerStateDirty * usedTextures()) != {} or
+            batchPrimitive != kind or
+            batchFmt != curVertexBuffer.curFmt:
+            endDraw()
+
+            startDraw(kind)
+
+    #    echo &"adding {count} vertices"
+        batchNumVertices.add count

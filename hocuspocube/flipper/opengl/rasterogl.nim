@@ -1,5 +1,5 @@
 import
-    std/setutils,
+    std/setutils, math, strformat,
     ../rasterinterfacecommon, ../bpcommon,
 
     opengl
@@ -119,8 +119,6 @@ var
     registerUniform, xfMemory: GLuint
 
     curBoundFormat: DynamicVertexFmt
-    curBatchPrimitive = primitiveTriangles
-    curBatchVerticesCount = 0
     # as long as the same format is bound we must specify the offset via glDrawArrays
     formatVertexOffset: int
 
@@ -402,6 +400,7 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
         if state.depthRange != currentRenderstate.depthRange:
             let (near, far) = state.depthRange
             glDepthRangef(near, far)
+            currentRenderstate.depthRange = state.depthRange
 
         for i in 0..<textureUnits:
             if state.textures[i] != currentRenderstate.textures[i] and state.textures[i] != nil:
@@ -560,10 +559,8 @@ proc setColorAlphaUpdate*(updateColor, updateAlpha: bool) =
     flipperRenderstate.enable[enableColorWrite] = updateColor
     flipperRenderstate.enable[enableAlphaWrite] = updateAlpha
 
-proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArray[byte]) =
+proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: openArray[byte]) =
     applyRenderstate(flipperRenderstate)
-
-    curBatchPrimitive = kind
 
     if fmt != curBoundFormat:
         let
@@ -635,13 +632,27 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
         formatVertexOffset = 0
         glBindVertexBuffer(0, vtxBuffer, curVtxBufferOffset + curVtxBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
 
+    assert data.len > 0, &"{counts}"
     copyMem(cast[pointer](cast[ByteAddress](vtxBufferPtr) + VertexBufferSegmentSize * curVtxBufferIdx + curVtxBufferOffset),
         unsafeAddr data[0],
         data.len)
     curVtxBufferOffset += data.len
 
-    if kind in {primitiveQuads, primitiveQuads2}:
-        let indicesCount = (count div 4) * 5
+    let oglPrim = case kind
+        of primitiveTriangles: GL_TRIANGLES
+        of primitiveTriangleStrips, primitiveQuads, primitiveQuads2: GL_TRIANGLE_STRIP
+        of primitiveTriangleFan: GL_TRIANGLE_FAN
+        of primitivePoints: GL_POINTS
+        of primitiveLines: GL_LINES
+        of primitiveLineStrip: GL_LINE_STRIP
+
+    let totalCount = sum(counts)
+    if kind in {primitiveQuads, primitiveQuads2} or (kind in {primitiveTriangleFan, primitiveTriangleStrips, primitiveLineStrip} and counts.len > 1):
+        let indicesCount =
+                if kind in {primitiveQuads, primitiveQuads2}:
+                    (totalCount div 4) * 5
+                else:
+                    totalCount + counts.len
 
         if curIdxBufferOffset + indicesCount*4 > VertexBufferSegmentSize:
             idxBufferLocks[curIdxBufferIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, GLbitfield 0)
@@ -653,25 +664,21 @@ proc draw*(kind: PrimitiveKind, count: int, fmt: DynamicVertexFmt, data: openArr
                 glDeleteSync(idxBufferLocks[curIdxBufferIdx])
                 idxBufferLocks[curIdxBufferIdx] = nil
 
-        let indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset
-        generateQuadIndices(cast[ptr UncheckedArray[uint32]](cast[ByteAddress](idxBufferPtr) + indexBufferOffset), 0, count)
+        let
+            indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset
+            indicesPtr = cast[ptr UncheckedArray[uint32]](cast[ByteAddress](idxBufferPtr) + indexBufferOffset)
+        if kind in {primitiveQuads, primitiveQuads2}:
+            generateQuadIndices(indicesPtr, 0, totalCount)
+        else:
+            generateSeparatingIndices(indicesPtr, 0, counts)
+
         curIdxBufferOffset += indicesCount*4
 
-        glDrawElementsBaseVertex(GL_TRIANGLE_STRIP, GLsizei indicesCount, GL_UNSIGNED_INT, cast[pointer](indexBufferOffset), GLint formatVertexOffset)
+        glDrawElementsBaseVertex(oglPrim, GLsizei indicesCount, GL_UNSIGNED_INT, cast[pointer](indexBufferOffset), GLint formatVertexOffset)
     else:
-        glDrawArrays(case kind
-            of primitiveTriangles: GL_TRIANGLES
-            of primitiveTriangleStrips: GL_TRIANGLE_STRIP
-            of primitiveTriangleFan: GL_TRIANGLE_FAN
-            of primitivePoints: GL_POINTS
-            of primitiveLines: GL_LINES
-            of primitiveLineStrip: GL_LINE_STRIP
-            else: raiseAssert("can't happen"),
-            GLint formatVertexOffset,
-            GLsizei count)
+        glDrawArrays(oglPrim, GLint formatVertexOffset, GLsizei totalCount)
 
-    formatVertexOffset += count
-    curBatchVerticesCount += count
+    formatVertexOffset += totalCount
 
 proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
     uploadTexture(rawXfbTexture, 0, 0, 0, width, height, width, unsafeAddr pixelData[0])

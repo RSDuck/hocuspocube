@@ -116,6 +116,7 @@ proc bpWrite*(adr, val: uint32) =
     case adr
     of 0x00:
         if genMode.maskedWrite val:
+            fragmentShaderDirty = true
             rasterStateDirty = true
     of 0x01..0x04:
         # copy filter stuff
@@ -130,7 +131,8 @@ proc bpWrite*(adr, val: uint32) =
         if scissorBR.maskedWrite val:
             rasterStateDirty = true
     of 0x28..0x2F:
-        ras1Tref[adr - 0x28].maskedWrite val
+        if ras1Tref[adr - 0x28].maskedWrite val:
+            fragmentShaderDirty = true
     of 0x30..0x3F:
         if
             (if (adr mod 2) == 0:
@@ -321,9 +323,11 @@ proc bpWrite*(adr, val: uint32) =
             imageStateDirty.incl idx
     of 0xC0..0xDF:
         if (adr mod 2) == 0:
-            colorEnv[(adr - 0xC0) div 2].maskedWrite val
+            if colorEnv[(adr - 0xC0) div 2].maskedWrite val:
+                fragmentShaderDirty = true
         else:
-            alphaEnv[(adr - 0xC1) div 2].maskedWrite val
+            if alphaEnv[(adr - 0xC1) div 2].maskedWrite val:
+                fragmentShaderDirty = true
     of 0xE0..0xE7:
         var dirty = false
         # TODO: figure out how exactly this works
@@ -338,14 +342,17 @@ proc bpWrite*(adr, val: uint32) =
         let val = AlphaCompare val
         if alphaCompare.ref0 != val.ref0 or alphaCompare.ref1 != val.ref1:
             registerUniformDirty = true
-        alphaCompare.maskedWrite uint32(val)
+        if alphaCompare.maskedWrite uint32(val):
+            fragmentShaderDirty = true
     of 0xF4:
         if zenv0.maskedWrite(val):
             registerUniformDirty = true
     of 0xF5:
-        zenv1.maskedWrite val
+        if zenv1.maskedWrite val:
+            fragmentShaderDirty = true
     of 0xF6..0xFD:
-        tevKSel[adr - 0xF6].maskedWrite val
+        if tevKSel[adr - 0xF6].maskedWrite val:
+            fragmentShaderDirty = true
     of 0xFE:
         bpMask = val
         return

@@ -462,9 +462,6 @@ proc processVertices(data: openArray[byte], offset: int, draw: DrawCallDesc, ver
     cpLog &"ate {verticesToProcess} vertices (size: {vertexSize} end offset {result} total: {result-offset} bytes | bytes remaining: {data.len-result})"
     verticesRemaining -= verticesToProcess
 
-    if verticesRemaining == 0:
-        draw(draw.primitiveKind, draw.verticesCount, dynamicVertexFmts[draw.vertexFormat])
-
 proc run(data: openArray[byte],
     draw: var DrawCallDesc, verticesRemaining: var int,
     inCommandList: bool): int =
@@ -585,6 +582,8 @@ proc run(data: openArray[byte],
                         cpLog &"draw {draw.primitiveKind} {result} ({draw.vertexFormat}) {draw.verticesCount} vertices vtx size: {vertexFormatSizes[draw.vertexFormat]}"
                         curVertexBuffer.curFmt = dynamicVertexFmts[draw.vertexFormat]
                         verticesRemaining = draw.verticesCount
+
+                        draw(draw.primitiveKind, draw.verticesCount)
                         break
                     else:
                         echo &"unknown command type {commandTyp:02X}"

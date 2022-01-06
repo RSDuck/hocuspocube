@@ -188,3 +188,15 @@ proc generateQuadIndices*(data: ptr UncheckedArray[uint32], offset, count: int) 
         data[i*5+4] = 0xFFFFFFFF'u32
         count -= 4
         i += 1
+
+proc generateSeparatingIndices*(data: ptr UncheckedArray[uint32], offset: int, counts: openArray[int]) =
+    var
+        i = 0
+        j = offset
+    for count in counts:
+        for k in 0..<count:
+            data[i] = uint32(j)
+            i += 1
+            j += 1
+        data[i] = 0xFFFFFFFF'u32
+        i += 1

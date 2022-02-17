@@ -218,33 +218,32 @@ proc flashInvalidateICache*() =
         if tag == memoryTagCode:
             tag = memoryTagNone
 
-proc translateBat[T; U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32): Option[uint32] {.inline.} =
+proc translateBat[T; U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32): uint32 {.inline.} =
     # TODO check privilege level
     for i in 0..<4:
         if (batsHi[i].vp or batsHi[i].vs) and (adr and (not(batsHi[i].bl) shl 17)) == batsHi[i].bepi:
             #echo &"bat match {uint32(batsHi[i]):08X} {uint32(batsLo[i]):08X}"
-            return some((adr and not(not(batsHi[i].bl) shl 17)) or batsLo[i].brpn)
-    echo &"failed to translate addr {adr:X} {gekkoState.pc:08X} {batsLo.repr} {batsHi.repr}"
-    none(uint32)
+            return (adr and not(not(batsHi[i].bl) shl 17)) or batsLo[i].brpn
+    raiseAssert(&"failed to translate addr {adr:X} {gekkoState.pc:08X} {batsLo.repr} {batsHi.repr}")
 
-proc translateDataAddr*(state: PpcState, adr: uint32): Option[uint32] {.inline.} =
+proc translateDataAddr*(state: PpcState, adr: uint32): uint32 {.inline.} =
     if state.msr.dr:
         # TODO: page translation
         translateBat(state.dbatLo, state.dbatHi, adr)
     else:
-        some(adr)
+        adr
 
-proc translateInstrAddr*(state: PpcState, adr: uint32): Option[uint32] {.inline.} =
+proc translateInstrAddr*(state: PpcState, adr: uint32): uint32 {.inline.} =
     if state.msr.ir:
         # TODO: page translation
         translateBat(state.ibatLo, state.ibatHi, adr)
     else:
-        some(adr)
+        adr
 
 proc jitReadMemory*[T](state: var PpcState, adr: uint32): T {.cdecl.} =
     #echo &"jit read memory {adr:X} {state.translateDataAddr(adr).get:X} {state.msr.dr}"
-    fromBE state.readMemory[:T](state.translateDataAddr(adr).get)
+    fromBE state.readMemory[:T](state.translateDataAddr(adr))
 
 proc jitWriteMemory*[T](state: var PpcState, adr: uint32, val: T) {.cdecl.} =
     #echo &"jit write memory {adr:X} {val}"
-    state.writeMemory[:T](state.translateDataAddr(adr).get, toBE val)
+    state.writeMemory[:T](state.translateDataAddr(adr), toBE val)

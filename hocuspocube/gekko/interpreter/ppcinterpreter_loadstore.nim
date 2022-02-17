@@ -35,18 +35,16 @@ template calcAddr(update: bool, body: untyped): untyped {.dirty.} =
         r(a) = ea
 
 template doMemOp(body: untyped): untyped {.dirty.} =
-    if (let adr = state.translateDataAddr(ea); adr.isSome):
-        body
-    else:
-        echo "memory translation failed"
+    let adr = state.translateDataAddr(ea)
+    body
 
 template loadByte: untyped {.dirty.} =
     doMemOp:
-        r(d) = uint32 state.readMemory[:uint8](adr.get)
+        r(d) = uint32 state.readMemory[:uint8](adr)
 
 template loadHalf(rev = false): untyped {.dirty.} =
     doMemOp:
-        let val = state.readMemory[:uint16](adr.get)
+        let val = state.readMemory[:uint16](adr)
         if rev:
             r(d) = val
         else:
@@ -54,11 +52,11 @@ template loadHalf(rev = false): untyped {.dirty.} =
 
 template loadHalfAlgebraic: untyped {.dirty.} =
     doMemOp:
-        r(d) = signExtend(uint32 fromBE state.readMemory[:uint16](adr.get), 16)
+        r(d) = signExtend(uint32 fromBE state.readMemory[:uint16](adr), 16)
 
 template loadWord(rev = false): untyped {.dirty.} =
     doMemOp:
-        let val = state.readMemory[:uint32](adr.get)
+        let val = state.readMemory[:uint32](adr)
         if rev:
             r(d) = val
         else:
@@ -66,15 +64,15 @@ template loadWord(rev = false): untyped {.dirty.} =
 
 template storeByte: untyped {.dirty.} =
     doMemOp:
-        state.writeMemory[:uint8](adr.get, uint8 r(s))
+        state.writeMemory[:uint8](adr, uint8 r(s))
 
 template storeHalf(rev = false): untyped {.dirty.} =
     doMemOp:
-        state.writeMemory[:uint16](adr.get, if rev: uint16 r(s) else: toBE uint16 r(s))
+        state.writeMemory[:uint16](adr, if rev: uint16 r(s) else: toBE uint16 r(s))
 
 template storeWord(rev = false): untyped {.dirty.} =
     doMemOp:
-        state.writeMemory[:uint32](adr.get, if rev: uint32 r(s) else: toBE uint32 r(s))
+        state.writeMemory[:uint32](adr, if rev: uint32 r(s) else: toBE uint32 r(s))
 
 proc lbz*(state; d, a, imm: uint32) =
     calcAddrImm false:
@@ -218,12 +216,12 @@ proc lmw*(state; d, a, imm: uint32) =
     # TODO alignment exception
     calcAddrMultiple d:
         doMemOp:
-            r(r) = fromBE state.readMemory[:uint32](adr.get)
+            r(r) = fromBE state.readMemory[:uint32](adr)
 
 proc stmw*(state; s, a, imm: uint32) =
     calcAddrMultiple s:
         doMemOp:
-            state.writeMemory[:uint32](adr.get, toBE r(r))
+            state.writeMemory[:uint32](adr, toBE r(r))
 
 proc lswi*(state; d, a, nb: uint32) =
     raiseAssert "instr not implemented lswi"
@@ -241,24 +239,24 @@ proc stswx*(state; s, a, b: uint32) =
 
 template loadDouble: untyped {.dirty.} =
     doMemOp:
-        fr(d).double = cast[float64](fromBE state.readMemory[:uint64](adr.get))
+        fr(d).double = cast[float64](fromBE state.readMemory[:uint64](adr))
         #checkNan(fr(d).double)
 
 template loadSingle: untyped {.dirty.} =
     doMemOp:
-        fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
+        fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr))
         fr(d).ps1 = fr(d).ps0
         #checkNan(fr(d).ps0)
 
 template storeDouble: untyped {.dirty.} =
     doMemOp:
         #checkNan(fr(s).double)
-        state.writeMemory[:uint64](adr.get, toBE cast[uint64](fr(s).double))
+        state.writeMemory[:uint64](adr, toBE cast[uint64](fr(s).double))
 
 template storeSingle: untyped {.dirty.} =
     doMemOp:
         #checkNan(fr(s).ps0)
-        state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
+        state.writeMemory[:uint32](adr, toBE cast[uint32](float32(fr(s).ps0)))
 
 # quantisation is a bad approximation for now
 # because I'm too lazy to mess with float guts
@@ -287,30 +285,30 @@ proc quantise[T](x: float32, scale: uint32): T =
         T(adjustedVal)
 
 template loadQuant(T: typedesc; U: typedesc): untyped {.dirty.} =
-    fr(d).ps0 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get)), state.gqr[i].ldScale)
+    fr(d).ps0 = dequantise(cast[T](fromBE state.readMemory[:U](adr)), state.gqr[i].ldScale)
     #checkNan(fr(d).ps0)
     if w == 0:
-        fr(d).ps1 = dequantise(cast[T](fromBE state.readMemory[:U](adr.get + uint32(sizeof(T)))), state.gqr[i].ldScale)
+        fr(d).ps1 = dequantise(cast[T](fromBE state.readMemory[:U](adr + uint32(sizeof(T)))), state.gqr[i].ldScale)
         #checkNan(fr(d).ps1)
     else:
         fr(d).ps1 = 1.0
 
 template storeQuant(T: typedesc, U: typedesc): untyped {.dirty.} =
     #checkNan(fr(s).ps0)
-    state.writeMemory[:U](adr.get, toBE cast[U](quantise[T](float32(fr(s).ps0), state.gqr[i].stScale)))
+    state.writeMemory[:U](adr, toBE cast[U](quantise[T](float32(fr(s).ps0), state.gqr[i].stScale)))
     if w == 0:
         #checkNan(fr(s).ps1)
-        state.writeMemory[:U](adr.get + uint32(sizeof(T)), toBE cast[U](quantise[T](float32(fr(s).ps1), state.gqr[i].stScale)))
+        state.writeMemory[:U](adr + uint32(sizeof(T)), toBE cast[U](quantise[T](float32(fr(s).ps1), state.gqr[i].stScale)))
 
 template loadQuant: untyped {.dirty.} =
     doMemOp:
         case state.gqr[i].ldType
         of gqrFloat:
-            fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr.get))
+            fr(d).ps0 = cast[float32](fromBE state.readMemory[:uint32](adr))
             #checkNan(fr(d).ps0)
 
             if w == 0:
-                fr(d).ps1 = cast[float32](fromBE state.readMemory[:uint32](adr.get + 4))
+                fr(d).ps1 = cast[float32](fromBE state.readMemory[:uint32](adr + 4))
                 #checkNan(fr(d).ps1)
             else:
                 fr(d).ps1 = 1.0
@@ -325,10 +323,10 @@ template storeQuant: untyped {.dirty.} =
         case state.gqr[i].stType
         of gqrFloat:
             #checkNan(fr(s).ps0)
-            state.writeMemory[:uint32](adr.get, toBE cast[uint32](float32(fr(s).ps0)))
+            state.writeMemory[:uint32](adr, toBE cast[uint32](float32(fr(s).ps0)))
             if w == 0:
                 #checkNan(fr(s).ps1)
-                state.writeMemory[:uint32](adr.get + 4, toBE cast[uint32](float32(fr(s).ps1)))
+                state.writeMemory[:uint32](adr + 4, toBE cast[uint32](float32(fr(s).ps1)))
         of gqrU8: storeQuant(uint8, uint8)
         of gqrU16: storeQuant(uint16, uint16)
         of gqrS8: storeQuant(int8, uint8)
@@ -399,7 +397,7 @@ proc stfiwx*(state; s, a, b: uint32) =
     handleFloatException:
         calcAddr false:
             doMemOp:
-                state.writeMemory[:uint32](adr.get, toBE uint32 cast[uint64](fr(s).double))
+                state.writeMemory[:uint32](adr, toBE uint32 cast[uint64](fr(s).double))
 
 proc stfs*(state; s, a, imm: uint32) =
     handleFloatException:
@@ -466,16 +464,16 @@ proc dcbz*(state; a, b: uint32) =
     calcAddr false:
         doMemOp:
             for i in 0'u32..<4:
-                writeBus[uint64]((adr.get and not(0x1F'u32)) + i*8, 0'u64)
+                writeBus[uint64]((adr and not(0x1F'u32)) + i*8, 0'u64)
 
 proc dcbz_l*(state; a, b: uint32) =
     calcAddr false:
         doMemOp:
-            doAssert adr.get >= 0xE0000000'u32 and adr.get <= 0xE0003FFF'u32, "dcbz_l in unusal region"
+            doAssert adr >= 0xE0000000'u32 and adr <= 0xE0003FFF'u32, "dcbz_l in unusal region"
 
-            zeroMem(addr lockedCache[adr.get and 0x3FE0], 0x20)
+            zeroMem(addr lockedCache[adr and 0x3FE0], 0x20)
 
 proc icbi*(state; a, b: uint32) =
     calcAddr false:
         doMemOp:
-            invalidateCode(adr.get)
+            invalidateCode(adr)

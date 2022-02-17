@@ -30,7 +30,7 @@ proc gekkoRun*(timestamp: var int64, target: var int64) =
             handleExceptions()
 
         # TODO: handle translation or fetch failure
-        let instr = fromBE readCode(gekkoState.translateInstrAddr(gekkoState.pc).get)
+        let instr = fromBE readCode(gekkoState.translateInstrAddr(gekkoState.pc))
 
         dispatchPpc instr, gekkoState, undefinedInstr
 

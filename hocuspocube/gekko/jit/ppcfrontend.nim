@@ -18,7 +18,7 @@ proc undefinedInstr(builder: var IrBlockBuilder[PpcIrRegState], instr: uint32) =
 
 proc compileBlock(): BlockEntryFunc =
     let
-        blockAdr = gekkoState.translateInstrAddr(gekkoState.pc).get
+        blockAdr = gekkoState.translateInstrAddr(gekkoState.pc)
         dataTranslation = gekkoState.msr.dr
     var
         builder: IrBlockBuilder[PpcIrRegState]
@@ -28,7 +28,7 @@ proc compileBlock(): BlockEntryFunc =
     builder.regs.pc = gekkoState.pc
 
     while not builder.regs.branch:
-        let instr = fromBE readCode(gekkoState.translateInstrAddr(builder.regs.pc).get)
+        let instr = fromBE readCode(gekkoState.translateInstrAddr(builder.regs.pc))
         builder.regs.instr = instr
 
         #echo &"instr {toBE(instr):08X}"
@@ -74,7 +74,7 @@ proc gekkoRun*(timestamp: var int64, target: var int64) =
         if gekkoState.pendingExceptions != {}:
             handleExceptions()
 
-        let entryPoint = blockEntries[mapBlockEntryAdr(gekkoState.translateInstrAddr(gekkoState.pc).get)]
+        let entryPoint = blockEntries[mapBlockEntryAdr(gekkoState.translateInstrAddr(gekkoState.pc))]
 
         let cycles =
             if likely(entryPoint != nil):

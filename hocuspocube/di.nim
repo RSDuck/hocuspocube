@@ -1,5 +1,5 @@
 import
-    gekko/gekko, cycletiming,
+    gekko/[memory, gekko],
     util/[bitstruct, ioregs],
     strformat,
     streams
@@ -111,8 +111,10 @@ proc processCmd() =
             discFile.setPosition(int(offset))
 
             #if diMar.adr < uint32(mainRAM.len):
-            let bytesRead = discFile.readData(addr mainRAM[diMar.adr], int(len))
-            assert uint32(bytesRead) == len
+
+            withMainRamWritePtr(diMar.adr, len):
+                let bytesRead = discFile.readData(ramPtr, int(len))
+                assert uint32(bytesRead) == len
             #else:
             #    echo "skipped weird disc access"
 
@@ -128,8 +130,9 @@ proc processCmd() =
             assert diLen.adr == 0x20
 
             discFile.setPosition(0)
-            let bytesRead = discFile.readData(addr mainRAM[diMar.adr], 0x20)
-            assert bytesRead == 0x20
+            withMainRamWritePtr(diMar.adr, 0x20'u32):
+                let bytesRead = discFile.readData(ramPtr, 0x20)
+                assert uint32(bytesRead) == 0x20
 
             diLog &"di: read disc id to {diMar.adr:08X}"
 
@@ -159,7 +162,8 @@ proc processCmd() =
         ident.deviceCode = 0x1234
         ident.revisionLevel = 0x1234
         ident.releaseDate = 0x12345678
-        copyMem(addr mainRAM[diMar.adr], addr ident, 0x20)
+
+        writeMainRam(diMar.adr, addr ident, 0x20)
 
         diLog &"di: read drive ident to {diMar.adr:08X}"
 

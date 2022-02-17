@@ -2,7 +2,7 @@ import
     strformat,
     stew/endians2,
     bpcommon,
-    ../gekko/gekko,
+    ../gekko/[gekko, memory],
     pe
 
 proc convertRgbToYuv(r0, g0, b0, r1, g1, b1: uint8): (uint8, uint8, uint8, uint8) =
@@ -190,26 +190,24 @@ proc bpWrite*(adr, val: uint32) =
             var efbContent = newSeq[uint32](width * height)
             retrieveFrame(efbContent, srcX, srcY, width, height)
 
-            echo &"dispcopy {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
-            var
-                adr = HwPtr(efbCopyDst shl 5).adr
-                uniqueAdr = adr
-                line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
-                copied = 0
-            for i in 0..<height:
-                uniqueAdr = adr
-                convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr mainRAM[uniqueAdr]),
-                    toOpenArray(efbContent, int (height-i-1)*width, int (height-i-1+1)*width-1),
-                    int width)
-                adr += stride
-                line += efbCopyStepY
-                copied += 1
-
-                while (line shr 8) == i:
-                    copyMem(addr mainRAM[adr], addr mainRAM[uniqueAdr], width*2)
+            let xfbLines = uint32(float32(height) * (256f / float32(stride div 2)))
+            withMainRamWritePtr(HwPtr(efbCopyDst shl 5).adr, stride*xfbLines):
+                #echo &"dispcopy {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
+                var
+                    offset = 0'u32
+                    line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
+                for i in 0..<height:
+                    let uniqueOffset = offset
+                    convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr ramPtr[offset]),
+                        toOpenArray(efbContent, int (height-i-1)*width, int (height-i-1+1)*width-1),
+                        int width)
+                    offset += stride
                     line += efbCopyStepY
-                    adr += stride
-                    copied += 1
+
+                    while (line shr 8) == i:
+                        copyMem(addr ramPtr[offset], unsafeAddr ramPtr[uniqueOffset], width*2)
+                        line += efbCopyStepY
+                        offset += stride
             #echo &"actually copied {copied} lines"
         of copyTexture:
             let
@@ -220,23 +218,20 @@ proc bpWrite*(adr, val: uint32) =
                 roundedWidth = fmtInfo.roundedWidth(width)
                 roundedHeight = fmtInfo.roundedHeight(height)
 
-                dst = cast[ptr UncheckedArray[uint16]](addr mainRAM[dstAdr])
+            withMainRamWritePtr(dstAdr, fmtInfo.textureDataSize(roundedWidth, roundedHeight)):
+                var efbContent = newSeq[uint32](roundedWidth * roundedHeight)
+                retrieveFrame(efbContent, srcX, srcY, roundedWidth, roundedHeight)
 
-            var efbContent = newSeq[uint32](roundedWidth * roundedHeight)
-            retrieveFrame(efbContent, srcX, srcY, roundedWidth, roundedHeight)
+                echo &"texcopy {srcX}, {srcY} {width}x{height} (rounded to {roundedWidth}x{roundedHeight}) to {efbCopyDst:08X} stride: {stride} {fmt}"
 
-            echo &"texcopy {srcX}, {srcY} {width}x{height} (rounded to {roundedWidth}x{roundedHeight}) to {efbCopyDst:08X} stride: {stride} {fmt}"
+                if fmt == copyTexfmtRGB565:
+                    let dst = cast[ptr UncheckedArray[uint16]](ramPtr)
 
-            if fmt == copyTexfmtRGB565:
-                for (srcIdx, dstIdx) in doTileLoop(int roundedWidth, int roundedHeight, 4, 4, flipY = true, tileStride = int(stride) div 2):
-                    let src = efbContent[srcIdx]
-                    dst[dstIdx] = toBE uint16(((src and 0xF8) shl 8) or ((src and 0xFC00) shr 5) or ((src and 0xF80000) shr 19))
-            else:
-                raiseAssert(&"unimplemented texcopy format {fmt}")
-
-            for i in countup(0'u32, fmtInfo.textureDataSize(roundedWidth, roundedHeight)-1, 32):
-                if mainRAMTagging[(dstAdr + (i * 2)) div 32] == memoryTagTexture:
-                    invalidateTexture(dstAdr + i*2)
+                    for (srcIdx, dstIdx) in doTileLoop(int roundedWidth, int roundedHeight, 4, 4, flipY = true, tileStride = int(stride) div 2):
+                        let src = efbContent[srcIdx]
+                        dst[dstIdx] = toBE uint16(((src and 0xF8) shl 8) or ((src and 0xFC00) shr 5) or ((src and 0xF80000) shr 19))
+                else:
+                    raiseAssert(&"unimplemented texcopy format {fmt}")
 
         if copyExecute.clear:
             rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ, peCMode0.colorUpdate, peCMode0.alphaUpdate, zmode.update)
@@ -257,7 +252,7 @@ proc bpWrite*(adr, val: uint32) =
 
         assert dst + count <= uint32(sizeof(tmem))
         #echo &"uploading tlut {src:08X} {dst:X} {count}"
-        copyMem(addr tmem[dst], addr mainRAM[src], count)
+        readMainRam(src, addr tmem[dst], count)
         samplerStateDirty.incl {range[0..7](0)..7}
         clearPalHashCache()
     of 0x66:

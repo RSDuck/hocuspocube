@@ -1,6 +1,6 @@
 import
     streams, strformat,
-    gekko/[interpreter/ppcinterpreter, jit/ppcfrontend, gekko, ppcstate],
+    gekko/[interpreter/ppcinterpreter, jit/ppcfrontend, gekko, ppcstate, memory],
     dsp/[interpreter/dspinterpreter, jit/dspfrontend],
     flipper/[rasterinterface, cp],
     util/dolfile,
@@ -19,7 +19,7 @@ proc loadDol*(input: Stream) =
     let file = dolfile.loadDol(input)
 
     proc writeSection(section: Section) =
-        copyMem(addr mainRAM[section.start - 0x80000000'u32], unsafeAddr section.data[0], section.data.len)
+        writeMainRAM(section.start - 0x80000000'u32, section.data)
     for section in file.text:
         echo &".text at {section.start:X}"
         writeSection section

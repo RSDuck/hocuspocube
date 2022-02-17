@@ -44,22 +44,11 @@ makeBitStruct uint32, *HwPtr:
 makeBitStruct uint32, *UnalignedHwPtr:
     _[0..25] {.adr.}: uint32
 
-type
-    MemoryTag* = enum
-        memoryTagNone
-        memoryTagTexture
-        memoryTagCode
-
 var
     intsr: Intsr
     intmr: Intmr
 
     fifoBase, fifoEnd, fifoCurrent: FifoPtr
-
-    mainRAM*, mainRAMFakeICache*: array[0x1800000, byte]
-    mainRAMTagging*: array[0x1800000 div 32, MemoryTag]
-
-    lockedCache*: array[0x4000, byte]
 
 proc updateFifo*(): uint32 =
     result = fifoCurrent.adr

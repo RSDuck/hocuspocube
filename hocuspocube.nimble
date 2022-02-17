@@ -8,9 +8,14 @@ bin           = @["hocuspocube/hocuspocube"]
 
 # Dependencies
 
-requires @[
+var dependencies = @[
     "nim >= 1.1.4",
     "sdl2",
     "https://github.com/status-im/nim-stew.git#5cf4feabea0820d7f03b146b0973a57973bcc4c1",
     "opengl",
     "xxhash"]
+
+when defined(windows):
+    dependencies.add "winim"
+
+requires dependencies

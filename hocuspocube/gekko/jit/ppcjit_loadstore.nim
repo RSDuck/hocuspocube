@@ -24,15 +24,19 @@ proc calcAdr(builder; a, b: uint32, update: bool): IrInstrRef =
             else:
                 builder.biop(iAdd, builder.loadreg(a), builder.loadreg(b)))
 
-proc intload(builder; loadKind: InstrKind, d, a, b: uint32, update: bool) =
-    let adr = builder.calcAdr(a, b, update)
-    builder.storereg d, builder.unop(loadKind, adr)
+proc intload(builder; loadKind: InstrKind, d, a, b: uint32, update: bool, algebraic = false) =
+    let
+        adr = builder.calcAdr(a, b, update)
+        val = builder.unop(loadKind, adr)
+    builder.storereg d, (if algebraic: builder.unop(extsh, val) else: val)
     if update:
         builder.storereg a, adr
 
-proc intloadImm(builder; loadKind: InstrKind, d, a, imm: uint32, update: bool) =
-    let adr = builder.calcAdrImm(a, imm, update)
-    builder.storereg d, builder.unop(loadKind, adr)
+proc intloadImm(builder; loadKind: InstrKind, d, a, imm: uint32, update: bool, algebraic = false) =
+    let
+        adr = builder.calcAdrImm(a, imm, update)
+        val = builder.unop(loadKind, adr)
+    builder.storereg d, (if algebraic: builder.unop(extsh, val) else: val)
     if update:
         builder.storereg a, adr
 
@@ -90,25 +94,25 @@ proc lha*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lha)
     else:
-        builder.intloadImm(ppcLoadS16, d, a, imm, false)
+        builder.intloadImm(ppcLoadU16, d, a, imm, false, true)
 
 proc lhau*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhau)
     else:
-        builder.intloadImm(ppcLoadS16, d, a, imm, true)
+        builder.intloadImm(ppcLoadU16, d, a, imm, true, true)
 
 proc lhaux*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16 or interpretLoadStoreUpdate:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhaux)
     else:
-        builder.intload(ppcLoadS16, d, a, b, true)
+        builder.intload(ppcLoadU16, d, a, b, true, true)
 
 proc lhax*(builder; d, a, b: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsS16:
         builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.lhax)
     else:
-        builder.intload(ppcLoadS16, d, a, b, false)
+        builder.intload(ppcLoadU16, d, a, b, false, true)
 
 proc lhz*(builder; d, a, imm: uint32) =
     when interpretLoadStore or interpretLoads or interpretLoadsU16:

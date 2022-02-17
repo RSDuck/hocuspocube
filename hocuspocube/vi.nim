@@ -1,8 +1,7 @@
 import
     util/ioregs, util/bitstruct,
     cycletiming,
-    gekko/gekko, si/si,
-    gekko/ppcstate,
+    gekko/[gekko, ppcstate, memory], si/si,
 
     strformat, std/monotimes, times
 
@@ -239,9 +238,8 @@ proc readOutField(odd: bool) =
     var
         frameDataRgba = newSeq[uint32](frameWidth * frameHeight)
     for i in 0..<frameHeight:
-        convertLineYuvToRgb(toOpenArray(frameDataRgba, int(i*frameWidth), int((i+1)*frameWidth-1)),
-            toOpenArray(cast[ptr UncheckedArray[uint32]](addr mainRAM[frameAdr]), 0, int(frameWidth) div 2 - 1),
-            int frameWidth)
+        withMainRamOpenArray(frameAdr, frameWidth * 4, uint32):
+            convertLineYuvToRgb(toOpenArray(frameDataRgba, int(i*frameWidth), int((i+1)*frameWidth-1)), ramArr, int frameWidth)
         frameAdr += frameStride
 
     presentFrame int frameWidth, int frameHeight, frameDataRgba

@@ -5,6 +5,7 @@ import
     ../../util/jit/[ir, codegenx64, iropt],
     ppcfrontendcommon, gekkoblockcache,
     ../ppcstate,
+    ../fastmem,
 
     ppcjit_int,
     ppcjit_loadstore,
@@ -16,7 +17,9 @@ proc undefinedInstr(builder: var IrBlockBuilder[PpcIrRegState], instr: uint32) =
     raiseAssert(&"undefined instruction {toBE(instr):08X} at {builder.regs.pc:08X}")
 
 proc compileBlock(): BlockEntryFunc =
-    let blockAdr = gekkoState.translateInstrAddr(gekkoState.pc).get
+    let
+        blockAdr = gekkoState.translateInstrAddr(gekkoState.pc).get
+        dataTranslation = gekkoState.msr.dr
     var
         builder: IrBlockBuilder[PpcIrRegState]
         cycles = 0'i32
@@ -58,7 +61,11 @@ proc compileBlock(): BlockEntryFunc =
 
     #echo "postopt\n", builder.blk
 
-    result = cast[BlockEntryFunc](genCode(builder.blk, cycles, builder.regs.floatInstr, isIdleLoop))
+    result = cast[BlockEntryFunc](genCode(builder.blk,
+        cycles,
+        builder.regs.floatInstr,
+        isIdleLoop,
+        if dataTranslation: translatedAdrSpace else: physicalAdrSpace))
 
     blockEntries[mapBlockEntryAdr(blockAdr)] = result
 

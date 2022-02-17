@@ -1,5 +1,5 @@
 import
-    strutils, strformat, options, hashes
+    strformat, options, hashes
 
 #[
     Some notes on this weird IR I've come up with.
@@ -139,7 +139,6 @@ type
 
         ppcLoadU8
         ppcLoadU16
-        ppcLoadS16
         ppcLoad32
         ppcLoadFss
         ppcLoadFsd
@@ -277,7 +276,7 @@ const
         extsbX, extshX,
         extswX, extzwX,
 
-        ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32,
+        ppcLoadU8, ppcLoadU16, ppcLoad32,
         ppcLoadFss, ppcLoadFsd,
 
         dspLoadIMem, dspLoadDMem,
@@ -419,6 +418,7 @@ const
         fMaddpd, fMsubpd, fNmaddpd, fNmsubpd}
 
     HasWideResult* = {
+        loadImmI,
         ctxLoad64,
         mergeLo, mergeMid, mergeHi, mergeMidHi,
         iAddX, iSubX,
@@ -467,6 +467,22 @@ type
         dmaL
         wpar
         hid0
+        iBatLo0
+        iBatLo1
+        iBatLo2
+        iBatLo3
+        iBatHi0
+        iBatHi1
+        iBatHi2
+        iBatHi3
+        dBatLo0
+        dBatLo1
+        dBatLo2
+        dBatLo3
+        dBatHi0
+        dBatHi1
+        dBatHi2
+        dBatHi3
         pcs
         pss
         eas
@@ -662,7 +678,10 @@ proc makeIdentity*(iref: IrInstrRef): IrInstr {.inline.} =
     makeUnop(identity, iref)
 
 proc narrowIdentity*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr {.inline.} =
-    if blk.getInstr(iref).kind in HasWideResult:
+    let kind = blk.getInstr(iref).kind
+    if kind == loadImmI:
+        makeImm(uint32 blk.getInstr(iref).immValI)
+    elif kind in HasWideResult:
         makeUnop(extzwX, iref)
     else:
         makeIdentity(iref)

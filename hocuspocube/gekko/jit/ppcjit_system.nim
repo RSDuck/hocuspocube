@@ -165,6 +165,20 @@ proc mtspr*(builder; d, spr: uint32) =
         of 921: builder.storeSpr(wpar, rd)
         of 923: builder.storeSpr(dmaL, rd)
         of 1008: builder.storeSpr(hid0, rd)
+        of 528..535:
+            let n = int(n - 528)
+            builder.storeSpr(
+                if (n and 1) == 0:
+                    ibatHi0.succ(n shr 1)
+                else:
+                    iBatLo0.succ(n shr 1), rd)
+        of 536..543:
+            let n = int(n - 536)
+            builder.storeSpr(
+                if (n and 1) == 0:
+                    dbatHi0.succ(n shr 1)
+                else:
+                    dBatLo0.succ(n shr 1), rd)
         else:
             builder.storectx(ctxStore32, (case n
                 of 1: uint32 offsetof(PpcState, xer)
@@ -175,12 +189,6 @@ proc mtspr*(builder; d, spr: uint32) =
                 of 26: uint32 offsetof(PpcState, srr0)
                 of 27: uint32 offsetof(PpcState, srr1)
                 of 272..275: uint32(offsetof(PpcState, sprg)) + 4*(n-272)
-                of 528..535:
-                    let n = n - 528
-                    (uint32(if (n and 1) == 0: offsetof(PpcState, ibatHi) else: offsetof(PpcState, ibatLo)) + (n div 2)*4)
-                of 536..543:
-                    let n = n - 536
-                    (uint32(if (n and 1) == 0: offsetof(PpcState, dbatHi) else: offsetof(PpcState, dbatLo)) + (n div 2)*4)
                 of 912..919: uint32(offsetof(PpcState, gqr)) + (n-912)*4
                 of 920: uint32 offsetof(PpcState, hid2)
                 of 922: uint32 offsetof(PpcState, dmaU)

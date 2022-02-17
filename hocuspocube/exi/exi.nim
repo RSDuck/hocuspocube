@@ -1,7 +1,7 @@
 import
     bitops, strformat,
     ../util/[ioregs, bitstruct],
-    ../gekko/gekko
+    ../gekko/[gekko, memory]
 
 template exiLog(message: string) =
     discard
@@ -92,6 +92,8 @@ proc updateInt(chan: uint32) =
         (channels[chan].csr.exiint and channels[chan].csr.exiintmsk) or
         (channels[chan].csr.extint and channels[chan].csr.extintmsk)
 
+import macros
+
 ioBlock exi, 0x40:
 of exiCsr, 0x00, 4, 3, 20:
     read: uint32 channels[idx].csr
@@ -151,21 +153,20 @@ of exiCr, 0x0C, 4, 3, 20:
 
                 let
                     startAdr = channels[idx].dmaStart.adr
-                    endAdr = startAdr + channels[idx].dmaLen.adr - 1
+                    len = channels[idx].dmaLen.adr
 
-                exiLog &"exi {idx} dma {channels[idx].cr.transferKind} from {startAdr:08X} to {endAdr:08X} {gekkoState.pc:08X}"
+                exiLog &"exi {idx} dma {channels[idx].cr.transferKind} from {startAdr:08X} {len:08X} {gekkoState.pc:08X}"
 
                 if channels[idx].cr.transferKind == exiTransferRead:
-                    channels[idx].device.exchange(channels[idx].device,
-                        toOpenArray(mainRAM, startAdr, endAdr),
-                        [])
+                        withMainRamOpenArrayWrite(startAdr, len, byte):
+                            let empty: array[0, byte] = []
+                            channels[idx].device.exchange(channels[idx].device, ramArr, empty)
                 else:
-                    var dummyOut: array[0, byte] = []
-                    channels[idx].device.exchange(channels[idx].device,
-                        dummyOut,
-                        toOpenArray(mainRAM, startAdr, endAdr))
-                channels[idx].csr.tcint = true
-                updateInt(idx)
+                    withMainRamOpenArray(startAdr, len, byte):
+                        var dummyOut: array[0, byte] = []
+                        channels[idx].device.exchange(channels[idx].device, dummyOut, ramArr)
+                    channels[idx].csr.tcint = true
+                    updateInt(idx)
             else:
                 assert channels[idx].cr.transferKind != exiTransferReserved
 

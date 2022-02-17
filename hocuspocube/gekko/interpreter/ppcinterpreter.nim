@@ -15,7 +15,7 @@ import
 
 proc undefinedInstr(state: var PpcState, instr: uint32) =
     let file = newFileStream("mainram2.bin", fmWrite)
-    file.writeData(addr mainRAM[0], mainRAM.len)
+    file.writeData(mainRamReadPtr(0'u32, MainRamSize), MainRamSize)
     file.close()
     echo &"undefined instr {instr:08X} at {state.pc:08X} {state.lr:08X}"
     quit()

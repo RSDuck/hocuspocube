@@ -2,7 +2,7 @@ import
     strformat,
     ../util/[ioregs, bitstruct],
 
-    ../gekko/gekko,
+    ../gekko/[gekko, memory],
 
     cpinternal
 
@@ -100,11 +100,10 @@ of cpBreakPoint, 0x3C, 4:
         echo &"set fifo breakpoint {fifoBreakPoint.adr:08X}"
         setBreakPointByFifoSetup()
 
-proc cpNotifyFifoBurst*(data: openArray[uint32]): bool =
+proc cpNotifyFifoBurst*(data: openArray[byte]): bool =
     if cr.gpLink:
-        assert (data.len mod 8) == 0
-
-        cmdlistParser.queueData(toOpenArray(cast[ptr UncheckedArray[byte]](unsafeAddr data[0]), 0, data.len * 4 - 1))
+        assert (data.len mod 32) == 0
+        cmdlistParser.queueData(data)
 
         sr.readIdle = false
         sr.commandIdle = false
@@ -112,9 +111,9 @@ proc cpNotifyFifoBurst*(data: openArray[uint32]): bool =
         if fifoWritePointer.adr == fifoEnd.adr:
             fifoWritePointer.adr = fifoBase.adr
         else:
-            fifoWritePointer.adr = fifoWritePointer.adr + uint32(data.len) * 4
+            fifoWritePointer.adr = fifoWritePointer.adr + uint32(data.len)
 
-        fifoReadWriteDistance.adr = fifoReadWriteDistance.adr + uint32(data.len) * 4
+        fifoReadWriteDistance.adr = fifoReadWriteDistance.adr + uint32(data.len)
         # TODO: check watermarks and generate interrupts
 
         assert fifoReadWriteDistance.adr < fifoHighWatermark.adr, &"dist {fifoReadWriteDistance.adr:08X} watermark {fifoHighWatermark.adr}"
@@ -156,10 +155,13 @@ proc cpRun*() =
 
             if fifoWritePointer.adr < fifoReadPointer.adr:
                 # data wraps around
-                cmdlistParser.queueData(toOpenArray(mainRAM, fifoReadPointer.adr, fifoEnd.adr + 31'u32))
-                cmdlistParser.queueData(toOpenArray(mainRAM, fifoBase.adr, fifoWritePointer.adr - 1))
+                withMainRamOpenArray(fifoReadPointer.adr, fifoEnd.adr + 32'u32 - fifoReadPointer.adr, byte):
+                    cmdlistParser.queueData(ramArr)
+                withMainRamOpenArray(fifoBase.adr, fifoWritePointer.adr - fifoBase.adr, byte):
+                    cmdlistParser.queueData(ramArr)
             else:
-                cmdlistParser.queueData(toOpenArray(mainRAM, fifoReadPointer.adr, fifoWritePointer.adr - 1))
+                withMainRamOpenArray(fifoReadPointer.adr, fifoWritePointer.adr - fifoReadPointer.adr, byte):
+                    cmdlistParser.queueData(ramArr)
 
         cmdlistParser.run()
         #if not sr.bpHit:

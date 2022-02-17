@@ -1,26 +1,26 @@
 import
-    options, streams, std/setutils, strformat,
+    options, streams, std/setutils, strformat, tables,
     catnip/[x64assembler, reprotect],
     ../../util/setminmax,
     ../../gekko/[ppcstate, ppccommon, memory, jit/gekkoblockcache],
-    ../../dsp/[dspstate, jit/dspblockcache], ../../dsp/dsp,
+    ../../dsp/[dspstate, dsp],
     ir
 
 when defined(windows):
     const
-        registersToUse = [regEdi, regEsi, regEbx, regR12d, regR13d, regR14d, regR15d,
+        registersToUse = [regEdi, regEsi, regEbx, regR12d, regR13d, regR14d,
             regR10d, regR11d]
         xmmsToUse = [regXmm6, regXmm7, regXmm8, regXmm9, regXmm10, regXmm11, regXmm12, regXmm13, regXmm14, regXmm15,
             regXmm4, regXmm5]
-        calleeSavedRegsNum = 7
+        calleeSavedRegsNum = 6
         calleeSavedXmmsNum = 10
 else:
     const
-        registersToUse = [regEbx, regR12d, regR13d, regR14d, regR15d,
+        registersToUse = [regEbx, regR12d, regR13d, regR14d,
             regR8d, regR9d, regR10d, regR11d]
         xmmsToUse = [regXmm4, regXmm5,
             regXmm6, regXmm7, regXmm8, regXmm9, regXmm10, regXmm11, regXmm12, regXmm13, regXmm14, regXmm15]
-        calleeSavedRegsNum = 5
+        calleeSavedRegsNum = 4
         calleeSavedXmmsNum = 0
 
 const
@@ -29,6 +29,7 @@ const
     stackFrameSize = stackShadow + maxSpill*16
 
     rcpu = regRbp
+    rmemStart = regR15
 
 #[
     stack layout:
@@ -101,7 +102,7 @@ proc prepareCall[T](regalloc: var RegAlloc[T], s: var AssemblerX64, blk: IrBasic
     while i < regalloc.activeRegs.len:
         block deleted:
             if regalloc.activeRegs[i].location in {regLocHostGprReg, regLocHostGprRegImm} and
-                regalloc.activeRegs[i].val != writeVal:
+                    regalloc.activeRegs[i].val != writeVal:
                 if regalloc.activeRegs[i].idx >= (when T is HostIRegRange: calleeSavedRegsNum else: calleeSavedXmmsNum):
                     regalloc.freeRegs.incl regalloc.activeRegs[i].idx
                     if regalloc.activeRegs[i].location == regLocHostGprReg:
@@ -112,20 +113,63 @@ proc prepareCall[T](regalloc: var RegAlloc[T], s: var AssemblerX64, blk: IrBasic
             i += 1
 
 
+template doCall(s: var AssemblerX64, regs: set[Register64], xmms: set[RegisterXmm], body: untyped): untyped =
+    s.pushfq()
+    for reg in regs:
+        s.push(x64assembler.reg(reg))
+    let
+        xmmSpace = 16*card(xmms)
+        callAlign = stackShadow + (if ((card(regs)+1) mod 2) == 0: 0 else: 8)
+    if xmmSpace+callAlign > 0:
+        s.sub(reg(regRsp), int32 xmmSpace+callAlign)
+
+    var i = 0
+    for xmm in xmms:
+        s.movapd(memXmm(regRsp, int32(callAlign+i)), xmm)
+        i += 16
+
+    body
+
+    i = 0
+    for xmm in xmms:
+        s.movapd(xmm, memXmm(regRsp, int32(callAlign+i)))
+        i += 16
+
+    if xmmSpace+callAlign > 0:
+        s.add(reg(regRsp), int32 xmmSpace+callAlign)
+    for i in countdown(high(Register64).ord, low(Register64).ord):
+        if Register64(i) in regs:
+            s.pop(x64assembler.reg(Register64(i)))
+    s.popfq()
+
+proc getCallerSavedRegs[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
+        blk: IrBasicBlock,
+        writeVal: IrInstrRef): auto =
+    var regs: set[(when T is HostIRegRange: Register64 else: RegisterXmm)]
+    for i in 0..<regalloc.activeRegs.len:
+        let reg = regalloc.activeRegs[i]
+        if reg.location != regLocHostSpill and reg.val != writeVal and
+                reg.idx >= (when T is HostIRegRange: calleeSavedRegsNum else: calleeSavedXmmsNum):
+            when T is HostIRegRange:
+                regs.incl reg.idx.toReg64
+            else:
+                regs.incl reg.idx.toXmm
+    regs
+
 proc allocHostReg[T](regalloc: var RegAlloc[T], s: var AssemblerX64, blk: IrBasicBlock, lockedRegs: set[T]): int32 =
     if regalloc.freeRegs == {}:
         # spill a register
         # first try to spill an immediate as those are faster to restore
         for i in 0..<regalloc.activeRegs.len:
             if regalloc.activeRegs[i].location == regLocHostGprRegImm and
-                regalloc.activeRegs[i].idx notin lockedRegs:
+                    regalloc.activeRegs[i].idx notin lockedRegs:
 
                 let reg = regalloc.activeRegs[i].idx
                 regalloc.activeRegs.del i
                 return reg
         for i in 0..<regalloc.activeRegs.len:
             if regalloc.activeRegs[i].location == regLocHostGprReg and
-                regalloc.activeRegs[i].idx notin lockedRegs:
+                    regalloc.activeRegs[i].idx notin lockedRegs:
 
                 let reg = regalloc.activeRegs[i].idx
                 regalloc.spillRegister(s, blk, i)
@@ -143,9 +187,10 @@ proc prepareHostRead[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
 
     for i, reg in mpairs regalloc.activeRegs:
         if reg.val == iref:
-            if reg.location in {regLocHostGprReg, regLocHostGprRegImm}:
+            case reg.location
+            of regLocHostGprReg, regLocHostGprRegImm:
                 return i
-            else:
+            of regLocHostSpill:
                 let
                     targetReg = allocHostReg(regalloc, s, blk, lockedRegs)
                     offset = getSpillOffset(reg.idx)
@@ -268,9 +313,55 @@ proc freeExpiredRegs[T](regalloc: var RegAlloc[T], blk: IrBasicBlock, pos: int) 
         else:
             i += 1
 
+type PatchLoc = object
+    replacement: int32
+    startOffset, len: int16
+
 var
     codeMemory* {.align(0x1000).}: array[32*1024*1024, byte]
     assembler = initAssemblerX64(cast[ptr UncheckedArray[byte]](addr codeMemory[0]))
+    assemblerFar = initAssemblerX64(cast[ptr UncheckedArray[byte]](addr codeMemory[len(codeMemory) div 2]))
+
+    patches: Table[int, PatchLoc]
+
+proc handleSegfault*(faultAdr: var pointer): bool =
+    #echo "trying to patch segfault..."
+    patches.withValue(cast[int](faultAdr), patch):
+        #echo "patching after segfault ", patch[]
+        var s = initAssemblerX64(cast[ptr UncheckedArray[byte]](cast[int](faultAdr)+patch.startOffset))
+        s.jmp(cast[pointer](addr codeMemory[patch.replacement]))
+        s.nop(patch.len-5)
+        assert patch.len >= 5
+        faultAdr = cast[pointer](cast[int](faultAdr) + patch.startOffset)
+        return true
+    false
+
+template patchableLoadStore(genInline, genPatch: untyped): untyped =
+    let start = s.getFuncStart[:int]()
+    var memAccess = start
+    template memAccessPos: untyped {.inject, used.} =
+        memAccess = s.getFuncStart[:int]()
+    genInline
+    let
+        endLoc = s.getFuncStart[:int]()
+        len = endLoc-start
+    assert len >= 5
+    patches[memAccess] = PatchLoc(
+        replacement: int32(sfar.getFuncStart[:int]()-cast[int](addr codeMemory)),
+        startOffset: int16(start-memAccess),
+        len: int16(len))
+
+    let
+        callerSavedRegs = regalloc.getCallerSavedRegs(sfar, blk, iref)
+        callerSavedXmms = xmmRegalloc.getCallerSavedRegs(sfar, blk, iref)
+
+    sfar.mov(reg(param1), rcpu)
+    doCall(sfar, callerSavedRegs, callerSavedXmms):
+    #beforeCall()
+    #setFlagUnk()
+        genPatch
+
+    sfar.jmp(cast[pointer](endLoc))
 
 doAssert reprotectMemory(addr codeMemory[0], sizeof(codeMemory), {memperm_R, memperm_W, memperm_X})
 
@@ -297,10 +388,11 @@ proc dumpLastFunc*(start: pointer) =
     file.writeData(start, assembler.getFuncStart[:ByteAddress]() - cast[ByteAddress](start))
     file.close()
 
-proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): pointer =
+proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool, dataAdrSpace = pointer(nil)): pointer =
     template s: untyped = assembler
+    template sfar: untyped = assemblerFar
 
-    if sizeof(codeMemory) - s.offset < 64*1024:
+    if (sizeof(codeMemory) div 2) - s.offset < 64*1024:
         clearBlockCache()
         s.offset = 0
 
@@ -335,15 +427,18 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
     for i in 0..<calleeSavedRegsNum:
         s.push(reg(Register64(registersToUse[i].ord)))
     s.push(reg(regRbp))
+    s.push(reg(regR15))
     let
-        stackAlignAdjustment = if ((calleeSavedRegsNum + 1) mod 2) == 0: 8 else: 0
+        stackAlignAdjustment = if ((calleeSavedRegsNum + 2) mod 2) == 0: 8 else: 0
         stackOffset = int32(stackAlignAdjustment + (if fexception: calleeSavedXmmsNum*16 else: 0) + stackFrameSize)
     s.sub(reg(regRsp), stackOffset)
     if fexception:
         for i in 0..<calleeSavedXmmsNum:
             s.movaps(memXmm(regRsp, int32(stackFrameSize + i*16)), xmmsToUse[i])
 
-    s.mov(reg(regRbp), param1)
+    s.mov(reg(rcpu), param1)
+    if dataAdrSpace != nil:
+        s.mov(rmemStart, cast[int64](dataAdrSpace))
 
     if fexception:
         s.mov(reg(param1), rcpu)
@@ -423,6 +518,18 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
             of wpar: s.call(setWpar)
             of dmaL: s.call(setDmaL)
             of hid0: s.call(setHid0)
+            of iBatLo0..iBatLo3:
+                s.mov(reg(param3), int32 instr.spr.ord-iBatLo0.ord)
+                s.call(setIBatLo)
+            of iBatHi0..iBatHi3:
+                s.mov(reg(param3), int32 instr.spr.ord-iBatHi0.ord)
+                s.call(setIBatHi)
+            of dBatLo0..dBatLo3:
+                s.mov(reg(param3), int32 instr.spr.ord-dBatLo0.ord)
+                s.call(setDBatLo)
+            of dBatHi0..dBatHi3:
+                s.mov(reg(param3), int32 instr.spr.ord-dBatHi0.ord)
+                s.call(setDBatHi)
             else: raiseAssert(&"cannot generate spr store for {instr.spr}")
             setFlagUnk()
         of ppcCallInterpreter:
@@ -847,78 +954,108 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
                 of iCmpLessSX: condLess
                 else: raiseAssert("welp"))
             s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
-        of ppcLoadU8, ppcLoadU16, ppcLoadS16, ppcLoad32:
+        of ppcLoadU8, ppcLoadU16, ppcLoad32:
             let (dst, adr) = regalloc.allocOpW1R1(s, iref, instr.source(0), i, blk)
-            s.mov(reg(param1), rcpu)
-            s.mov(reg(Register32(param2.ord)), adr.toReg)
-            beforeCall()
-            case instr.kind
-            of ppcLoad32:
-                s.call(jitReadMemory[uint32])
-                s.mov(reg(dst.toReg), regEax)
-            of ppcLoadU16:
-                s.call(jitReadMemory[uint16])
-                s.movzx(dst.toReg, reg(regAx))
-            of ppcLoadS16:
-                s.call(jitReadMemory[uint16])
-                s.movsx(dst.toReg, reg(regAx))
-            of ppcLoadU8:
-                s.call(jitReadMemory[uint8])
-                s.movzx(dst.toReg, reg(regAl))
-            else:
-                raiseAssert("welp")
-            setFlagUnk()
+
+            patchableLoadStore:
+                case instr.kind
+                of ppcLoad32:
+                    s.movbe(dst.toReg, memMemOnly(rmemStart, adr.toReg64))
+                of ppcLoadU16:
+                    s.movbe(Register16 dst.toReg.ord, memMemOnly(rmemStart, adr.toReg64))
+                    s.movzx(dst.toReg, reg(Register16 dst.toReg.ord))
+                of ppcLoadU8:
+                    s.movzx(dst.toReg, mem8(rmemStart, adr.toReg64))
+                else: raiseAssert("welp")
+            do:
+                sfar.mov(reg(Register32(param2.ord)), adr.toReg)
+                case instr.kind
+                of ppcLoad32:
+                    sfar.call(jitReadMemory[uint32])
+                    sfar.mov(reg(dst.toReg), regEax)
+                of ppcLoadU16:
+                    sfar.call(jitReadMemory[uint16])
+                    sfar.movzx(dst.toReg, reg(regAx))
+                of ppcLoadU8:
+                    sfar.call(jitReadMemory[uint8])
+                    sfar.movzx(dst.toReg, reg(regAl))
+                else: raiseAssert("welp")
         of ppcStore8, ppcStore16, ppcStore32:
             let (adr, val) = regalloc.allocOpW0R2(s, instr.source(0), instr.source(1), blk)
-            s.mov(reg(param1), rcpu)
-            s.mov(reg(Register32(param2.ord)), adr.toReg)
-            case instr.kind
-            of ppcStore32:
-                s.mov(reg(Register32(param3.ord)), val.toReg)
-                beforeCall()
-                s.call(jitWriteMemory[uint32])
-            of ppcStore16:
-                s.movzx(Register32(param3.ord), reg(Register16(val.toReg.ord)))
-                beforeCall()
-                s.call(jitWriteMemory[uint16])
-            of ppcStore8:
-                s.movzx(Register32(param3.ord), reg(Register8(val.toReg.ord)))
-                beforeCall()
-                s.call(jitWriteMemory[uint8])
-            else: raiseAssert("welp")
-            setFlagUnk()
+
+            patchableLoadStore:
+                case instr.kind
+                of ppcStore32:
+                    s.movbe(memMemOnly(rmemStart, adr.toReg64), val.toReg)
+                of ppcStore16:
+                    s.movbe(memMemOnly(rmemStart, adr.toReg64), Register16(val.toReg.ord))
+                of ppcStore8:
+                    s.mov(mem8(rmemStart, adr.toReg64), Register8(val.toReg.ord))
+                    s.nop(1) # super stupid, but we need atleast 5 bytes to patch in a call instruction here
+                else: raiseAssert("welp")
+            do:
+                sfar.mov(reg(Register32(param2.ord)), adr.toReg)
+                case instr.kind
+                of ppcStore32:
+                    sfar.mov(reg(Register32(param3.ord)), val.toReg)
+                    sfar.call(jitWriteMemory[uint32])
+                of ppcStore16:
+                    sfar.movzx(Register32(param3.ord), reg(Register16(val.toReg.ord)))
+                    sfar.call(jitWriteMemory[uint16])
+                of ppcStore8:
+                    sfar.movzx(Register32(param3.ord), reg(Register8(val.toReg.ord)))
+                    sfar.call(jitWriteMemory[uint8])
+                else: raiseAssert("welp")
         of ppcLoadFss, ppcLoadFsd:
             let
                 dst = xmmRegalloc.allocOpW1R0(s, iref, blk)
                 adr = regalloc.allocOpW0R1(s, instr.source(0), blk)
-            s.mov(reg(param1), rcpu)
-            s.mov(reg(Register32(param2.ord)), adr.toReg)
-            beforeCall()
-            case instr.kind
-            of ppcLoadFss:
-                s.call(jitReadMemory[uint32])
-                s.movd(dst.toXmm, reg(regEax))
-            of ppcLoadFsd:
-                s.call(jitReadMemory[uint64])
-                s.movq(dst.toXmm, reg(regRax))
-            else: raiseAssert("welp")
-            setFlagUnk()
+
+            patchableLoadStore:
+                case instr.kind
+                of ppcLoadFss:
+                    s.movbe(regEax, memMemOnly(rmemStart, adr.toReg64))
+                    s.movd(dst.toXmm, reg(regEax))
+                of ppcLoadFsd:
+                    s.movbe(regRax, memMemOnly(rmemStart, adr.toReg64))
+                    s.movq(dst.toXmm, reg(regRax))
+                else: raiseAssert("welp")
+            do:
+                sfar.mov(reg(Register32(param2.ord)), adr.toReg)
+                case instr.kind
+                of ppcLoadFss:
+                    sfar.call(jitReadMemory[uint32])
+                    sfar.movd(dst.toXmm, reg(regEax))
+                of ppcLoadFsd:
+                    sfar.call(jitReadMemory[uint64])
+                    sfar.movq(dst.toXmm, reg(regRax))
+                else: raiseAssert("welp")
         of ppcStoreFss, ppcStoreFsd:
             let
                 adr = regalloc.allocOpW0R1(s, instr.source(0), blk)
                 val = xmmRegalloc.allocOpW0R1(s, instr.source(1), blk)
-            s.mov(reg(param1), rcpu)
-            s.mov(reg(Register32(param2.ord)), adr.toReg)
-            beforeCall()
-            case instr.kind
-            of ppcStoreFss:
-                s.movd(reg(Register32(param3.ord)), val.toXmm)
-                s.call(jitWriteMemory[uint32])
-            of ppcStoreFsd:
-                s.movq(reg(param3), val.toXmm)
-                s.call(jitWriteMemory[uint64])
-            else: raiseAssert("welp")
-            setFlagUnk()
+
+            patchableLoadStore:
+                case instr.kind
+                of ppcStoreFss:
+                    s.movd(reg(regEax), val.toXmm)
+                    memAccessPos
+                    s.movbe(memMemOnly(rmemStart, adr.toReg64), regEax)
+                of ppcStoreFsd:
+                    s.movq(reg(regRax), val.toXmm)
+                    memAccessPos
+                    s.movbe(memMemOnly(rmemStart, adr.toReg64), regRax)
+                else: raiseAssert("welp")
+            do:
+                sfar.mov(reg(Register32(param2.ord)), adr.toReg)
+                case instr.kind
+                of ppcStoreFss:
+                    sfar.movd(reg(Register32(param3.ord)), val.toXmm)
+                    sfar.call(jitWriteMemory[uint32])
+                of ppcStoreFsd:
+                    sfar.movq(reg(param3), val.toXmm)
+                    sfar.call(jitWriteMemory[uint64])
+                else: raiseAssert("welp")
         of ppcLoadFsq, ppcLoadFpq:
             let
                 dst = xmmRegalloc.allocOpW1R0(s, iref, blk)
@@ -1280,6 +1417,7 @@ proc genCode*(blk: IrBasicBlock, cycles: int32, fexception, idleLoop: bool): poi
         for i in 0..<calleeSavedXmmsNum:
             s.movaps(xmmsToUse[i], memXmm(regRsp, int32(stackFrameSize + i*16)))
     s.add(reg(regRsp), stackOffset)
+    s.pop(reg(regR15))
     s.pop(reg(regRbp))
     for i in countdown(calleeSavedRegsNum-1, 0):
         s.pop(reg(Register64(registersToUse[i].ord)))

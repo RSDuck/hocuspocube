@@ -1,9 +1,9 @@
 import
-    strformat, stew/endians2, streams,
+    strformat, stew/endians2,
 
     ../util/[bitstruct, ioregs],
     dspstate, jit/dspblockcache,
-    ../gekko/gekko, ../cycletiming
+    ../gekko/[gekko, memory], ../cycletiming
 
 
 template dspLog(msg: string): untyped =
@@ -201,7 +201,8 @@ proc runPeripherals*() =
         dspLog "transfering inital dsp payload"
         for i in 0'u16..511:
             invalidateByAdr(i)
-        copySwapBytes16(toOpenArray(iram, 0, 511), toOpenArray(cast[ptr UncheckedArray[uint16]](addr mainRAM[0x1000000]), 0, 511))
+        withMainRamOpenArray(0x1000000'u32, 512'u32, uint16):
+            copySwapBytes16(toOpenArray(iram, 0, 511), ramArr)
         dspCsr.busyCopying = false
 
 # DSP side memory
@@ -260,23 +261,25 @@ proc dataWrite*(adr, val: uint16) =
             #for i in 0..<mDspState.callStack.sp:
             #    dspLog &"dspstack: {mDspState.callstack[i]:02X}"
 
-            let words = dsbl.len div 2
-            var
-                src = cast[ptr UncheckedArray[uint16]](addr mainRAM[dsma.adr])
-                dst = cast[ptr UncheckedArray[uint16]](case dsCr.dspMem
+            let
+                words = dsbl.len div 2
+            var dspMem = cast[ptr UncheckedArray[uint16]](case dsCr.dspMem
                     of dspMemIMem: addr iram[dspa.adr]
                     of dspMemDMem: addr dram[dspa.adr])
 
             if dsCr.direction == dspDmaToMainRam:
-                swap src, dst
-            elif dsCr.dspMem == dspMemIMem:
-                for i in 0'u16..<words: invalidateByAdr(dspa.adr + i)
+                withMainRamOpenArrayWrite(dsma.adr, words, uint16):
+                    copySwapBytes16(ramArr, toOpenArray(dspMem, 0, int(words) - 1))
+            else:
+                withMainRamOpenArray(dsma.adr, words, uint16):
+                    if dsCr.dspMem == dspMemIMem:
+                        for i in 0'u16..<words: invalidateByAdr(dspa.adr + i)
 
-            #[if dsCr.direction == dspDmaFromMain and dsCr.dspMem == dspMemIMem:
-                let file = newFileStream("ucode.bin", fmWrite)
-                file.writeData(src, int dsbl.len)
-                file.close()]#
-            copySwapBytes16(toOpenArray(dst, 0, int(words) - 1), toOpenArray(src, 0, int(words) - 1))
+                    #[if dsCr.direction == dspDmaFromMain and dsCr.dspMem == dspMemIMem:
+                        let file = newFileStream("ucode.bin", fmWrite)
+                        file.writeData(src, int dsbl.len)
+                        file.close()]#
+                    copySwapBytes16(toOpenArray(dspMem, 0, int(words) - 1), ramArr)
         of 0xFFCD: dspa.adr = val
         of 0xFFCE: dsma.hi = val
         of 0xFFCF: dsma.loWrite = val
@@ -401,40 +404,42 @@ of arDmaCntLo, 0x2A, 2:
         # this desparately needs more research
         var
             arAdr = arDmaArAdr.adr
-            mmAdr = arDmaMmAdr.adr
+            mmOffset = 0'u32
             length = arDmaCnt.length
         const arMask = uint32(sizeof(aram)-1)
         case arDmaCnt.direction:
         of dspDmaToAram:
             if arAdr < uint32(sizeof(aram)):
+                let ramPtr = mainRamReadPtr(arDmaMmAdr.adr, length)
                 while length > 0:
                     if arInfo.baseSize == 4 and arAdr < 0x400000'u32:
-                        copyMem(addr aram[(arAdr + 0x400000'u32) and arMask], addr mainRAM[mmAdr], 32)
-                    copyMem(addr aram[arAdr and arMask], addr mainRAM[mmAdr], 32)
+                        copyMem(addr aram[(arAdr + 0x400000'u32) and arMask], addr ramPtr[mmOffset], 32)
+                    copyMem(addr aram[arAdr and arMask], addr ramPtr[mmOffset], 32)
 
-                    mmAdr += 32
+                    mmOffset += 32
                     arAdr += 32
                     length -= 32
             else:
                 arAdr += length
-                mmAdr += length
+                mmOffset += length
                 length = 0
         of dspDmaFromAram:
-            if arAdr < uint32(sizeof(aram)):
-                while length > 0:
-                    copyMem(addr mainRAM[mmAdr], addr aram[arAdr and arMask], 32)
+            withMainRamWritePtr(arDmaMmAdr.adr, length):
+                if arAdr < uint32(sizeof(aram)):
+                    while length > 0:
+                        copyMem(addr ramPtr[mmOffset], addr aram[arAdr and arMask], 32)
 
-                    arAdr += 32
-                    mmAdr += 32
-                    length -= 32
-            else:
-                zeroMem(addr mainRAM[mmAdr], length)
-                arAdr += length
-                mmAdr += length
-                length = 0
+                        arAdr += 32
+                        mmOffset += 32
+                        length -= 32
+                else:
+                    zeroMem(addr ramPtr[mmOffset], length)
+                    arAdr += length
+                    mmOffset += length
+                    length = 0
 
         arDmaArAdr.adr = arAdr
-        arDmaMmAdr.adr = mmAdr
+        arDmaMmAdr.adr = arDmaMmAdr.adr + mmOffset
         arDmaCnt.length = length
 
         dspCsr.arint = true

@@ -9,7 +9,7 @@ import
     rasterinterfacecommon,
     opengl/rasterogl,
     bpcommon,
-    ../gekko/gekko
+    ../gekko/memory
 
 var palHashCache: Table[(uint32, uint32), uint64]
 
@@ -427,13 +427,13 @@ proc setupTexture*(n: int) =
         var data = newSeq[byte](roundedWidth*roundedHeight*uint32(targetFmtPixelSize[getTargetFmt(key.fmt, key.palFmt)]))
 
         if key.fmt notin PalettedTexFmts:
-            decodingFuncs[key.fmt](cast[ptr UncheckedArray[byte]](addr data[0]),
-                cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
-                int(roundedWidth), int(roundedHeight))
+                decodingFuncs[key.fmt](cast[ptr UncheckedArray[byte]](addr data[0]),
+                    mainRamReadPtr(texmap.adr, texture.dataSize),
+                    int(roundedWidth), int(roundedHeight))
         else:
             decodeTexturePaletted[int(key.fmt == txTexfmtC8)][int(key.palFmt == txLutfmtRGB5A3)](
                 cast[ptr UncheckedArray[byte]](addr data[0]),
-                cast[ptr UncheckedArray[byte]](addr mainRAM[texmap.adr]),
+                mainRamReadPtr(texmap.adr, texture.dataSize),
                 int(roundedWidth), int(roundedHeight),
                 cast[ptr UncheckedArray[uint16]](addr tmem[texpalAdr]))
 

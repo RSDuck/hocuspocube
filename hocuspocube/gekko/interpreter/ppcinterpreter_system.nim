@@ -5,8 +5,7 @@ import
     ppcinterpreter_aux,
     ../ppcstate,
 
-    ../../cycletiming, ../memory, ../ppccommon,
-    ../gekko # kind of stupid breaks loose coupling a bit
+    ../ppccommon
 
 using state: var PpcState
 

@@ -140,3 +140,39 @@ proc handleFException*(state: var PpcState): uint32 =
         1
     else:
         0
+
+proc setDbat(state: var PpcState, num: uint32, lo: BatLo, hi: BatHi)
+
+proc setDBatLo*(state: var PpcState, val, num: uint32) =
+    if BatLo(val) != state.dbatLo[num]:
+        state.setDbat(num, BatLo val, state.dbatHi[num])
+
+proc setDBatHi*(state: var PpcState, val, num: uint32) =
+    if BatHi(val) != state.dbatHi[num]:
+        state.setDbat(num, state.dbatLo[num], BatHi val)
+
+proc setIBatLo*(state: var PpcState, val, num: uint32) =
+    state.ibatLo[num] = BatLo val
+
+proc setIBatHi*(state: var PpcState, val, num: uint32) =
+    state.ibatHi[num] = BatHi val
+
+import fastmem
+
+proc setDbat(state: var PpcState, num: uint32, lo: BatLo, hi: BatHi) =
+    echo &"writing bat {uint32(hi):08X} {uint32(lo):08X} {num}"
+    if isValid(state.dbatLo[num], state.dbatHi[num]):
+        echo &"old state valid, unmapping {uint32(state.dbatLo[num]):08X} {uint32(state.dbatHi[num]):08X}"
+        changeRegionMapping(translatedAdrSpace,
+            int state.dbatHi[num].bepi,
+            int state.dbatLo[num].brpn,
+            int((state.dbatHi[num].bl+1) shl 17),
+            false)
+    if isValid(lo, hi):
+        changeRegionMapping(translatedAdrSpace,
+            int hi.bepi,
+            int lo.brpn,
+            int((hi.bl+1) shl 17),
+            true)
+    state.dbatLo[num] = lo
+    state.dbatHi[num] = hi

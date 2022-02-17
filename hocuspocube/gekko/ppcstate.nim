@@ -101,6 +101,11 @@ makeBitStruct uint32, *BatLo:
     wimg[3..6]: uint32
     _[17..31] {.brpn.}: uint32
 
+proc isValid*(lo: BatLo, hi: BatHi): bool =
+    (hi.vp or hi.vs) and
+        (((hi.bl + 1) and hi.bl) == 0) and
+        ((hi.bepi and (not(hi.bl) shl 17)) == hi.bepi)
+
 makeBitStruct uint32, *Hid0:
     noopti[0]: bool # disable dcbt and dcbtst
     bht[2]: bool # enable branch history table

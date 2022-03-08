@@ -2,10 +2,10 @@ import
     ../ppcstate,
     ../../util/jit/ir
 
-type
-    PpcIrRegState* = object
-        pc*, instr*: uint32
-        branch*, floatInstr*: bool
+
+type PpcIrRegState* = object
+    pc*, instr*: uint32
+    branch*, floatInstr*: bool
 
 using builder: var IrBlockBuilder[PpcIrRegState]
 

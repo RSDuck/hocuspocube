@@ -1,8 +1,9 @@
 
 import
-    options, stew/endians2, strformat,
+    stew/endians2, strformat,
     ".."/[gekko, ppcdef, memory, ppccommon],
     ../../util/jit/[ir, codegenx64, iropt],
+    ../../util/instrdecoding,
     ppcfrontendcommon, gekkoblockcache,
     ../ppcstate,
     ../fastmem,
@@ -20,11 +21,11 @@ proc compileBlock(): BlockEntryFunc =
     let
         blockAdr = gekkoState.translateInstrAddr(gekkoState.pc)
         dataTranslation = gekkoState.msr.dr
+        fn = IrFunc()
     var
-        builder: IrBlockBuilder[PpcIrRegState]
+        builder = IrBlockBuilder[PpcIrRegState](fn: fn)
         cycles = 0'i32
 
-    builder.blk = IrBasicBlock()
     builder.regs.pc = gekkoState.pc
 
     while not builder.regs.branch:
@@ -42,26 +43,29 @@ proc compileBlock(): BlockEntryFunc =
             discard builder.triop(ppcBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
-    let isIdleLoop = builder.blk.checkIdleLoopPpc(gekkoState.pc)
+    let blk = IrBasicBlock(instrs: move builder.instrs)
+    fn.blocks.add blk
+
+    let isIdleLoop = fn.checkIdleLoopPpc(blk, gekkoState.pc)
 
     #echo &"block {gekkoState.pc:08X} is idle loop: {isIdleLoop}"
     #echo "preopt\n", builder.blk
 
-    builder.blk.ctxLoadStoreEliminiate()
-    builder.blk.removeIdentities()
-    builder.blk.mergeExtractEliminate()
-    builder.blk.removeIdentities()
-    builder.blk.floatOpts()
-    builder.blk.foldConstants()
-    builder.blk.removeIdentities()
-    #builder.blk.globalValueEnumeration()
-    builder.blk.removeDeadCode()
-    builder.blk.calcLiveIntervals()
-    builder.blk.verify()
+    fn.ctxLoadStoreEliminiate()
+    fn.removeIdentities()
+    fn.mergeExtractEliminate()
+    fn.removeIdentities()
+    fn.floatOpts()
+    fn.foldConstants()
+    fn.removeIdentities()
+    #fn.globalValueEnumeration()
+    fn.removeDeadCode()
+    fn.calcLiveIntervals()
+    fn.verify()
 
     #echo "postopt\n", builder.blk
 
-    result = cast[BlockEntryFunc](genCode(builder.blk,
+    result = cast[BlockEntryFunc](genCode(fn,
         cycles,
         builder.regs.floatInstr,
         isIdleLoop,

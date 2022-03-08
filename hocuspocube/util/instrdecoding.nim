@@ -1,6 +1,6 @@
 import
-    strformat, parseutils, macros, bitops, stew/bitops2,
-    tables
+    stew/bitops2,
+    strformat, parseutils, macros, bitops, options, tables
 
 proc parseFields*(pattern: string): OrderedTable[string, Slice[int]] =
     var i = 0
@@ -19,7 +19,7 @@ proc parseFields*(pattern: string): OrderedTable[string, Slice[int]] =
             echo "invalid char ", pattern[i], " in parsing pattern ", pattern
             break
 
-proc decodePattern(pattern: string): (uint32, uint32) =
+proc decodePattern(pattern: string): tuple[mask: uint32, fixbits: uint32] =
     for i in 0..<pattern.len:
         let idx = pattern.len - 1 - i
         if pattern[i] in {'0', '1'}:

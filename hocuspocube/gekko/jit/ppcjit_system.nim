@@ -32,7 +32,7 @@ const
 
 proc rfi*(builder) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.rfi)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.rfi)
     else:
         let
             msr = builder.loadctx(ctxLoadU32, uint32 offsetof(PpcState, msr))
@@ -49,7 +49,7 @@ proc rfi*(builder) =
 
 proc sc*(builder) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.sc)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.sc)
     else:
         discard builder.unop(ppcSyscall, builder.imm(builder.regs.pc + 4))
     builder.regs.branch = true
@@ -65,19 +65,19 @@ proc mcrxr*(builder; crfS: uint32) =
 
 proc mfcr*(builder; d: uint32) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mfcr)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mfcr)
     else:
         builder.storereg(d, builder.loadCr())
 
 proc mfmsr*(builder; d: uint32) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mfmsr)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mfmsr)
     else:
         builder.storereg(d, builder.loadctx(ctxLoadU32, uint32 offsetof(PpcState, msr)))
 
 proc mfspr*(builder; d, spr: uint32) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mfspr)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mfspr)
     else:
         let n = decodeSplitSpr spr
 
@@ -117,7 +117,7 @@ proc mfspr*(builder; d, spr: uint32) =
 
 proc mftb*(builder; d, tpr: uint32) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mftb)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mftb)
     else:
         let n = decodeSplitSpr(tpr)
 
@@ -130,7 +130,7 @@ proc mftb*(builder; d, tpr: uint32) =
 
 proc mtcrf*(builder; s, crm: uint32) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mtcrf)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mtcrf)
     else:
         let
             mask = makeFieldMask(crm)
@@ -143,7 +143,7 @@ proc mtcrf*(builder; s, crm: uint32) =
 
 proc mtmsr*(builder; s: uint32) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mtmsr)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mtmsr)
     else:
         builder.storectx(ctxStore32, uint32 offsetof(PpcState, msr), builder.loadreg(s))
 
@@ -152,7 +152,7 @@ proc mcrfs*(builder; crfD, crfS: uint32) =
 
 proc mtspr*(builder; d, spr: uint32) =
     when interpretSystem:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mtspr)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mtspr)
     else:
         let n = decodeSplitSpr spr
 

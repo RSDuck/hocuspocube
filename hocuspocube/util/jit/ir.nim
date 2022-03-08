@@ -449,14 +449,18 @@ type
 
         lastRead*, numUses*: int32
 
-    IrBasicBlock* = ref object
-        instrs*: seq[IrInstrRef]
+    IrFunc* = ref object
+        blocks*: seq[IrBasicBlock]
 
         instrPool*: seq[IrInstr]
         freeInstrs*: seq[IrInstrRef]
 
+    IrBasicBlock* = ref object
+        instrs*: seq[IrInstrRef]
+
     IrBlockBuilder*[T] = object
-        blk*: IrBasicBlock
+        instrs*: seq[IrInstrRef]
+        fn*: IrFunc
 
         regs*: T
 
@@ -603,12 +607,12 @@ iterator msources*(instr: var IrInstr): var IrInstrRef =
             yield instr.source(i)
             i += 1
 
-proc allocInstr(blk: IrBasicBlock): IrInstrRef =
-    if blk.freeInstrs.len > 0:
-        blk.freeInstrs.pop()
+proc allocInstr(fn: IrFunc): IrInstrRef =
+    if fn.freeInstrs.len > 0:
+        fn.freeInstrs.pop()
     else:
-        let instr = IrInstrRef(blk.instrPool.len + 1)
-        blk.instrPool.setLen(blk.instrPool.len + 1)
+        let instr = IrInstrRef(fn.instrPool.len + 1)
+        fn.instrPool.setLen(fn.instrPool.len + 1)
         instr
 
 # this used to be a proc, but that caused some problems
@@ -617,8 +621,9 @@ proc allocInstr(blk: IrBasicBlock): IrInstrRef =
 # and thus potentially invalidating it.
 #
 # see https://github.com/nim-lang/Nim/issues/18683
-template getInstr*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr =
-    blk.instrPool[int(iref)-1]
+template getInstr*(f: IrFunc, iref: IrInstrRef): IrInstr =
+    assert iref != InvalidIrInstrRef
+    f.instrPool[int(iref)-1]
 
 proc makeImm*(val: uint64): IrInstr {.inline.} =
     IrInstr(kind: loadImmI, immValI: val)
@@ -677,219 +682,183 @@ proc makeStoreSpr*(spr: Spr, val: IrInstrRef): IrInstr {.inline.} =
 proc makeIdentity*(iref: IrInstrRef): IrInstr {.inline.} =
     makeUnop(identity, iref)
 
-proc narrowIdentity*(blk: IrBasicBlock, iref: IrInstrRef): IrInstr {.inline.} =
-    let kind = blk.getInstr(iref).kind
+proc narrowIdentity*(fn: IrFunc, iref: IrInstrRef): IrInstr {.inline.} =
+    let kind = fn.getInstr(iref).kind
     if kind == loadImmI:
-        makeImm(uint32 blk.getInstr(iref).immValI)
+        makeImm(uint32 fn.getInstr(iref).immValI)
     elif kind in HasWideResult:
         makeUnop(extzwX, iref)
     else:
         makeIdentity(iref)
 
 # block building helpers
-proc imm*(blk: IrBasicBlock, val: uint64): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeImm(val)
-    add(blk.instrs, result)
+proc imm*[T](builder: var IrBlockBuilder[T], val: uint64): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeImm(val)
+    add(builder.instrs, result)
 
-template imm*[T](builder: IrBlockBuilder[T], val: uint64): IrInstrRef =
-    imm(builder.blk, val)
+proc imm*[T](builder: var IrBlockBuilder[T], val: bool): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeImm(val)
+    add(builder.instrs, result)
 
-proc imm*(blk: IrBasicBlock, val: bool): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeImm(val)
-    add(blk.instrs, result)
+proc loadctx*[T](builder: var IrBlockBuilder[T], kind: InstrKind, idx: uint32): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeLoadctx(kind, idx)
+    add(builder.instrs, result)
 
-template imm*[T](builder: IrBlockBuilder[T], val: bool): IrInstrRef =
-    imm(builder.blk, val)
+proc storectx*[T](builder: var IrBlockBuilder[T], kind: InstrKind, idx: uint32, val: IrInstrRef) =
+    let result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeStorectx(kind, idx, val)
+    add(builder.instrs, result)
 
-proc loadctx*(blk: IrBasicBlock, kind: InstrKind, idx: uint32): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeLoadctx(kind, idx)
-    add(blk.instrs, result)
+proc unop*[T](builder: var IrBlockBuilder[T], kind: InstrKind, val: IrInstrRef): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeUnop(kind, val)
+    add(builder.instrs, result)
 
-template loadctx*[T](builder: IrBlockBuilder[T], kind: InstrKind, idx: uint32): IrInstrRef =
-    loadctx(builder.blk, kind, idx)
+proc biop*[T](builder: var IrBlockBuilder[T], kind: InstrKind, a, b: IrInstrRef): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeBiop(kind, a, b)
+    add(builder.instrs, result)
 
-proc storectx*(blk: IrBasicBlock, kind: InstrKind, idx: uint32, val: IrInstrRef) =
-    let result = blk.allocInstr()
-    blk.getInstr(result) = makeStorectx(kind, idx, val)
-    add(blk.instrs, result)
+proc triop*[T](builder: var IrBlockBuilder[T], kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeTriop(kind, a, b, c)
+    add(builder.instrs, result)
 
-template storectx*[T](builder: IrBlockBuilder[T], kind: InstrKind, idx: uint32, val: IrInstrRef) =
-    storectx(builder.blk, kind, idx, val)
+proc interpretppc*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
+    let result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = IrInstr(kind: ppcCallInterpreter, target: target, instr: instrcode, pc: pc)
+    add(builder.instrs, result)
 
-proc unop*(blk: IrBasicBlock, kind: InstrKind, val: IrInstrRef): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeUnop(kind, val)
-    add(blk.instrs, result)
+proc interpretdsp*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
+    let result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = IrInstr(kind: dspCallInterpreter, target: target, instr: instrcode, pc: pc)
+    add(builder.instrs, result)
 
-template unop*[T](builder: IrBlockBuilder[T], kind: InstrKind, val: IrInstrRef): IrInstrRef =
-    unop(builder.blk, kind, val)
+proc extractBit*[T](builder: var IrBlockBuilder[T], val: IrInstrRef, bit: uint32): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeExtractBit(val, bit)
+    add(builder.instrs, result)
 
-proc biop*(blk: IrBasicBlock, kind: InstrKind, a, b: IrInstrRef): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeBiop(kind, a, b)
-    add(blk.instrs, result)
+proc mergeBit*[T](builder: var IrBlockBuilder[T], val, mergeVal: IrInstrRef, bit: uint32): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeMergeBit(val, mergeVal, bit)
+    add(builder.instrs, result)
 
-template biop*[T](builder: IrBlockBuilder[T], kind: InstrKind, a, b: IrInstrRef): IrInstrRef =
-    biop(builder.blk, kind, a, b)
+proc loadSpr*[T](builder: var IrBlockBuilder[T], spr: Spr): IrInstrRef =
+    result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeLoadSpr(spr)
+    add(builder.instrs, result)
 
-proc triop*(blk: IrBasicBlock, kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeTriop(kind, a, b, c)
-    add(blk.instrs, result)
+proc storeSpr*[T](builder: var IrBlockBuilder[T], spr: Spr, val: IrInstrRef) =
+    let result = builder.fn.allocInstr()
+    builder.fn.getInstr(result) = makeStoreSpr(spr, val)
+    add(builder.instrs, result)
 
-template triop*[T](builder: IrBlockBuilder[T], kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef =
-    triop(builder.blk, kind, a, b, c)
-
-proc interpretppc*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer) =
-    let result = blk.allocInstr()
-    blk.getInstr(result) = IrInstr(kind: ppcCallInterpreter, target: target, instr: instrcode, pc: pc)
-    add(blk.instrs, result)
-
-template interpreter*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
-    interpretppc(builder.blk, instrcode, pc, target)
-
-proc interpretdsp*(blk: IrBasicBlock, instrcode, pc: uint32, target: pointer) =
-    let result = blk.allocInstr()
-    blk.getInstr(result) = IrInstr(kind: dspCallInterpreter, target: target, instr: instrcode, pc: pc)
-    add(blk.instrs, result)
-
-template interpretdsp*[T](builder: IrBlockBuilder[T], instrcode, pc: uint32, target: pointer): untyped =
-    interpretdsp(builder.blk, instrcode, pc, target)
-
-proc extractBit*(blk: IrBasicBlock, val: IrInstrRef, bit: uint32): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeExtractBit(val, bit)
-    add(blk.instrs, result)
-
-template extractBit*[T](builder: IrBlockBuilder[T], val: IrInstrRef, bit: uint32): IrInstrRef =
-    extractBit(builder.blk, val, bit)
-
-proc mergeBit*(blk: IrBasicBlock, val, mergeVal: IrInstrRef, bit: uint32): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeMergeBit(val, mergeVal, bit)
-    add(blk.instrs, result)
-
-template mergeBit*[T](builder: IrBlockBuilder[T], val, mergeVal: IrInstrRef, bit: uint32): IrInstrRef =
-    mergeBit(builder.blk, val, mergeVal, bit)
-
-proc loadSpr*(blk: IrBasicBlock, spr: Spr): IrInstrRef =
-    result = blk.allocInstr()
-    blk.getInstr(result) = makeLoadSpr(spr)
-    add(blk.instrs, result)
-
-template loadSpr*[T](builder: IrBlockBuilder[T], spr: Spr): IrInstrRef =
-    loadSpr(builder.blk, spr)
-
-proc storeSpr*(blk: IrBasicBlock, spr: Spr, val: IrInstrRef) =
-    let result = blk.allocInstr()
-    blk.getInstr(result) = makeStoreSpr(spr, val)
-    add(blk.instrs, result)
-
-template storeSpr*[T](builder: IrBlockBuilder[T], spr: Spr, val: IrInstrRef) =
-    storeSpr(builder.blk, spr, val)
-
-proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: bool): bool =
-    let instr = blk.getInstr(iref)
+proc isImmVal*(fn: IrFunc, iref: IrInstrRef, imm: bool): bool =
+    let instr = fn.getInstr(iref)
     if instr.kind == loadImmI:
         bool(instr.immValI)
     else:
         false
 
-proc isImmVal*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint32): bool =
-    let instr = blk.getInstr(iref)
+proc isImmVal*(fn: IrFunc, iref: IrInstrRef, imm: uint32): bool =
+    let instr = fn.getInstr(iref)
     instr.kind == loadImmI and uint32(instr.immValI) == imm
 
-proc isImmValX*(blk: IrBasicBlock, iref: IrInstrRef, imm: uint64): bool =
-    let instr = blk.getInstr(iref)
+proc isImmValX*(fn: IrFunc, iref: IrInstrRef, imm: uint64): bool =
+    let instr = fn.getInstr(iref)
     instr.kind == loadImmI and instr.immValI == imm
 
-proc isImmValI*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint32] =
-    let instr = blk.getInstr(iref)
+proc isImmValI*(fn: IrFunc, iref: IrInstrRef): Option[uint32] =
+    let instr = fn.getInstr(iref)
     if instr.kind == loadImmI:
         some(uint32(instr.immValI))
     else:
         none(uint32)
 
-proc isImmValIX*(blk: IrBasicBlock, iref: IrInstrRef): Option[uint64] =
-    let instr = blk.getInstr(iref)
+proc isImmValIX*(fn: IrFunc, iref: IrInstrRef): Option[uint64] =
+    let instr = fn.getInstr(iref)
     if instr.kind == loadImmI:
         some(instr.immValI)
     else:
         none(uint64)
 
-proc isImmValB*(blk: IrBasicBlock, iref: IrInstrRef): Option[bool] =
-    let instr = blk.getInstr(iref)
+proc isImmValB*(fn: IrFunc, iref: IrInstrRef): Option[bool] =
+    let instr = fn.getInstr(iref)
     if instr.kind == loadImmI:
         some(bool instr.immValI)
     else:
         none(bool)
 
-proc isEitherImmI*(blk: IrBasicBlock, a, b: IrInstrRef): Option[(IrInstrRef, uint32)] =
-    if (let instr = blk.getInstr(a); instr.kind == loadImmI):
+proc isEitherImmI*(fn: IrFunc, a, b: IrInstrRef): Option[(IrInstrRef, uint32)] =
+    if (let instr = fn.getInstr(a); instr.kind == loadImmI):
         some((b, uint32(instr.immValI)))
-    elif (let instr = blk.getInstr(b); instr.kind == loadImmI):
+    elif (let instr = fn.getInstr(b); instr.kind == loadImmI):
         some((a, uint32(instr.immValI)))
     else:
         none((IrInstrRef, uint32))
 
-proc isEitherImmIX*(blk: IrBasicBlock, a, b: IrInstrRef): Option[(IrInstrRef, uint64)] =
-    if (let instr = blk.getInstr(a); instr.kind == loadImmI):
+proc isEitherImmIX*(fn: IrFunc, a, b: IrInstrRef): Option[(IrInstrRef, uint64)] =
+    if (let instr = fn.getInstr(a); instr.kind == loadImmI):
         some((b, instr.immValI))
-    elif (let instr = blk.getInstr(b); instr.kind == loadImmI):
+    elif (let instr = fn.getInstr(b); instr.kind == loadImmI):
         some((a, instr.immValI))
     else:
         none((IrInstrRef, uint64))
 
-proc `$`*(blk: IrBasicBlock): string =
+proc prettify*(blk: IrBasicBlock, fn: IrFunc): string =
     for i, iref in pairs blk.instrs:
-        let instr = blk.getInstr(iref)
-
-        let lineStartLen = result.len
-        result &= &"{i:03}: "
-        if instr.kind notin ResultlessOps:
-            result &= &"${int(iref)}"
-
-        const maxInstrNameLen = (proc(): int =
-                var maxLen = 0
-                for kind in InstrKind:
-                    maxLen = max(maxLen, len($kind))
-                maxLen)()
-
-        while (result.len-lineStartLen) < maxInstrNameLen+1:
-            result &= ' '
-
-        if instr.kind in ResultlessOps:
-            result &= "   "
+        if iref == InvalidIrInstrRef:
+            result &= "<invalid instr ref>"
         else:
-            result &= " = "
-        result &= &"{instr.kind} "
-        case instr.kind
-        of loadImmI:
-            result &= &"{instr.immValI:016X}"
-        of CtxLoadInstrs:
-            result &= &"{instr.ctxOffset}"
-        of CtxStoreInstrs:
-            result &= &"{instr.ctxOffset}, ${int(instr.source(0))}"
-        of extractBit:
-            result &= &"{instr.bit}"
-        of mergeBit:
-            result &= &"{instr.bit}, {instr.source(0)}, {instr.source(1)}"
-        of sprLoad32:
-            result &= &"{instr.spr}"
-        of sprStore32:
-            result &= &"{instr.spr}, {instr.source(0)}"
-        of dspCallInterpreter, ppcCallInterpreter:
-            result &= &"{instr.instr:08X}"
-        else:
-            for i in 0..<instr.numSources:
-                if i > 0:
-                    result &= ", "
-                result &= '$'
-                result &= $int(instr.source(i))
-        if instr.kind in ResultlessOps:
-            result &= '\n'
-        else:
-            result &= &" (last read: {instr.lastRead})\n"
+            let instr = fn.getInstr(iref)
+
+            let lineStartLen = result.len
+            result &= &"{i:03}: "
+            if instr.kind notin ResultlessOps:
+                result &= &"${int(iref)}"
+
+            const maxInstrNameLen = (proc(): int =
+                    var maxLen = 0
+                    for kind in InstrKind:
+                        maxLen = max(maxLen, len($kind))
+                    maxLen)()
+
+            while (result.len-lineStartLen) < maxInstrNameLen+1:
+                result &= ' '
+
+            if instr.kind in ResultlessOps:
+                result &= "   "
+            else:
+                result &= " = "
+            result &= &"{instr.kind} "
+            case instr.kind
+            of loadImmI:
+                result &= &"{instr.immValI:016X}"
+            of CtxLoadInstrs:
+                result &= &"{instr.ctxOffset}"
+            of CtxStoreInstrs:
+                result &= &"{instr.ctxOffset}, ${int(instr.source(0))}"
+            of extractBit:
+                result &= &"{instr.bit}"
+            of mergeBit:
+                result &= &"{instr.bit}, {instr.source(0)}, {instr.source(1)}"
+            of sprLoad32:
+                result &= &"{instr.spr}"
+            of sprStore32:
+                result &= &"{instr.spr}, {instr.source(0)}"
+            of dspCallInterpreter, ppcCallInterpreter:
+                result &= &"{instr.instr:08X}"
+            else:
+                for i in 0..<instr.numSources:
+                    if i > 0:
+                        result &= ", "
+                    result &= '$'
+                    result &= $int(instr.source(i))
+            if instr.kind in ResultlessOps:
+                result &= '\n'
+            else:
+                result &= &" (last read: {instr.lastRead})\n"

@@ -16,16 +16,17 @@ proc undefinedInstr(state: var IrBlockBuilder[DspIrState], instr: uint16) =
     raiseAssert(&"undefined dsp instr {instr:02X}")
 
 proc compileBlock(): BlockEntryFunc =
-    let blockAdr = mDspState.pc
+    let
+        blockAdr = mDspState.pc
+        fn = IrFunc()
     var
-        builder: IrBlockBuilder[DspIrState]
+        builder = IrBlockBuilder[DspIrState](fn: fn)
 
         numInstrs = 0
 
         instrReadWrites: seq[tuple[read, write: set[DspReg]]]
 
     builder.regs.pc = blockAdr
-    builder.blk = IrBasicBlock()
 
     while not builder.regs.branch:
         builder.regs.instr = instrRead(builder.regs.pc)
@@ -45,21 +46,24 @@ proc compileBlock(): BlockEntryFunc =
             discard builder.triop(dspBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
-    let isIdleLoop = builder.blk.checkIdleLoopDsp(instrReadWrites, blockAdr)
-    #echo &"dsp block {blockAdr:04X} (is idle loop: {isIdleLoop}): \n", builder.blk
-    builder.blk.ctxLoadStoreEliminiate()
-    builder.blk.removeIdentities()
-    builder.blk.mergeExtractEliminate()
-    builder.blk.removeIdentities()
-    builder.blk.dspOpts()
-    builder.blk.foldConstants()
-    builder.blk.removeIdentities()
-    builder.blk.removeDeadCode()
-    #echo "dsp block (after op): \n", builder.blk
-    builder.blk.calcLiveIntervals()
-    builder.blk.verify()
+    let blk = IrBasicBlock(instrs: move builder.instrs)
+    fn.blocks.add(blk)
 
-    result = cast[BlockEntryFunc](genCode(builder.blk, builder.regs.cycles, false, isIdleLoop))
+    let isIdleLoop = fn.checkIdleLoopDsp(blk, instrReadWrites, blockAdr)
+    #echo &"dsp block {blockAdr:04X} (is idle loop: {isIdleLoop}): \n", builder.blk
+    fn.ctxLoadStoreEliminiate()
+    fn.removeIdentities()
+    fn.mergeExtractEliminate()
+    fn.removeIdentities()
+    fn.dspOpts()
+    fn.foldConstants()
+    fn.removeIdentities()
+    fn.removeDeadCode()
+    #echo "dsp block (after op): \n", builder.blk
+    fn.calcLiveIntervals()
+    fn.verify()
+
+    result = cast[BlockEntryFunc](genCode(fn, builder.regs.cycles, false, isIdleLoop))
     blockEntries[mapBlockEntryAdr(blockAdr)] = result
 
 proc dspRun*(timestamp: var int64, target: int64) =

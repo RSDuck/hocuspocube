@@ -10,7 +10,7 @@ const interpretBranch = false
 
 proc bx*(builder; li, aa, lk: uint32) =
     when interpretBranch:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.bx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.bx)
     else:
         if lk == 1:
             builder.storeLr(builder.imm(builder.regs.pc + 4))
@@ -52,7 +52,7 @@ proc handleCondAndCtr(builder; bo, bi: uint32): IrInstrRef =
 
 proc bcx*(builder; bo, bi, bd, aa, lk: uint32) =
     when interpretBranch:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.bcx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.bcx)
     else:
         let
             target =
@@ -72,7 +72,7 @@ proc bcx*(builder; bo, bi, bd, aa, lk: uint32) =
 
 proc bcctrx*(builder; bo, bi, lk: uint32) =
     when interpretBranch:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.bcctrx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.bcctrx)
     else:
         let
             cond = builder.handleCondAndCtr(bo or 0x10, bi)
@@ -87,7 +87,7 @@ proc bcctrx*(builder; bo, bi, lk: uint32) =
 
 proc bclrx*(builder; bo, bi, lk: uint32) =
     when interpretBranch:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.bclrx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.bclrx)
     else:
         let
             cond = builder.handleCondAndCtr(bo, bi)

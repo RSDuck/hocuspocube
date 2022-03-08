@@ -34,7 +34,7 @@ template updateOv(builder; val: IrInstrRef, oe: uint32) =
 
 proc addx*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addx)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -47,7 +47,7 @@ proc addx*(builder; d, a, b, oe, rc: uint32) =
 
 proc addcx*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addcx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addcx)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -61,7 +61,7 @@ proc addcx*(builder; d, a, b, oe, rc: uint32) =
 
 proc addex*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addex)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addex)
     else:
         let
             (ra, rb, carry) = builder.loadregscarry(a, b)
@@ -74,7 +74,7 @@ proc addex*(builder; d, a, b, oe, rc: uint32) =
 
 proc addi*(builder; d, a, imm: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addi)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addi)
     else:
         let imm = builder.imm(signExtend[uint32](imm, 16))
         if a == 0:
@@ -84,7 +84,7 @@ proc addi*(builder; d, a, imm: uint32) =
 
 proc addic*(builder; d, a, imm: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addic)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addic)
     else:
         let
             imm = builder.imm(signExtend[uint32](imm, 16))
@@ -97,7 +97,7 @@ proc addic*(builder; d, a, imm: uint32) =
 
 proc addicdot*(builder; d, a, imm: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addicdot)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addicdot)
     else:
         let
             imm = builder.imm(signExtend[uint32](imm, 16))
@@ -111,7 +111,7 @@ proc addicdot*(builder; d, a, imm: uint32) =
 
 proc addis*(builder; d, a, imm: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addis)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addis)
     else:
         let imm = builder.imm(imm shl 16)
         if a == 0:
@@ -121,7 +121,7 @@ proc addis*(builder; d, a, imm: uint32) =
 
 proc addmex*(builder; d, a, oe, rc: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addmex)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addmex)
     else:
         let
             (ra, carry) = builder.loadregcarry(a)
@@ -136,7 +136,7 @@ proc addmex*(builder; d, a, oe, rc: uint32) =
 
 proc addzex*(builder; d, a, oe, rc: uint32) =
     when interpretInt or interpretAdd:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.addzex)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.addzex)
     else:
         let
             (ra, carry) = builder.loadregcarry(a)
@@ -157,7 +157,7 @@ proc divwx*(builder; d, a, b, oe, rc: uint32) =
         oe)]#
     assert oe == 0
     when interpretInt or interpretMulDiv:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.divwx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.divwx)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -170,7 +170,7 @@ proc divwx*(builder; d, a, b, oe, rc: uint32) =
 proc divwux*(builder; d, a, b, oe, rc: uint32) =
     assert oe == 0
     when interpretInt or interpretMulDiv:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.divwux)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.divwux)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -182,7 +182,7 @@ proc divwux*(builder; d, a, b, oe, rc: uint32) =
 
 proc mulhwx*(builder; d, a, b, rc: uint32) =
     when interpretInt or interpretMulDiv:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mulhwx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mulhwx)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -194,7 +194,7 @@ proc mulhwx*(builder; d, a, b, rc: uint32) =
 
 proc mulhwux*(builder; d, a, b, rc: uint32) =
     when interpretInt or interpretMulDiv:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mulhwux)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mulhwux)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -206,13 +206,13 @@ proc mulhwux*(builder; d, a, b, rc: uint32) =
 
 proc mulli*(builder; d, a, imm: uint32) =
     when interpretInt or interpretMulDiv:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mulli)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mulli)
     else:
         builder.storereg(d, builder.biop(iMul, builder.loadreg(a), builder.imm(signExtend[uint32](imm, 16))))
 
 proc mullwx*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretMulDiv:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mullwx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mullwx)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -230,7 +230,7 @@ proc mullwx*(builder; d, a, b, oe, rc: uint32) =
 
 proc negx*(builder; d, a, oe, rc: uint32) =
     when interpretInt or interpretSub:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.negx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.negx)
     else:
         let
             ra = builder.loadreg(a)
@@ -244,7 +244,7 @@ proc negx*(builder; d, a, oe, rc: uint32) =
 
 proc subfx*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretSub:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.subfx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.subfx)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -257,7 +257,7 @@ proc subfx*(builder; d, a, b, oe, rc: uint32) =
 
 proc subfcx*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretSub:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.subfcx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.subfcx)
     else:
         let
             (ra, rb) = builder.loadregs(a, b)
@@ -271,7 +271,7 @@ proc subfcx*(builder; d, a, b, oe, rc: uint32) =
 
 proc subfex*(builder; d, a, b, oe, rc: uint32) =
     when interpretInt or interpretSub:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.subfex)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.subfex)
     else:
         let
             (ra, rb, carry) = builder.loadregscarry(a, b)
@@ -285,7 +285,7 @@ proc subfex*(builder; d, a, b, oe, rc: uint32) =
 
 proc subfic*(builder; d, a, imm: uint32) =
     when interpretInt or interpretSub:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.subfic)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.subfic)
     else:
         let
             imm = builder.imm(signExtend[uint32](imm, 16))
@@ -298,7 +298,7 @@ proc subfic*(builder; d, a, imm: uint32) =
 
 proc subfmex*(builder; d, a, oe, rc: uint32) =
     when interpretInt or interpretSub:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.subfmex)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.subfmex)
     else:
         let
             minusOne = builder.imm(0xFFFF_FFFF'u32)
@@ -313,7 +313,7 @@ proc subfmex*(builder; d, a, oe, rc: uint32) =
 
 proc subfzex*(builder; d, a, oe, rc: uint32) =
     when interpretInt or interpretSub:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.subfzex)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.subfzex)
     else:
         let
             zero = builder.imm(0'u32)
@@ -328,28 +328,28 @@ proc subfzex*(builder; d, a, oe, rc: uint32) =
 
 proc cmp*(builder; crfD, l, a, b: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.cmp)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmp)
     else:
         let (ra, rb) = builder.loadregs(a, b)
         builder.setCr(true, crfD, ra, rb)
 
 proc cmpi*(builder; crfD, l, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.cmpi)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmpi)
     else:
         let ra = builder.loadreg(a)
         builder.setCr(true, crfD, ra, builder.imm(signExtend[uint32](imm, 16)))
 
 proc cmpl*(builder; crfD, l, a, b: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.cmpl)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmpl)
     else:
         let (ra, rb) = builder.loadregs(a, b)
         builder.setCr(false, crfD, ra, rb)
 
 proc cmpli*(builder; crfD, l, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.cmpli)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmpli)
     else:
         let ra = builder.loadreg(a)
         builder.setCr(false, crfD, ra, builder.imm(imm))
@@ -374,25 +374,25 @@ template logicOpImm(genOp, rc): untyped =
 
 proc andx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.andx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.andx)
     else:
         logicOp(builder.biop(bitAnd, rs, rb))
 
 proc andcx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.andcx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.andcx)
     else:
         logicOp(builder.biop(bitAnd, rs, builder.unop(bitNot, rb)))
 
 proc andidot*(builder; s, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.andidot)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.andidot)
     else:
         logicOpImm builder.biop(bitAnd, rs, builder.imm(imm)), 1
 
 proc andisdot*(builder; s, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.andisdot)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.andisdot)
     else:
         logicOpImm builder.biop(bitAnd, rs, builder.imm(imm shl 16)), 1
 
@@ -407,85 +407,85 @@ template simpleUnop(genOp: untyped): untyped =
 
 proc cntlzwx*(builder; s, a, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.cntlzwx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cntlzwx)
     else:
         simpleUnop builder.unop(clz, rs)
 
 proc eqvx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.eqvx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.eqvx)
     else:
         logicOp builder.unop(bitNot, builder.biop(bitXor, rs, rb))
 
 proc extsbx*(builder; s, a, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.extsbx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.extsbx)
     else:
         simpleUnop builder.unop(extsb, rs)
 
 proc extshx*(builder; s, a, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.extshx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.extshx)
     else:
         simpleUnop builder.unop(extsh, rs)
 
 proc nandx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.nandx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.nandx)
     else:
         logicOp builder.unop(bitNot, builder.biop(bitAnd, rs, rb))
 
 proc norx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.norx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.norx)
     else:
         logicOp builder.unop(bitNot, builder.biop(bitOr, rs, rb))
 
 proc orx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.orx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.orx)
     else:
         logicOp builder.biop(bitOr, rs, rb)
 
 proc orcx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.orcx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.orcx)
     else:
         logicOp builder.biop(bitOr, rs, builder.unop(bitNot, rb))
 
 proc ori*(builder; s, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.ori)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.ori)
     else:
         logicOpImm builder.biop(bitOr, rs, builder.imm(imm)), 0
 
 proc oris*(builder; s, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.oris)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.oris)
     else:
         logicOpImm builder.biop(bitOr, rs, builder.imm(imm shl 16)), 0
 
 proc xorx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.xorx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.xorx)
     else:
         logicOp builder.biop(bitXor, rs, rb)
 
 proc xori*(builder; s, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.xori)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.xori)
     else:
         logicOpImm builder.biop(bitXor, rs, builder.imm(imm)), 0
 
 proc xoris*(builder; s, a, imm: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.xoris)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.xoris)
     else:
         logicOpImm builder.biop(bitXor, rs, builder.imm(imm shl 16)), 0
 
 proc rlwimix*(builder; s, a, sh, mb, me, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.rlwimix)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.rlwimix)
     else:
         let
             (rs, ra) = builder.loadregs(s, a)
@@ -502,7 +502,7 @@ proc rlwimix*(builder; s, a, sh, mb, me, rc: uint32) =
 
 proc rlwinmx*(builder; s, a, sh, mb, me, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.rlwinmx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.rlwinmx)
     else:
         let
             rs = builder.loadreg(s)
@@ -522,7 +522,7 @@ proc rlwinmx*(builder; s, a, sh, mb, me, rc: uint32) =
 
 proc rlwnmx*(builder; s, a, b, mb, me, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.rlwnmx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.rlwnmx)
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
@@ -537,7 +537,7 @@ proc rlwnmx*(builder; s, a, b, mb, me, rc: uint32) =
 
 proc slwx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.slwx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.slwx)
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
@@ -549,7 +549,7 @@ proc slwx*(builder; s, a, b, rc: uint32) =
 
 proc srawx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.srawx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.srawx)
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
@@ -570,7 +570,7 @@ proc srawx*(builder; s, a, b, rc: uint32) =
 
 proc srawix*(builder; s, a, sh, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.srawix)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.srawix)
     else:
         let
             rs = builder.loadreg(s)
@@ -592,7 +592,7 @@ proc srawix*(builder; s, a, sh, rc: uint32) =
 
 proc srwx*(builder; s, a, b, rc: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.srwx)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.srwx)
     else:
         let
             (rs, rb) = builder.loadregs(s, b)
@@ -611,55 +611,55 @@ template crOp(genOp: untyped): untyped =
 
 proc crand*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.crand)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.crand)
     else:
         crOp builder.biop(condAnd, crbA, crbB)
 
 proc crandc*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.crandc)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.crandc)
     else:
         crOp builder.biop(condAnd, crbA, builder.unop(condNot, crbB))
 
 proc creqv*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.creqv)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.creqv)
     else:
         crOp builder.unop(condNot, builder.biop(condXor, crbA, crbB))
 
 proc crnand*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.crnand)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.crnand)
     else:
         crOp builder.unop(condNot, builder.biop(condAnd, crbA, crbB))
 
 proc crnor*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.crnor)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.crnor)
     else:
         crOp builder.unop(condNot, builder.biop(condOr, crbA, crbB))
 
 proc cror*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.cror)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cror)
     else:
         crOp builder.biop(condOr, crbA, crbB)
 
 proc crorc*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.crorc)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.crorc)
     else:
         crOp builder.biop(condOr, crbA, builder.unop(condNot, crbB))
 
 proc crxor*(builder; crbD, crbA, crbB: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.crxor)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.crxor)
     else:
         crOp builder.biop(condXor, crbA, crbB)
 
 proc mcrf*(builder; crfD, crfS: uint32) =
     when interpretInt:
-        builder.interpreter(builder.regs.instr, builder.regs.pc, fallbacks.mcrf)
+        builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.mcrf)
     else:
         builder.storeCrBits(crfD,
             builder.loadCrBit(crfS*4+0),

@@ -14,7 +14,8 @@ switch("passL", &"-specs={devkitProFolder}/libnx/switch.specs -L{devkitproFolder
 --d:nimAllocPagesViaMalloc
 --debugger:native
 
---d:release
+--d:danger
+--passC:"-flto"
 
 switch("os", "nintendoswitch")
 

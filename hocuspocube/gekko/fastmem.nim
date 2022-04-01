@@ -30,6 +30,10 @@ when defined(windows):
     doAssert MapViewOfFile3(allMemory, GetCurrentProcess(), memBase, 0, TotalMemorySize, MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, nil, 0) == memBase
 
     var placeholders = @[(cast[int64](adrSpaces), (1'i64 shl 32)*2)]
+elif defined(nintendoswitch):
+    let
+        memBase = alloc0(TotalMemorySize)
+        adrSpaces = pointer nil
 else:
     import posix
 
@@ -107,6 +111,8 @@ proc changeRegionMapping*(adrSpace: pointer, translatedStart, physicalStart, tot
                     MEM_REPLACE_PLACEHOLDER,
                     PAGE_READWRITE,
                     nil, 0) == mapDst, &"error: {GetLastError()} {repr(mapDst)}"
+            elif defined(nintendoswitch):
+                discard
             else:
                 doAssert mmap(mapDst, int mapSize, PROT_READ or PROT_WRITE, MAP_FIXED or MAP_SHARED, allMemory, Off mapOffset) != MAP_FAILED
         else:
@@ -130,13 +136,16 @@ proc changeRegionMapping*(adrSpace: pointer, translatedStart, physicalStart, tot
                 #echo &"coalescing {repr(cast[pointer](coalesceStart))} {coalesceSize:08X}"
                 doAssert VirtualFree(cast[pointer](coalesceStart), coalesceSize, MEM_RELEASE or MEM_COALESCE_PLACEHOLDERS) != FALSE, &"error: {GetLastError()}"
                 placeholders.add((coalesceStart, coalesceSize))
+            elif defined(nintendoswitch):
+                discard
             else:
                 doAssert munmap(mapDst, int mapSize) == 0
                 doAssert mmap(mapDst, int mapSize, PROT_NONE, MAP_FIXED or MAP_SHARED or MAP_ANONYMOUS, -1, 0) != MAP_FAILED
 
 changeRegionMapping(physicalAdrSpace, 0, 0, 1 shl 32, true)
 
-import ../util/jit/codegenx64
+when not defined(nintendoswitch):
+    import ../util/jit/codegenx64
 
 when defined(windows):
     proc exceptionHandler(info: ptr EXCEPTION_POINTERS): LONG {.stdcall.} =
@@ -153,6 +162,8 @@ when defined(windows):
             EXCEPTION_CONTINUE_SEARCH
 
     AddVectoredExceptionHandler(1, exceptionHandler)
+elif defined(nintendoswitch):
+    discard
 else:
     var sa, oldSa: Sigaction
 

@@ -1,6 +1,6 @@
 import
     streams, os,
-    parsecfg, strformat,
+    parsecfg, strformat, options,
 
     cube,
     dsp/dsp,
@@ -14,33 +14,37 @@ else:
     import frontend/sdl
 
 proc start*() =
-    if paramCount() > 0:
-        initFrontend()
+    initFrontend()
 
-        let cfg = loadConfig("settings.ini")
+    let cfg = loadConfig("settings.ini")
 
-        loadIplSram cfg.getSectionValue("General", "IPLPath"), cfg.getSectionValue("General", "SRAMPath")
+    loadIplSram cfg.getSectionValue("General", "IPLPath"), cfg.getSectionValue("General", "SRAMPath")
 
-        setupDspRom cfg.getSectionValue("General", "DSPIROMPath"), cfg.getSectionValue("General", "DSPDROMPath")
+    setupDspRom cfg.getSectionValue("General", "DSPIROMPath"), cfg.getSectionValue("General", "DSPDROMPath")
 
-        configureSiDevice 0, makeGcController(handleGcController)
+    configureSiDevice 0, makeGcController(handleGcController)
 
-        if paramStr(1) == "loaddol" and paramCount() >= 2:
-            echo &"loading {paramStr(2)}"
-            loadDol(newFileStream(paramStr(2)))
-        elif paramStr(1) == "boot" and paramCount() >= 2:
-            echo &"booting with as medium inserted {paramStr(2)}"
-            loadDvd(paramStr(2))
-            boot()
-        elif paramStr(1) == "boot":
-            boot()
-        else:
-            raiseAssert("unrecognised command")
-
-        run()
-        deinitFrontend()
+    echo paramCount()
+    if paramCount() == 3 and paramStr(1) == "loaddol":
+        echo &"loading {paramStr(2)}"
+        loadDol(newFileStream(paramStr(2)))
     else:
-        raiseAssert("unrecognised command")
+        let mediumPath =
+            if paramCount() == 3 and paramStr(1) == "boot":
+                some(paramStr(2))
+            elif (let mediumPath = cfg.getSectionValue("General", "DVDImage"); mediumPath.len > 0):
+                some(mediumPath)
+            else:
+                none(string)
+
+        if mediumPath.isSome:
+            echo &"booting with as medium inserted {mediumPath}"
+            loadDvd(mediumPath.get)
+
+        boot()
+
+    run()
+    deinitFrontend()
 
 when not defined(nintendoswitch):
     start()

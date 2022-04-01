@@ -1,7 +1,12 @@
 import
     streams, strformat,
-    gekko/[interpreter/ppcinterpreter, jit/ppcfrontend, gekko, ppcstate, memory],
-    dsp/[interpreter/dspinterpreter, jit/dspfrontend],
+    gekko/[interpreter/ppcinterpreter, gekko, ppcstate, memory],
+    dsp/interpreter/dspinterpreter
+
+when not defined(nintendoswitch):
+    import gekko/jit/ppcfrontend, dsp/jit/dspfrontend
+
+import
     flipper/[rasterinterface, cp],
     util/dolfile,
     cycletiming,
@@ -38,9 +43,9 @@ proc run*() =
     while frontendRunning:
         gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
         let gekkoStart = getMonoTime()
-        ppcfrontend.gekkoRun gekkoTimestamp, gekkoTarget
+        ppcinterpreter.gekkoRun gekkoTimestamp, gekkoTarget
         let dspStart = getMonoTime()
-        dspfrontend.dspRun dspTimestamp, gekkoTimestamp
+        dspinterpreter.dspRun dspTimestamp, gekkoTimestamp
         let dspEnd = getMonoTime()
         gekkoTime += dspStart - gekkoStart
         dspTime += dspEnd - dspStart

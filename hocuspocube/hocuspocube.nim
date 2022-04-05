@@ -25,12 +25,12 @@ proc start*() =
     configureSiDevice 0, makeGcController(handleGcController)
 
     echo paramCount()
-    if paramCount() == 3 and paramStr(1) == "loaddol":
+    if paramCount() == 2 and paramStr(1) == "loaddol":
         echo &"loading {paramStr(2)}"
         loadDol(newFileStream(paramStr(2)))
     else:
         let mediumPath =
-            if paramCount() == 3 and paramStr(1) == "boot":
+            if paramCount() == 2 and paramStr(1) == "boot":
                 some(paramStr(2))
             elif (let mediumPath = cfg.getSectionValue("General", "DVDImage"); mediumPath.len > 0):
                 some(mediumPath)

@@ -1,5 +1,5 @@
 import
-    heapqueue
+    heapqueue, strformat
 
 const
     gekkoCyclesPerSecond* = 486'i64*1000*1000
@@ -31,9 +31,8 @@ var
     upcomingEvents: HeapQueue[ScheduledEvent]
     nextToken = 1
 
-    gekkoTimestamp* = 0'i64
-    gekkoTarget* = 0'i64
-    dspTimestamp* = 0'i64
+    gekkoTarget*: int64
+    dspTimestamp*: int64
 
 const InvalidEventToken* = EventToken 0
 
@@ -46,12 +45,22 @@ proc isEventScheduled*(token: EventToken): bool =
             return true
     false
 
+import gekko/gekko
+
+proc gekkoTimestamp*(): int64 =
+    gekkoState.negativeCycles + gekkoTarget
+
+proc reschedule() =
+    if nearestEvent() < gekkoTarget:
+        let curTime = gekkoTimestamp()
+        gekkoTarget = nearestEvent()
+        gekkoState.negativeCycles = int32(curTime - gekkoTarget)
+
 proc scheduleEvent*(timestamp: int64, priority: int32, handler: proc(timestamp: int64)): EventToken =
     result = EventToken nextToken
     inc nextToken
     upcomingEvents.push ScheduledEvent(timestamp: timestamp, priority: priority, handler: handler, token: result)
-    if nearestEvent() < gekkoTarget:
-        gekkoTarget = nearestEvent()
+    reschedule()
 
 proc cancelEvent*(token: var EventToken) =
     assert(token != InvalidEventToken)
@@ -59,14 +68,12 @@ proc cancelEvent*(token: var EventToken) =
         if upcomingEvents[i].token == token:
             token = InvalidEventToken
             upcomingEvents.del(i)
-            if nearestEvent() < gekkoTarget:
-                gekkoTarget = nearestEvent()
+            reschedule()
             return
     token = InvalidEventToken
     #assert false, "tried to cancel event which isn't scheduled"
 
-
-proc processEvents*() =
-    while upcomingEvents.len > 0 and gekkoTimestamp >= upcomingEvents[0].timestamp:
+proc processEvents*(curTime: int64) =
+    while upcomingEvents.len > 0 and curTime >= upcomingEvents[0].timestamp:
         let evt = upcomingEvents.pop()
         evt.handler(evt.timestamp)

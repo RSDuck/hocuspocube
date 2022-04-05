@@ -19,18 +19,18 @@ proc makeFieldMask*(mask: uint32): uint32 =
             result.setMask(0xF'u32 shl (i * 4))
 
 proc currentTb*(state: var PpcState): uint64 =
-    uint64((gekkoTimestamp - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
+    uint64((gekkoTimestamp() - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
 
 proc setTbl*(state: var PpcState, val: uint32) =
     state.tbInit = (state.currentTb() and not(0xFFFFFFFF'u64)) or val
-    state.tbInitTimestamp = gekkoTimestamp
+    state.tbInitTimestamp = gekkoTimestamp()
 
 proc setTbu*(state: var PpcState, val: uint32) =
     state.tbInit = (state.currentTb() and 0xFFFFFFFF'u64) or (uint64(val) shl 32)
-    state.tbInitTimestamp = gekkoTimestamp
+    state.tbInitTimestamp = gekkoTimestamp()
 
 proc getDecrementer*(state: var PpcState): uint32 =
-    let cyclesPassed = uint32((gekkoTimestamp - state.decInitTimestamp) div gekkoCyclesPerTbCycle)
+    let cyclesPassed = uint32((gekkoTimestamp() - state.decInitTimestamp) div gekkoCyclesPerTbCycle)
     # the decrementer go negative
     state.decInit - cyclesPassed
 
@@ -41,7 +41,7 @@ proc setupDecrementer*(state: var PpcState, val: uint32) =
         cancelEvent state.decDoneEvent
 
     state.decInit = val
-    state.decInitTimestamp = gekkoTimestamp
+    state.decInitTimestamp = gekkoTimestamp()
 
     let
         cyclesUntilZeroToOne = gekkoCyclesPerTbCycle *
@@ -59,29 +59,32 @@ proc setupDecrementer*(state: var PpcState, val: uint32) =
         #echo "decrementer interrupt by manually changing top bit"
         state.pendingExceptions.incl exceptionDecrementer
 
-proc handleExceptions*() =
-    for exception in gekkoState.pendingExceptions:
-        if (exception == exceptionExternal or exception == exceptionDecrementer) and not gekkoState.msr.ee:
+proc handleExceptions*(state: var PpcState) =
+    if state.pendingExceptions == {}:
+        return
+
+    for exception in state.pendingExceptions:
+        if (exception == exceptionExternal or exception == exceptionDecrementer) and not state.msr.ee:
             continue
-        if exception == exceptionMachineCheck and not gekkoState.msr.me:
+        if exception == exceptionMachineCheck and not state.msr.me:
             continue
 
         if exception != exceptionExternal:
             # this is a bit hacky
-            gekkoState.pendingExceptions.excl exception
+            state.pendingExceptions.excl exception
 
-        gekkoState.srr0 = gekkoState.pc
-        gekkoState.srr1.exceptionSaved = gekkoState.msr.exceptionSaved
+        state.srr0 = state.pc
+        state.srr1.exceptionSaved = state.msr.exceptionSaved
 
-        gekkoState.msr.zeroOnException = 0'u32
-        gekkoState.msr.le = gekkoState.msr.ile
+        state.msr.zeroOnException = 0'u32
+        state.msr.le = state.msr.ile
         if exception == exceptionMachineCheck:
-            gekkoState.msr.me = false
+            state.msr.me = false
 
         const exceptionOffsets: array[PpcException, uint32] = [
             0x100'u32, 0x1300, 0x400, 0x200, 0x700, 0xC00, 0x800, 0x500, 0xF00, 0x900, 0x600, 0x300, 0xD00]
-        let oldPc = gekkoState.pc
-        gekkoState.pc = (if gekkoState.msr.ip: 0xFFF00000'u32 else: 0'u32) + exceptionOffsets[exception]
+        let oldPc = state.pc
+        state.pc = (if state.msr.ip: 0xFFF00000'u32 else: 0'u32) + exceptionOffsets[exception]
         #echo &"taking interrupt to {gekkoState.pc:08X} from {oldPc:08X} {gekkoState.lr:08X}"
         break
 

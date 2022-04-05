@@ -1,5 +1,5 @@
 import
-    strformat, sets,
+    strformat,
 
     ../../cycletiming,
     ../../util/jit/[ir, codegenx64, iropt],
@@ -15,7 +15,7 @@ import
 proc undefinedInstr(state: var IrBlockBuilder[DspIrState], instr: uint16) =
     raiseAssert(&"undefined dsp instr {instr:02X}")
 
-proc compileBlock(): BlockEntryFunc =
+proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
     let
         blockAdr = mDspState.pc
         fn = IrFunc()
@@ -42,14 +42,16 @@ proc compileBlock(): BlockEntryFunc =
         builder.regs.pc += 1
         numInstrs += 1
 
-        if (builder.regs.pc-1 in loopEnds) or builder.regs.cycles >= 128:
+        if isLoopEnd(builder.regs.pc-1) or builder.regs.cycles >= 128:
             discard builder.triop(dspBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
     let blk = IrBasicBlock(instrs: move builder.instrs)
     fn.blocks.add(blk)
 
-    let isIdleLoop = fn.checkIdleLoopDsp(blk, instrReadWrites, blockAdr)
+    var flags = {GenCodeFlags.dsp}
+    if fn.checkIdleLoopDsp(blk, instrReadWrites, blockAdr):
+        flags.incl idleLoop
     #echo &"dsp block {blockAdr:04X} (is idle loop: {isIdleLoop}): \n", builder.blk
     fn.ctxLoadStoreEliminiate()
     fn.removeIdentities()
@@ -63,40 +65,18 @@ proc compileBlock(): BlockEntryFunc =
     fn.calcLiveIntervals()
     fn.verify()
 
-    result = cast[BlockEntryFunc](genCode(fn, builder.regs.cycles, false, isIdleLoop))
-    blockEntries[mapBlockEntryAdr(blockAdr)] = result
+    result = cast[BlockEntryFunc](genCode(fn, builder.regs.cycles, flags))
+    setBlock blockAdr, result
 
-proc dspRun*(timestamp: var int64, target: int64) =
+proc dspRun*() =
     runPeripherals()
     handleReset()
     handleExceptions()
 
     if dspCsr.halt or dspCsr.busyCopying:
-        timestamp = target
+        if mDspState.negativeCycles < 0:
+            mDspState.negativeCycles = 0
         #echo &"skipping dsp slice {dspCsr.halt} {dspCsr.busyCopying}"
         return
 
-    while timestamp < target:
-        handleExceptions()
-
-        let entryPoint = blockEntries[mapBlockEntryAdr(mDspState.pc)]
-
-        #echo &"dsp iteration {repr(entryPoint)} {mDspState.pc:04X} {mapBlockEntryAdr(mDspState.pc):04X} {repr(mDspState)}"
-
-        let cycles =
-            if likely(entryPoint != nil):
-                entryPoint(addr mDspState)
-            else:
-                compileBlock()(addr mDspState)
-
-        if likely(cycles != -1):
-            timestamp += cycles
-        else:
-            #echo "skipping idle loop!"
-            timestamp = target
-
-        handleLoopStack(0xFFFF'u16)
-
-        if timestamp >= target or dspCsr.halt:
-            #echo &"dsp slice, halted: {dspCsr.halt} pc: {mDspState.pc:04X} {repr(mDspState)}"
-            return
+    codegenx64.dspRun(mDspState)

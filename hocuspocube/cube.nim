@@ -1,7 +1,8 @@
 import
     streams, strformat,
+    cycletiming,
     gekko/[interpreter/ppcinterpreter, gekko, ppcstate, memory],
-    dsp/interpreter/dspinterpreter
+    dsp/[dsp, dspstate, interpreter/dspinterpreter]
 
 when not defined(nintendoswitch):
     import gekko/jit/ppcfrontend, dsp/jit/dspfrontend
@@ -9,7 +10,6 @@ when not defined(nintendoswitch):
 import
     flipper/[rasterinterface, cp],
     util/dolfile,
-    cycletiming,
 
     vi,
 
@@ -38,18 +38,30 @@ proc boot*() =
     gekkoState.msr.ip = true
     gekkoState.pendingExceptions.incl exceptionSystemReset
 
+var gekkoTimeStart: MonoTime
+
+# the exportc is  a bad workaround
+proc systemStep*(): bool {.exportc.} =
+    gekkoTime += getMonoTime() - gekkoTimeStart
+    let curTime = gekkoTimestamp()
+
+    mDspState.negativeCycles = int32(dspTimestamp - curTime)
+    dspTimestamp = curTime
+    let dspStartTime = getMonoTime()
+    dspfrontend.dspRun()
+    dspTime += getMonoTime() - dspStartTime
+    cpRun()
+    processEvents(curTime)
+
+    gekkoTarget = min(curTime + gekkoMaxSlice, nearestEvent())
+    gekkoState.negativeCycles = int32(curTime - gekkoTarget)
+
+    gekkoTimeStart = getMonoTime()
+
+    frontendRunning
+
 proc run*() =
     rasterinterface.init()
-    while frontendRunning:
-        gekkoTarget = min(gekkoTimestamp + gekkoMaxSlice, nearestEvent())
-        let gekkoStart = getMonoTime()
-        ppcinterpreter.gekkoRun gekkoTimestamp, gekkoTarget
-        let dspStart = getMonoTime()
-        dspinterpreter.dspRun dspTimestamp, gekkoTimestamp
-        let dspEnd = getMonoTime()
-        gekkoTime += dspStart - gekkoStart
-        dspTime += dspEnd - dspStart
-
-        cpRun()
-
-        processEvents()
+    discard systemStep()
+    gekkoTimeStart = getMonoTime()
+    ppcfrontend.gekkoRun()

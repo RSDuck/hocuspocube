@@ -284,6 +284,7 @@ type
         gqr*: array[8, Gqr]
 
         pendingExceptions*: set[PpcException]
+        negativeCycles*: int32
 
         hid0*: Hid0
         hid1*: Hid1

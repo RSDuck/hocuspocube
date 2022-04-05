@@ -1,8 +1,6 @@
 import
     ".."/[dsp, dspdef, dspstate, dspcommon],
 
-    ../../cycletiming,
-
     dspinterpreter_alu,
     dspinterpreter_branch,
     dspinterpreter_loadstore,
@@ -12,13 +10,14 @@ import
 proc undefinedInstr(state: var DspState, instr: uint16) =
     echo &"undefined dsp instr {instr:04X} at {state.pc:X}"
 
-proc dspRun*(timestamp: var int64, target: int64) =
+proc dspRun*() =
     runPeripherals()
     handleReset()
     handleExceptions()
 
     if dspCsr.halt or dspCsr.busyCopying:
-        timestamp = target
+        if mDspState.negativeCycles < 0:
+            mDspState.negativeCycles = 0
         return
 
     while true:
@@ -33,8 +32,8 @@ proc dspRun*(timestamp: var int64, target: int64) =
         handleLoopStack()
 
         mDspState.pc += 1
-        timestamp += gekkoCyclesPerDspCycle
+        mDspState.negativeCycles += 1
 
-        if timestamp >= target or dspCsr.halt:
+        if mDspState.negativeCycles >= 0 or dspCsr.halt:
             #echo &"dsp slice, halted: {dspCsr.halt} pc: {mDspState.pc:04X}"
             return

@@ -1,5 +1,4 @@
 import
-    sets,
     ../../util/jit/ir, ../dspstate,
     dspfrontendcommon,
     fallbacks,
@@ -72,25 +71,25 @@ proc exec*(builder; cc: uint16) =
 proc loopi*(builder; c: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.loopi)
     if c > 0:
-        loopEnds.incl builder.fetchFollowingImm
+        markLoopEnd builder.fetchFollowingImm
     else:
         builder.regs.branch = true
 
 proc loop*(builder; r: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.loop)
-    loopEnds.incl builder.fetchFollowingImm
+    markLoopEnd builder.fetchFollowingImm
     builder.regs.branch = true
 
 proc repi*(builder; c: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.repi)
     if c > 0:
-        loopEnds.incl builder.regs.pc + 1
+        markLoopEnd builder.regs.pc + 1
     else:
         builder.regs.branch = true
 
 proc rep*(builder; r: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.rep)
-    loopEnds.incl builder.regs.pc + 1
+    markLoopEnd builder.regs.pc + 1
     builder.regs.branch = true
 
 proc trap*(builder) =

@@ -298,13 +298,13 @@ proc dataWrite*(adr, val: uint16) =
 
 proc curAiSCnt(): uint32 =
     if aiCr.pstat:
-        result = uint32((gekkoTimestamp - aiSCntInitTimestamp) div gekkoCyclesPerAiSample) + aiSCntInit
+        result = uint32((gekkoTimestamp() - aiSCntInitTimestamp) div gekkoCyclesPerAiSample) + aiSCntInit
         #dspLog "current samples ", result, " timestamp: ", gekkoTimestamp, " ", aiSCntInitTimestamp
     else:
         result = aiSCntInit
 
 proc curAidCnt(): uint16 =
-    let blocksPast = uint16((gekkoTimestamp - aidCntInitTimestamp) div ((case aiCr.dfr
+    let blocksPast = uint16((gekkoTimestamp() - aidCntInitTimestamp) div ((case aiCr.dfr
                     of dmaFreq32Khz: gekkoCyclesPerSecond div 32_000
                     of dmaFreq48Khz: gekkoCyclesPerSecond div 48_000) * SamplesPer32byte))
     if blocksPast > aidCntInit:
@@ -457,7 +457,7 @@ of aidLen, 0x36, 2:
         dspLog &"writing aidlen {aidLen.play} {aidLen.len}"
         if aidCntInit == 0 and aidLen.play:
             aidCntInit = uint16 aidLen.len
-            startAid(gekkoTimestamp)
+            startAid(gekkoTimestamp())
 of aidCnt, 0x3A, 2:
     read: curAidCnt()
 
@@ -471,9 +471,9 @@ of aiCr, 0x0, 4:
         let val = AiCr val
 
         if val.pstat and not aiCr.pstat:
-            aiSCntInitTimestamp = gekkoTimestamp
+            aiSCntInitTimestamp = gekkoTimestamp()
             aiCr.pstat = true
-            dspLog &"started playing! at timestamp {gekkoTimestamp}"
+            dspLog &"started playing! at timestamp {gekkoTimestamp()}"
         if not val.pstat and aiCr.pstat:
             aiSCntInit = curAiSCnt()
             aiCr.pstat = false
@@ -481,14 +481,14 @@ of aiCr, 0x0, 4:
 
         if val.scrreset:
             aiSCntInit = 0
-            dspLog &"resetting to timestamp {gekkoTimestamp}"
-            aiSCntInitTimestamp = gekkoTimestamp
+            dspLog &"resetting to timestamp {gekkoTimestamp()}"
+            aiSCntInitTimestamp = gekkoTimestamp()
 
         if val.aiint:
             aiCr.aiint = false
 
         updateAiInt()
-        rescheduleAi(gekkoTimestamp)
+        rescheduleAi(gekkoTimestamp())
 of aiVr, 0x4, 4:
     read: uint32 aiVr
 of aiSCnt, 0x8, 4:

@@ -612,7 +612,6 @@ proc checkIdleLoopDsp*(fn: IrFunc, blk: IrBasicBlock, instrs: seq[tuple[read, wr
 
         return true
     return false
-    false
 
 proc calcLiveIntervals*(fn: IrFunc) =
     for blk in fn.blocks:

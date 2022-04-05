@@ -3,8 +3,12 @@ import
     catnip/[x64assembler, reprotect],
     ../../util/setminmax,
     ../../gekko/[ppcstate, ppccommon, memory, jit/gekkoblockcache],
-    ../../dsp/[dspstate, dsp],
+    ../../dsp/[dspstate, dsp, dspcommon, jit/dspblockcache],
     ir
+
+proc systemStep(): bool {.importc.}
+proc compileBlockPpc(): gekkoblockcache.BlockEntryFunc {.importc: "compileBlockPpc".}
+proc compileBlockDsp(): dspblockcache.BlockEntryFunc {.importc: "compileBlockDsp".}
 
 when defined(windows):
     const
@@ -317,11 +321,103 @@ type PatchLoc = object
     startOffset, len: int16
 
 var
-    codeMemory* {.align(0x1000).}: array[32*1024*1024, byte]
+    codeMemory {.align(0x1000).}: array[32*1024*1024, byte]
     assembler = initAssemblerX64(cast[ptr UncheckedArray[byte]](addr codeMemory[0]))
     assemblerFar = initAssemblerX64(cast[ptr UncheckedArray[byte]](addr codeMemory[len(codeMemory) div 2]))
 
     patches: Table[int, PatchLoc]
+
+    ppcRun*: proc(state: var PpcState) {.cdecl.}
+    ppcDone, ppcSliceDone: pointer
+
+    dspRun*: proc(state: var DspState) {.cdecl.}
+    dspDone: pointer
+
+doAssert reprotectMemory(addr codeMemory[0], sizeof(codeMemory), {memperm_R, memperm_W, memperm_X})
+
+proc jumpToNextBlockPpc(s: var AssemblerX64) =
+    #s.int3()
+    s.mov(reg(param1), rcpu)
+    s.call(gekkoblockcache.lookupBlockTranslateAddr)
+    s.test(reg(regRax), regRax)
+    let skipCompileBlock = s.jcc(condNotZero, false)
+    s.call(compileBlockPpc)
+    s.label(skipCompileBlock)
+    s.jmp(reg(regRax))
+
+proc jumpToNextBlockDsp(s: var AssemblerX64) =
+    s.movzx(Register32 param1.ord, mem16(rcpu, int32 offsetof(DspState, pc)))
+    s.call(dspblockcache.lookupBlock)
+    s.test(reg(regRax), regRax)
+    let skipCompileBlock = s.jcc(condNotZero, false)
+    s.call(compileBlockDsp)
+    s.label(skipCompileBlock)
+    s.jmp(reg(regRax))
+
+
+proc stackSetupEnter(s: var AssemblerX64, needFp: bool): int32 =
+    for i in 0..<calleeSavedRegsNum:
+        s.push(reg(Register64(registersToUse[i].ord)))
+    s.push(reg(regRbp))
+    s.push(reg(regR15))
+    const stackAlignAdjustment = if ((calleeSavedRegsNum + 2) mod 2) == 0: 8 else: 0
+    let stackOffset = int32(stackAlignAdjustment + (if needFp: calleeSavedXmmsNum*16 else: 0) + stackFrameSize)
+    s.sub(reg(regRsp), stackOffset)
+    if needFp:
+        for i in 0..<calleeSavedXmmsNum:
+            s.movaps(memXmm(regRsp, int32(stackFrameSize + i*16)), xmmsToUse[i])
+
+    stackOffset
+
+proc stackSetupLeave(s: var AssemblerX64, needFp: bool, stackOffset: int32) =
+    if needFp:
+        for i in 0..<calleeSavedXmmsNum:
+            s.movaps(xmmsToUse[i], memXmm(regRsp, int32(stackFrameSize + i*16)))
+    s.add(reg(regRsp), stackOffset)
+    s.pop(reg(regR15))
+    s.pop(reg(regRbp))
+    for i in countdown(calleeSavedRegsNum-1, 0):
+        s.pop(reg(Register64(registersToUse[i].ord)))
+    s.ret()
+
+
+proc genPpcStartup() =
+    template s: untyped = assembler
+
+    block:
+        dspRun = s.getFuncStart[:typeof(dspRun)]()
+
+        let stackOffset = stackSetupEnter(s, false)
+        s.mov(reg(rcpu), param1)
+
+        s.jumpToNextBlockDsp()
+
+        dspDone = s.getFuncStart[:pointer]()
+        s.stackSetupLeave(false, stackOffset)
+
+    block:
+        ppcRun = s.getFuncStart[:typeof(ppcRun)]()
+
+        let stackOffset = s.stackSetupEnter(true)
+        s.mov(reg(rcpu), param1)
+
+        s.jumpToNextBlockPpc()
+
+        ppcDone = s.getFuncStart[:pointer]()
+        s.stackSetupLeave(true, stackOffset)
+
+    block:
+        ppcSliceDone = s.getFuncStart[:pointer]()
+        s.call(systemStep)
+        s.test(reg(regEax), regEax)
+        let doneForever = s.jcc(condZero, false)
+        s.mov(reg(param1), rcpu)
+        s.call(ppccommon.handleExceptions)
+        s.jumpToNextBlockPpc()
+        s.label(doneForever)
+        s.jmp(ppcDone)
+
+genPpcStartup()
 
 proc handleSegfault*(faultAdr: var pointer): bool =
     #echo "trying to patch segfault..."
@@ -362,8 +458,6 @@ template patchableLoadStore(genInline, genPatch: untyped): untyped =
 
     sfar.jmp(cast[pointer](endLoc))
 
-doAssert reprotectMemory(addr codeMemory[0], sizeof(codeMemory), {memperm_R, memperm_W, memperm_X})
-
 proc initRegAlloc[T](spillLocs: ptr set[0..maxSpill-1]): RegAlloc[T] =
     RegAlloc[T](freeRegs: fullSet(T), freeSpillLocs: spillLocs)
 
@@ -387,7 +481,13 @@ proc dumpLastFunc*(start: pointer) =
     file.writeData(start, assembler.getFuncStart[:ByteAddress]() - cast[ByteAddress](start))
     file.close()
 
-proc genCode*(fn: IrFunc, cycles: int32, fexception, idleLoop: bool, dataAdrSpace = pointer(nil)): pointer =
+type
+    GenCodeFlags* = enum
+        fexception
+        idleLoop
+        dsp # this needs a better solution
+
+proc genCode*(fn: IrFunc, cycles: int32, flags: set[GenCodeFlags], dataAdrSpace = pointer(nil)): pointer =
     template s: untyped = assembler
     template sfar: untyped = assemblerFar
 
@@ -402,7 +502,7 @@ proc genCode*(fn: IrFunc, cycles: int32, fexception, idleLoop: bool, dataAdrSpac
         flagstate = flagStateUnknown
         flagstateL, flagstateR: IrInstrRef
 
-        floatExceptionBranch, idleLoopBranch: ForwardsLabel
+        floatExceptionBranch, idleLoopBranchNotTaken: ForwardsLabel
 
     template setFlagUnk(): untyped =
         flagstate = flagStateUnknown
@@ -425,23 +525,10 @@ proc genCode*(fn: IrFunc, cycles: int32, fexception, idleLoop: bool, dataAdrSpac
 
     result = s.getFuncStart[:pointer]()
 
-    for i in 0..<calleeSavedRegsNum:
-        s.push(reg(Register64(registersToUse[i].ord)))
-    s.push(reg(regRbp))
-    s.push(reg(regR15))
-    let
-        stackAlignAdjustment = if ((calleeSavedRegsNum + 2) mod 2) == 0: 8 else: 0
-        stackOffset = int32(stackAlignAdjustment + (if fexception: calleeSavedXmmsNum*16 else: 0) + stackFrameSize)
-    s.sub(reg(regRsp), stackOffset)
-    if fexception:
-        for i in 0..<calleeSavedXmmsNum:
-            s.movaps(memXmm(regRsp, int32(stackFrameSize + i*16)), xmmsToUse[i])
-
-    s.mov(reg(rcpu), param1)
     if dataAdrSpace != nil:
         s.mov(rmemStart, cast[int64](dataAdrSpace))
 
-    if fexception:
+    if fexception in flags:
         s.mov(reg(param1), rcpu)
         s.call(handleFException)
         s.test(reg(regEax), regEax)
@@ -1127,9 +1214,6 @@ proc genCode*(fn: IrFunc, cycles: int32, fexception, idleLoop: bool, dataAdrSpac
                         s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), target.toReg)
                     else:
                         s.mov(mem16(rcpu, int32 offsetof(DspState, pc)), Register16(target.toReg.ord))
-
-                if idleLoop:
-                    s.mov(reg(regEax), -1)
             else:
                 let (cond, target) = regalloc.allocOpW0R2(s, instr.source(0), instr.source(1), fn)
                 s.mov(reg(regEax), cast[int32](fn.isImmValI(instr.source(2)).get))
@@ -1141,9 +1225,20 @@ proc genCode*(fn: IrFunc, cycles: int32, fexception, idleLoop: bool, dataAdrSpac
                 else:
                     s.mov(mem16(rcpu, int32 offsetof(DspState, pc)), regAx)
 
-                if idleLoop:
-                    s.mov(reg(regEax), -1)
-                    idleLoopBranch = s.jcc(condNotZero, false)
+                if idleLoop in flags:
+                    idleLoopBranchNotTaken = s.jcc(condNotZero, false)
+
+            if idleLoop in flags:
+                let cyclesOffset =
+                    if GenCodeFlags.dsp in flags:
+                        int32 offsetof(DspState, negativeCycles)
+                    else:
+                        int32 offsetof(PpcState, negativeCycles)
+                s.mov(regEax, mem32(rcpu, cyclesOffset))
+                s.xxor(regEcx, reg(regEcx))
+                s.cmp(reg(regEax), 0)
+                s.cmov(regEax, reg(regEcx), condLess)
+                s.mov(mem32(rcpu, int32 cyclesOffset), regEax)
             setFlagUnk()
         of ppcSyscall:
             s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), cast[int32](fn.isImmValI(instr.source(0)).get))
@@ -1408,20 +1503,35 @@ proc genCode*(fn: IrFunc, cycles: int32, fexception, idleLoop: bool, dataAdrSpac
         regalloc.freeExpiredRegs(fn, i)
         xmmRegalloc.freeExpiredRegs(fn, i)
 
-    if not idleLoop or idleLoopBranch != ForwardsLabel():
-        s.mov(reg(regEax), cycles)
+    if GenCodeFlags.dsp in flags:
+        s.call(dspcommon.postBlock)
 
-    if idleLoop and idleLoopBranch != ForwardsLabel(): s.label(idleLoopBranch)
-    if fexception: s.label(floatExceptionBranch)
+    let doneJmpLoc =
+        if GenCodeFlags.dsp in flags:
+            dspDone
+        else:
+            ppcSliceDone
+    if idleLoop notin flags or idleLoopBranchNotTaken != ForwardsLabel():        
+        s.add(mem32(rcpu,
+            if GenCodeFlags.dsp in flags:
+                int32 offsetof(DspState, negativeCycles)
+            else:
+                int32 offsetof(PpcState, negativeCycles)), cycles)
+        let skipSliceDone = s.jcc(condSign, false)
+        s.jmp(doneJmpLoc)
+        s.label(skipSliceDone)
+    else:
+        s.jmp(doneJmpLoc)
 
-    if fexception:
-        for i in 0..<calleeSavedXmmsNum:
-            s.movaps(xmmsToUse[i], memXmm(regRsp, int32(stackFrameSize + i*16)))
-    s.add(reg(regRsp), stackOffset)
-    s.pop(reg(regR15))
-    s.pop(reg(regRbp))
-    for i in countdown(calleeSavedRegsNum-1, 0):
-        s.pop(reg(Register64(registersToUse[i].ord)))
-    s.ret()
+    if fexception in flags or fn.getInstr(blk.instrs[^1]).kind == ppcSyscall:
+        if fexception in flags:
+            s.label(floatExceptionBranch)
+        s.mov(reg(param1), rcpu)
+        s.call(ppccommon.handleExceptions)
+
+    if GenCodeFlags.dsp in flags:
+        s.jumpToNextBlockDsp()
+    else:
+        s.jumpToNextBlockPpc()
 
     assert s.offset < sizeof(codeMemory)

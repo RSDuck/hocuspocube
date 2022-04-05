@@ -279,7 +279,7 @@ proc decAdr*(builder; adr, wrap, inc: IrInstrRef): IrInstrRef =
             builder.biop(iCmpGreaterU, inc, builder.imm(0xFFFF8000'u32))),
         builder.imm(0xFFFF))
 
-func loadStoreAdrInc*(builder; adr: IrInstrRef, m: uint32, rn: uint32) =
+proc loadStoreAdrInc*(builder; adr: IrInstrRef, m: uint32, rn: uint32) =
     case range[0..3](m)
     of 0: discard
     of 1: builder.writeAdr rn, builder.decAdr(adr, builder.readAdrLen(rn))

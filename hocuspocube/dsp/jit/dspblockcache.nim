@@ -5,8 +5,8 @@ import
 type BlockEntryFunc* = proc(state: ptr DspState): int32 {.cdecl.}
 
 var
-    blockEntries*: array[0x1000 + 0x1000, BlockEntryFunc]
-    loopEnds*: HashSet[uint16]
+    blockEntries: array[0x1000 + 0x1000, BlockEntryFunc]
+    loopEnds: HashSet[uint16]
 
 proc mapBlockEntryAdr*(adr: uint16): uint32 =
     case adr
@@ -14,6 +14,18 @@ proc mapBlockEntryAdr*(adr: uint16): uint32 =
     of 0x8000'u16..0x8FFF: uint32(adr) - 0x8000 + 0x1000
     else:
         raiseAssert(&"unknown dsp block adr {adr:04X}")
+
+proc lookupBlock*(adr: uint16): BlockEntryFunc =
+    blockEntries[mapBlockEntryAdr(adr)]
+
+proc setBlock*(adr: uint16, f: BlockEntryFunc) =
+    blockEntries[mapBlockEntryAdr(adr)] = f
+
+proc markLoopEnd*(adr: uint16) =
+    loopEnds.incl adr
+
+proc isLoopEnd*(adr: uint16): bool =
+    adr in loopEnds
 
 proc invalidateByAdr*(adr: uint16) =
     if adr <= 0xFFF'u16:

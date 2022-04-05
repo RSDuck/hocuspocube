@@ -254,7 +254,7 @@ proc currentPhaseHalfLines(): int64 =
         of framePhasePsbEven: vte.psb)
 
 proc currentTb(state: PpcState): uint64 =
-    uint64((gekkoTimestamp - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
+    uint64((gekkoTimestamp() - state.tbInitTimestamp) div gekkoCyclesPerTbCycle) + state.tbInit
 
 proc startTimingPhase(timestamp: int64) =
     if curFramePhase != high(FramePhase):
@@ -346,12 +346,12 @@ of dcr, 0x02, 2:
         if not(dcr.enb) and val.enb:
             dcr.enb = true
             viLog "enable video"
-            curFramePhaseStartTimestamp = gekkoTimestamp
+            curFramePhaseStartTimestamp = gekkoTimestamp()
             curFramePhase = framePhasePsbEven
-            nextFramePhaseEventTimestmap = gekkoTimestamp
+            nextFramePhaseEventTimestmap = curFramePhaseStartTimestamp
             if nextFramePhaseEvent != InvalidEventToken:
                 cancelEvent nextFramePhaseEvent
-            startTimingPhase(gekkoTimestamp)
+            startTimingPhase(curFramePhaseStartTimestamp)
 of htr0, 0x04, 4:
     read: uint32 htr0
     write:
@@ -392,10 +392,10 @@ of bfbr, 0x28, 4:
     read: uint32 bfbr
     write: bfbr.mutableR = val
 of dpv, 0x2C, 2:
-    read: result = uint16(rasterYPos(gekkoTimestamp) + 1); echo &"read dpv position {result} {gekkoTimestamp} {gekkoState.pc:08X}"
+    read: result = uint16(rasterYPos(gekkoTimestamp()) + 1); echo &"read dpv position {result} {gekkoTimestamp()} {gekkoState.pc:08X}"
     write: echo "raster beam position moved vertically (is that even possible welp!)"
 of dph, 0x2E, 2:
-    read: result = uint16(rasterXPos(gekkoTimestamp) + 1)
+    read: result = uint16(rasterXPos(gekkoTimestamp()) + 1)
     write: echo "raster beam position horizontally welp (is that even possible welp!)"
 of di, 0x30, 4, 4:
     read: uint32 di[idx]
@@ -404,7 +404,7 @@ of di, 0x30, 4, 4:
         if not Di(val).sts:
             di[idx].sts = false
             updateInt()
-        rescheduleInt(gekkoTimestamp, int idx)
+        rescheduleInt(gekkoTimestamp(), int idx)
 of hsw, 0x48, 2:
     read: uint16 hsw
     write: hsw = Hsw val

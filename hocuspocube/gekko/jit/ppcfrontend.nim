@@ -17,7 +17,7 @@ import
 proc undefinedInstr(builder: var IrBlockBuilder[PpcIrRegState], instr: uint32) =
     raiseAssert(&"undefined instruction {toBE(instr):08X} at {builder.regs.pc:08X}")
 
-proc compileBlock(): BlockEntryFunc =
+proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
     let
         blockAdr = gekkoState.translateInstrAddr(gekkoState.pc)
         dataTranslation = gekkoState.msr.dr
@@ -46,9 +46,13 @@ proc compileBlock(): BlockEntryFunc =
     let blk = IrBasicBlock(instrs: move builder.instrs)
     fn.blocks.add blk
 
-    let isIdleLoop = fn.checkIdleLoopPpc(blk, gekkoState.pc)
+    var flags: set[GenCodeFlags]
+    if fn.checkIdleLoopPpc(blk, gekkoState.pc):
+        flags.incl idleLoop
+    if builder.regs.floatInstr:
+        flags.incl fexception
 
-    #echo &"block {gekkoState.pc:08X} is idle loop: {isIdleLoop}"
+    #echo &"block {gekkoState.pc:08X} {cycles} is idle loop: {idleLoop in flags}"
     #echo "preopt\n", builder.blk
 
     fn.ctxLoadStoreEliminiate()
@@ -67,29 +71,11 @@ proc compileBlock(): BlockEntryFunc =
 
     result = cast[BlockEntryFunc](genCode(fn,
         cycles,
-        builder.regs.floatInstr,
-        isIdleLoop,
+        flags,
         if dataTranslation: translatedAdrSpace else: physicalAdrSpace))
 
-    blockEntries[mapBlockEntryAdr(blockAdr)] = result
+    setBlock blockAdr, result
 
-proc gekkoRun*(timestamp: var int64, target: var int64) =
-    while timestamp < target:
-        if gekkoState.pendingExceptions != {}:
-            handleExceptions()
-
-        let entryPoint = blockEntries[mapBlockEntryAdr(gekkoState.translateInstrAddr(gekkoState.pc))]
-
-        let cycles =
-            if likely(entryPoint != nil):
-                entryPoint(addr gekkoState)
-            else:
-                compileBlock()(addr gekkoState)
-
-        if likely(cycles != -1):
-            timestamp += cycles
-        else:
-            #echo "skipping idle loop!"
-            timestamp = target
-
-    #echo &"slice finished {gekkoState.pc:08X}"
+proc gekkoRun*() =
+    handleExceptions(gekkoState)
+    ppcRun(gekkoState)

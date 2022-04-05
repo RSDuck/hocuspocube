@@ -81,6 +81,8 @@ type
         loopAddrStack*: Stack[4]
         loopCountStack*: Stack[4]
 
+        negativeCycles*: int32
+
 proc `[]`*[Size: static[int]](stack: Stack[Size], idx: int): uint16 =
     stack.values[idx]
 

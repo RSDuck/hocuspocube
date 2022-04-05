@@ -162,16 +162,19 @@ proc setIBatHi*(state: var PpcState, val, num: uint32) =
 
 import fastmem
 
+proc shouldMap(lo: BatLo, hi: BatHi): bool =
+    lo.wimg == 0
+
 proc setDbat(state: var PpcState, num: uint32, lo: BatLo, hi: BatHi) =
     echo &"writing bat {uint32(hi):08X} {uint32(lo):08X} {num}"
-    if isValid(state.dbatLo[num], state.dbatHi[num]):
+    if isValid(state.dbatLo[num], state.dbatHi[num]) and shouldMap(state.dbatLo[num], state.dbatHi[num]):
         echo &"old state valid, unmapping {uint32(state.dbatLo[num]):08X} {uint32(state.dbatHi[num]):08X}"
         changeRegionMapping(translatedAdrSpace,
             int state.dbatHi[num].bepi,
             int state.dbatLo[num].brpn,
             int((state.dbatHi[num].bl+1) shl 17),
             false)
-    if isValid(lo, hi):
+    if isValid(lo, hi) and shouldMap(lo, hi):
         changeRegionMapping(translatedAdrSpace,
             int hi.bepi,
             int lo.brpn,

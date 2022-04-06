@@ -1,15 +1,29 @@
 import
-    strformat,
+    strformat, options, macros,
 
     ppcstate
 
-proc translateBat[T; U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32): uint32 {.inline.} =
-    # TODO check privilege level
+template translateBatTemp[T, U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32, works, fails: untyped): untyped =
     for i in 0..<4:
         if (batsHi[i].vp or batsHi[i].vs) and (adr and (not(batsHi[i].bl) shl 17)) == batsHi[i].bepi:
             #echo &"bat match {uint32(batsHi[i]):08X} {uint32(batsLo[i]):08X}"
-            return (adr and not(not(batsHi[i].bl) shl 17)) or batsLo[i].brpn
-    raiseAssert(&"failed to translate addr {adr:X} {batsLo.repr} {batsHi.repr}")
+            let translated {.inject.} = (adr and not(not(batsHi[i].bl) shl 17)) or batsLo[i].brpn
+            works
+    fails
+
+proc translateBat[T; U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32): uint32 {.inline.} =
+    # TODO check privilege level
+    translateBatTemp(batsLo, batsHi, adr):
+        return translated
+    do:
+        raiseAssert(&"failed to translate addr {adr:X} {batsLo.repr} {batsHi.repr}")
+
+proc tryTranslateBat[T; U](batsLo: array[4, T], batsHi: array[4, U], adr: uint32): Option[uint32] {.inline.} =
+    # TODO check privilege level
+    translateBatTemp(batsLo, batsHi, adr):
+        return some(translated)
+    do:
+        return none(uint32)
 
 proc translateDataAddr*(state: PpcState, adr: uint32): uint32 {.inline.} =
     if state.msr.dr:
@@ -17,6 +31,13 @@ proc translateDataAddr*(state: PpcState, adr: uint32): uint32 {.inline.} =
         translateBat(state.dbatLo, state.dbatHi, adr)
     else:
         adr
+
+proc tryTranslateDataAddr*(state: PpcState, adr: uint32): Option[uint32] {.inline.} =
+    if state.msr.dr:
+        # TODO: page translation
+        tryTranslateBat(state.dbatLo, state.dbatHi, adr)
+    else:
+        some(adr)
 
 proc translateInstrAddr*(state: PpcState, adr: uint32): uint32 {.inline.} =
     if state.msr.ir:
@@ -45,7 +66,7 @@ var
 proc writeBus*[T](adr: uint32, val: T)
 proc readBus*[T](adr: uint32): T
 
-proc invalidateMainRam(adr: uint32)
+proc invalidateMainRam*(adr: uint32)
 proc invalidateMainRam(adr, size: uint32)
 
 proc mainRamReadPtr*(adr, size: uint32): ptr UncheckedArray[byte] {.inline.} =
@@ -99,7 +120,7 @@ import
 
     jit/gekkoblockcache
 
-proc invalidateMainRam(adr: uint32) =
+proc invalidateMainRam*(adr: uint32) =
     case mainRAMTagging[adr div 32]
     of memoryTagNone: discard
     of memoryTagCode: discard # do something maybe?

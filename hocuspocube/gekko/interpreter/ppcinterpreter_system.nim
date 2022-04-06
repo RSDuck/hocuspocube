@@ -9,9 +9,6 @@ import
 
 using state: var PpcState
 
-template stubbedMemLog(msg: string): untyped =
-    discard
-
 template r(num: uint32): uint32 {.dirty.} = state.r[num]
 #template fr(num: uint32): PairedSingle {.dirty.} = state.fr[num]
 
@@ -181,21 +178,6 @@ proc mtspr*(state; d, spr: uint32) =
         of 957..958: state.pmc[n - 957 + 2] = Pmc r(d)
         else:
             raiseAssert &"unknown spr register {n}"
-
-proc dcbf*(state; a, b: uint32) =
-    stubbedMemLog "dcbf stubbed"
-
-proc dcbi*(state; a, b: uint32) =
-    stubbedMemLog "dcbi stubbed"
-
-proc dcbst*(state; a, b: uint32) =
-    stubbedMemLog "dcbst stubbed"
-
-proc dcbt*(state; a, b: uint32) =
-    stubbedMemLog "dcbt stubbed"
-
-proc dcbtst*(state; a, b: uint32) =
-    stubbedMemLog "dcbst stubbed"
 
 proc mfsr*(state; d, sr: uint32) =
     raiseAssert "instr not implemented mfsr"

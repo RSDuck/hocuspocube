@@ -200,21 +200,6 @@ proc mtspr*(builder; d, spr: uint32) =
                 of 1017: uint32 offsetof(PpcState, l2cr)
                 else: raiseAssert(&"unimplemented spr write {n}")), rd)
 
-proc dcbf*(builder; a, b: uint32) =
-    discard
-
-proc dcbi*(builder; a, b: uint32) =
-    discard
-
-proc dcbst*(builder; a, b: uint32) =
-    discard
-
-proc dcbt*(builder; a, b: uint32) =
-    discard
-
-proc dcbtst*(builder; a, b: uint32) =
-    discard
-
 proc mfsr*(builder; d, sr: uint32) =
     raiseAssert "instr not implemented mfsr"
 

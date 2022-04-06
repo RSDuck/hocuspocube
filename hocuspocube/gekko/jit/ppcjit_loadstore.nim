@@ -512,5 +512,20 @@ proc dcbz*(builder; a, b: uint32) =
 proc dcbz_l*(builder; a, b: uint32) =
     builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.dcbz_l)
 
+proc dcbf*(builder; a, b: uint32) =
+    builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.dcbf)
+
+proc dcbi*(builder; a, b: uint32) =
+    discard
+
+proc dcbst*(builder; a, b: uint32) =
+    discard
+
+proc dcbt*(builder; a, b: uint32) =
+    discard
+
+proc dcbtst*(builder; a, b: uint32) =
+    discard
+
 proc icbi*(builder; a, b: uint32) =
     builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.icbi)

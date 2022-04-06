@@ -1,5 +1,5 @@
 import
-    ../ppcstate, ../memory, ../gekko,
+    ../ppcstate, ../memory,
     ../../util/aluhelper,
     ppcinterpreter_aux,
     options, stew/endians2,
@@ -459,12 +459,33 @@ proc psq_stu*(state; s, a, w, i, imm: uint32) =
         calcAddrImmQuant true:
             storeQuant
 
+template stubbedMemLog(msg: string): untyped =
+    discard
+
 # not really a load/store operation
 proc dcbz*(state; a, b: uint32) =
     calcAddr false:
         doMemOp:
             for i in 0'u32..<4:
                 writeBus[uint64]((adr and not(0x1F'u32)) + i*8, 0'u64)
+
+proc dcbf*(state; a, b: uint32) =
+    calcAddr false:
+        let adr = state.tryTranslateDataAddr(ea)
+        if adr.isSome:
+            invalidateMainRam(adr.get and not(0x1F'u32))
+
+proc dcbi*(state; a, b: uint32) =
+    stubbedMemLog "dcbi stubbed"
+
+proc dcbst*(state; a, b: uint32) =
+    stubbedMemLog "dcbst stubbed"
+
+proc dcbt*(state; a, b: uint32) =
+    stubbedMemLog "dcbt stubbed"
+
+proc dcbtst*(state; a, b: uint32) =
+    stubbedMemLog "dcbst stubbed"
 
 proc dcbz_l*(state; a, b: uint32) =
     calcAddr false:

@@ -1,5 +1,4 @@
 import
-    strformat,
     dspstate, dsp
 
 proc handleExceptions*() =

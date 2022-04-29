@@ -13,6 +13,7 @@ var dependencies = @[
     "sdl2",
     "https://github.com/status-im/nim-stew.git#5cf4feabea0820d7f03b146b0973a57973bcc4c1",
     "opengl",
+    "catnip",
     "xxhash"]
 
 when defined(windows):

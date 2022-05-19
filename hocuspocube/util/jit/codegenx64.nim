@@ -148,7 +148,11 @@ template doCall(s: var AssemblerX64, regs: set[Register64], xmms: set[RegisterXm
 
 proc getCallerSavedRegs[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
         writeVal: IrInstrRef): auto =
-    var regs: set[(when T is HostIRegRange: Register64 else: RegisterXmm)]
+    when T is HostIRegRange:
+        type RegSetType = Register64
+    else:
+        type RegSetType = RegisterXmm
+    var regs: set[RegSetType]
     for i in 0..<regalloc.activeRegs.len:
         let reg = regalloc.activeRegs[i]
         if reg.location != regLocHostSpill and reg.val != writeVal and

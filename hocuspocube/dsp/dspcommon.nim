@@ -33,7 +33,7 @@ proc handleReset*() =
 
 proc handleLoopStack*(offset: uint16 = 0) =
     while mDspState.loopAddrStack.sp > 0 and
-        mDspState.loopAddrStack.peek() == (mDspState.pc + offset):
+            mDspState.loopAddrStack.peek() == (mDspState.pc + offset):
 
         mDspState.loopCountStack.peek() -= 1
 

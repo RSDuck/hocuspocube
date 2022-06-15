@@ -499,6 +499,12 @@ proc genCode*(fn: IrFunc, cycles: int32, flags: set[GenCodeFlags], dataAdrSpace 
         clearBlockCache()
         s.offset = 0
 
+    let doneJmpLoc =
+        if GenCodeFlags.dsp in flags:
+            dspDone
+        else:
+            ppcSliceDone
+
     var
         freeSpillLocs = fullSet(range[0..maxSpill-1])
         regalloc = initRegAlloc[HostIRegRange](addr freeSpillLocs)
@@ -1221,16 +1227,15 @@ proc genCode*(fn: IrFunc, cycles: int32, flags: set[GenCodeFlags], dataAdrSpace 
             else:
                 let (cond, target) = regalloc.allocOpW0R2(s, instr.source(0), instr.source(1), fn)
                 s.mov(reg(regEax), cast[int32](fn.isImmValI(instr.source(2)).get))
-                s.mov(reg(regEcx), target.toReg)
                 s.test(reg(cond.toReg), cond.toReg)
-                s.cmov(regEax, reg(regEcx), condNotZero)
+                s.cmov(regEax, reg(target.toReg), condNotZero)
                 if instr.kind == ppcBranch:
                     s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), regEax)
                 else:
                     s.mov(mem16(rcpu, int32 offsetof(DspState, pc)), regAx)
 
                 if idleLoop in flags:
-                    idleLoopBranchNotTaken = s.jcc(condNotZero, false)
+                    idleLoopBranchNotTaken = s.jcc(condZero, false)
 
             if idleLoop in flags:
                 let cyclesOffset =
@@ -1243,6 +1248,15 @@ proc genCode*(fn: IrFunc, cycles: int32, flags: set[GenCodeFlags], dataAdrSpace 
                 s.cmp(reg(regEax), 0)
                 s.cmov(regEax, reg(regEcx), condLess)
                 s.mov(mem32(rcpu, int32 cyclesOffset), regEax)
+
+                if GenCodeFlags.dsp in flags:
+                    s.call(postBlock)
+
+                s.jmp(doneJmpLoc)
+
+                if idleLoopBranchNotTaken != ForwardsLabel():
+                    s.label(idleLoopBranchNotTaken)
+
             setFlagUnk()
         of ppcSyscall:
             s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), cast[int32](fn.isImmValI(instr.source(0)).get))
@@ -1507,15 +1521,10 @@ proc genCode*(fn: IrFunc, cycles: int32, flags: set[GenCodeFlags], dataAdrSpace 
         regalloc.freeExpiredRegs(fn, i)
         xmmRegalloc.freeExpiredRegs(fn, i)
 
-    if GenCodeFlags.dsp in flags:
-        s.call(dspcommon.postBlock)
-
-    let doneJmpLoc =
+    if idleLoop notin flags or idleLoopBranchNotTaken != ForwardsLabel():
         if GenCodeFlags.dsp in flags:
-            dspDone
-        else:
-            ppcSliceDone
-    if idleLoop notin flags or idleLoopBranchNotTaken != ForwardsLabel():        
+            s.call(postBlock)
+
         s.add(mem32(rcpu,
             if GenCodeFlags.dsp in flags:
                 int32 offsetof(DspState, negativeCycles)
@@ -1524,8 +1533,6 @@ proc genCode*(fn: IrFunc, cycles: int32, flags: set[GenCodeFlags], dataAdrSpace 
         let skipSliceDone = s.jcc(condSign, false)
         s.jmp(doneJmpLoc)
         s.label(skipSliceDone)
-    else:
-        s.jmp(doneJmpLoc)
 
     if fexception in flags or fn.getInstr(blk.instrs[^1]).kind == ppcSyscall:
         if fexception in flags:

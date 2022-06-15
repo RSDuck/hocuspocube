@@ -223,9 +223,9 @@ proc dspOpts*(fn: IrFunc) =
                     builder.biop(bitAndX, instr.source(0), builder.imm(0xFFFF'u64)),
                     builder.biop(lslX, builder.unop(extshX, instr.source(1)), builder.imm(16)))
             #[of mergeBit:
-                fn.getInstr(iref) = makeBiop(bitOr, blk.biop(lsl, instr.source(1), blk.imm(instr.bit)), blk.biop(bitAnd, instr.source(0), blk.imm(not(1'u32 shl instr.bit))))
+                fn.getInstr(iref) = makeBiop(bitOr, builder.biop(lsl, instr.source(1), builder.imm(instr.bit)), builder.biop(bitAnd, instr.source(0), builder.imm(not(1'u32 shl instr.bit))))
             of extractBit:
-                fn.getInstr(iref) = makeBiop(bitAnd, blk.biop(lsr, instr.source(0), blk.imm(instr.bit)), blk.imm(1))]#
+                fn.getInstr(iref) = makeBiop(bitAnd, builder.biop(lsr, instr.source(0), builder.imm(instr.bit)), builder.imm(1))]#
             else:
                 discard
 

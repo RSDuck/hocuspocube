@@ -35,7 +35,7 @@ proc call*(state; cc: uint16) =
 
 proc callr*(state; r, cc: uint16) =
     if state.conditionHolds(cc):
-        #echo &"calling (indirectly) {dst:04X} {state.pc:04X}"
+        #echo &"calling (indirectly) {state.adrReg[r]:04X} {state.pc:04X}"
         state.callStack.push(state.pc + 1)
         state.pc = state.adrReg[r] - 1
 

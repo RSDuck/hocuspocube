@@ -30,6 +30,7 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
 
     while not builder.regs.branch:
         builder.regs.instr = instrRead(builder.regs.pc)
+        #echo &"dsp instr {builder.regs.instr:04X}"
 
         dspMainDispatch(builder.regs.instr, builder, undefinedInstr)
 
@@ -42,7 +43,7 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
         builder.regs.pc += 1
         numInstrs += 1
 
-        if isLoopEnd(builder.regs.pc-1) or builder.regs.cycles >= 128:
+        if isLoopEnd(builder.regs.pc-1) or builder.regs.cycles >= 128 and not builder.regs.branch:
             discard builder.triop(dspBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
             break
 
@@ -52,7 +53,7 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
     var flags = {GenCodeFlags.dsp}
     if fn.checkIdleLoopDsp(blk, instrReadWrites, blockAdr):
         flags.incl idleLoop
-    #echo &"dsp block {blockAdr:04X} (is idle loop: {isIdleLoop}): \n", builder.blk
+    #echo &"dsp block {blockAdr:04X} (is idle loop: {idleLoop in flags})"
     fn.ctxLoadStoreEliminiate()
     fn.removeIdentities()
     fn.mergeExtractEliminate()

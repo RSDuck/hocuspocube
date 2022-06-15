@@ -1,9 +1,9 @@
 import
-    util/ioregs, util/bitstruct,
+    util/[ioregs, bitstruct, intervaltree],
     cycletiming,
     gekko/[gekko, ppcstate, memory], si/si,
-
-    strformat, std/monotimes, times
+    flipper/[rasterinterfacecommon, opengl/rasterogl],
+    strformat, std/monotimes, times, algorithm
 
 when defined(nintendoswitch):
     import frontend/switch
@@ -78,6 +78,10 @@ type
         framePhaseAcvEven
         framePhasePsbEven
 
+    Xfb = object
+        startAdr, lines, stride: uint32
+        fb: NativeFramebuffer
+
 var
     curFramePhase: FramePhase
     curFramePhaseStartTimestamp: int64
@@ -105,6 +109,38 @@ var
 
     lastFieldTime = getMonoTime()
     gekkoTime*, dspTime*: Duration
+
+    xfbCache: seq[Xfb]
+
+proc getOrCreateXfbFramebuffer*(adr, width, height, stride: uint32): NativeFramebuffer =
+    for i in 0..<xfbCache.len:
+        if xfbCache[i].startAdr == adr and xfbCache[i].lines == height:
+            let xfb = xfbCache[i]
+            # move it to the end
+            for j in countdown(i, 1):
+                xfbCache[j] = xfbCache[j - 1]
+            xfbCache[0] = xfb
+            return xfb.fb
+    let fb = createFramebuffer(int width, int height, false)
+    xfbCache.insert Xfb(startAdr: adr, lines: height, stride: stride, fb: fb), 0
+    for i in countup(adr, adr + stride * height-1):
+        mainRAMTagging[i div 32] = memoryTagXfb
+    fb
+
+proc invalidateXfb*(adr: uint32) =
+    var i = 0
+    while i < xfbCache.len:
+        let
+            startAdr = xfbCache[i].startAdr
+            stride = xfbCache[i].stride
+            lines = xfbCache[i].lines
+        if adr >= startAdr and adr < startAdr + lines * stride:
+            for i in countup(startAdr, startAdr + stride * lines-1):
+                mainRAMTagging[i div 32] = memoryTagNone
+            xfbCache[i].fb.destroy()
+            xfbCache.delete(i)
+        else:
+            i += 1
 
 proc cyclesPerSample(): int64 =
     gekkoCyclesPerViCycle[viclk.s] * 2
@@ -193,7 +229,7 @@ proc convertLineYuvToRgb(dst: var openArray[uint32], src: openArray[uint32], wid
         dst[x * 2] = packRgb(r1, g1, b1)
         dst[x * 2 + 1] = packRgb(r2, g2, b2)
 
-proc calcFramebufferAddr(odd: bool): uint32 =
+proc calcFramebufferAdr(odd: bool): uint32 =
     let fieldBase = if odd: tfbl else: bfbl
 
     result = fieldBase.fbb
@@ -206,16 +242,13 @@ proc calcFramebufferAddr(odd: bool): uint32 =
 
     result += tfbl.xof * 2
 
-proc readOutField(odd: bool) =
-    let frameWidth = hsw.wpl * 16
+proc calcFramebufferInfo(odd: bool): (uint32, uint32, uint32) =
     var
-        frameHeight = vtr.acv
+        frameAdr = calcFramebufferAdr(odd)
         frameStride = hsw.std * 32
-        frameAdr = calcFramebufferAddr(odd)
+        frameHeight = vtr.acv
 
-    #assert abs(int(calcFramebufferAddr(true)) - int(calcFramebufferAddr(false))) == int(frameStride div 2),
-    #    &"proper interlacing isn't supported {frameStride} {frameWidth} {calcFramebufferAddr(true):08X} {calcFramebufferAddr(false):08X}"
-    if not dcr.prog and abs(int(calcFramebufferAddr(true)) - int(calcFramebufferAddr(false))) == int(frameStride div 2):
+    if not dcr.prog and abs(int(calcFramebufferAdr(true)) - int(calcFramebufferAdr(false))) == int(frameStride div 2):
         frameHeight *= 2
         frameStride = frameStride div 2
 
@@ -226,6 +259,15 @@ proc readOutField(odd: bool) =
         if not odd and vto.prb == vte.prb - 1:
             frameAdr -= frameStride
 
+    (frameAdr, frameStride, frameHeight)
+
+proc readOutField(odd: bool) =
+    let frameWidth = hsw.wpl * 16
+    var (frameAdr, frameStride, frameHeight) = calcFramebufferInfo(odd)
+
+    #assert abs(int(calcFramebufferAdr(true)) - int(calcFramebufferAdr(false))) == int(frameStride div 2),
+    #    &"proper interlacing isn't supported {frameStride} {frameWidth} {calcFramebufferAddr(true):08X} {calcFramebufferAdr(false):08X}"
+
     let
         timeNow = getMonoTime()
         timeDiff = timeNow - lastFieldTime
@@ -235,14 +277,44 @@ proc readOutField(odd: bool) =
     reset(gekkoTime)
     reset(dspTime)
 
-    var
-        frameDataRgba = newSeq[uint32](frameWidth * frameHeight)
-    for i in 0..<frameHeight:
-        withMainRamOpenArray(frameAdr, frameWidth * 4, uint32):
-            convertLineYuvToRgb(toOpenArray(frameDataRgba, int(i*frameWidth), int((i+1)*frameWidth-1)), ramArr, int frameWidth)
-        frameAdr += frameStride
+    var overlapping: seq[(int, int, NativeTexture)]
 
-    presentFrame int frameWidth, int frameHeight, frameDataRgba
+    # we go through the list in reverse order
+    # so that the pieces higher up are already in the list
+    # This way we can check whether one of them covers the piece about to be added
+    # completely
+    for xfb in xfbCache:
+        if xfb.startAdr < frameAdr+frameStride*frameHeight and
+                xfb.startAdr+xfb.lines*frameStride >= frameAdr:
+            let
+                line = (int(xfb.startAdr) - int(frameAdr)) div int(frameStride)
+                height = int xfb.lines
+            viLog &"overlapping xfb {xfb.startAdr:08X} {frameAdr:08X} {line} {height} {frameStride}"
+
+            block overlaps:
+                for i in 0..<overlapping.len:
+                    if max(line, 0) >= max(overlapping[i][0], 0) and
+                            min(line+height, int frameHeight) <= min(overlapping[i][0]+overlapping[i][1], int frameHeight):
+                        break overlaps
+
+                overlapping.add (line, height, xfb.fb.colorbuffer)
+
+    overlapping.reverse()
+
+    if overlapping.len == 0:
+        viLog "no overlapping!"
+        var
+            frameDataRgba = newSeq[uint32](frameWidth * frameHeight)
+        for i in 0..<frameHeight:
+            withMainRamOpenArray(frameAdr, frameWidth * 4, uint32):
+                convertLineYuvToRgb(toOpenArray(frameDataRgba, int(i*frameWidth), int((i+1)*frameWidth-1)), ramArr, int frameWidth)
+            frameAdr += frameStride
+
+        presentFrame int frameWidth, int frameHeight, frameDataRgba
+    else:
+        viLog &"overlapping! {overlapping.len}"
+        presentFrame int frameHeight, overlapping
+    endFrame()
 
 proc currentPhaseHalfLines(): int64 =
     int64(case curFramePhase
@@ -284,7 +356,7 @@ proc startTimingPhase(timestamp: int64) =
         startSiPoll timestamp, int64(htr0.hlw) * 2 * cyclesPerSample()
 
         if vtr.acv == 0:
-            presentBlankFrame()
+            sdl.presentBlankFrame()
         else:
             readOutField(curFramePhase == framePhasePsbOdd)
     let

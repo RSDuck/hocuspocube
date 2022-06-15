@@ -306,6 +306,7 @@ makeBitStruct uint32, *CopyExecute:
     fmtHi[3]: uint32
     fmtLo[4..6]: uint32
     mipmap[9]: bool
+    yscale[10]: bool
     clear[11]: bool
     mode[14]: CopyMode
     intensity[15]: bool

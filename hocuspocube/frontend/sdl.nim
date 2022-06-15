@@ -46,12 +46,10 @@ proc handleEvents* =
         elif event.kind == KeyUp:
             keysDown.excl event.evKeyboard.keysym.scancode
 
-proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
-    handleEvents()
-
-    rasterogl.presentFrame(width, height, pixelData)
-
+proc endFrame*() =
     window.glSwapWindow()
+
+    handleEvents()
 
 proc presentBlankFrame*() =
     handleEvents()

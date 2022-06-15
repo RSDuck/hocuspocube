@@ -39,6 +39,13 @@ proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
 
     rasterogl.retrieveFrame(data, x, y, width, height)
 
+
+proc copyEfb*(framebuffer: NativeFramebuffer, width, height: int, offsetX, offsetY, scaleX, scaleY: float32) =
+    endDraw()
+
+    rasterogl.copyEfb(framebuffer, width, height, offsetX, offsetY, scaleX, scaleY)
+    #rasterogl.retrieveFrame(data, x, y, width, height)
+
 proc clear*(r, g, b, a: uint8, depth: uint32, clearColor, clearAlpha, clearDepth: bool) =
     rasterogl.clear(r, g, b, a, depth, clearColor, clearAlpha, clearDepth)
 

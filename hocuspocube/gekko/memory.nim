@@ -51,6 +51,7 @@ type
         memoryTagNone
         memoryTagTexture
         memoryTagCode
+        memoryTagXfb
 
 const
     MainRamSize* = 0x1800000
@@ -125,6 +126,7 @@ proc invalidateMainRam*(adr: uint32) =
     of memoryTagNone: discard
     of memoryTagCode: discard # do something maybe?
     of memoryTagTexture: invalidateTexture(adr)
+    of memoryTagXfb: invalidateXfb(adr)
 
 proc invalidateMainRam(adr, size: uint32) =
     var

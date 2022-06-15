@@ -14,14 +14,7 @@ const
 
         layout (location = 0) out vec2 outTexcoord;
 
-        const vec4 Positions[4] = vec4[]
-        (
-            vec4(-1.0, -1.0, 0.5, 1.0),
-            vec4(1.0, -1.0, 0.5, 1.0),
-            vec4(-1.0, 1.0, 0.5, 1.0),
-            vec4(1.0, 1.0, 0.5, 1.0)
-        );
-        const vec2 Texcoords[4] = vec2[]
+        const vec2 Coords[4] = vec2[]
         (
             vec2(0.0, 0.0),
             vec2(1.0, 0.0),
@@ -30,14 +23,16 @@ const
         );
 
         layout (location = 0) uniform vec2 PositionScale;
-        layout (location = 1) uniform vec2 TexcoordScale;
+        layout (location = 1) uniform vec2 PositionOffset;
+        layout (location = 2) uniform vec2 TexcoordScale;
+        layout (location = 3) uniform vec2 TexcoordOffset;
 
         void main()
         {
-            gl_Position = Positions[gl_VertexID] * vec4(PositionScale, 1.0, 1.0);
-            outTexcoord = Texcoords[gl_VertexID];
-            outTexcoord.y = (1.0 - outTexcoord.y);
+            gl_Position = vec4((Coords[gl_VertexID] * PositionScale + PositionOffset) * 2.0 - vec2(1.0, 1.0), 0.5, 1.0);
+            outTexcoord = Coords[gl_VertexID];
             outTexcoord *= TexcoordScale;
+            outTexcoord += TexcoordOffset;
         }
     """
     fullscreenQuadFragShaderSource = """
@@ -54,10 +49,26 @@ const
             outColor = texture(inXfb, inTexcoord);
         }
     """
+    copyEfbShaderSource = """
+        #version 430 core
+
+        layout (location = 0) in vec2 inTexcoord;
+
+        layout (location = 0) out vec4 outColor;
+
+        layout (location = 0) uniform sampler2D inEfb;
+
+        void main()
+        {
+            outColor = texture(inEfb, inTexcoord);
+        }
+    """
 
 const
     fullscreenQuadVtxShaderUniformPositionScale = 0
-    fullscreenQuadVtxShaderUniformTexcoordScale = 1
+    fullscreenQuadVtxShaderUniformPositionOffset = 1
+    fullscreenQuadVtxShaderUniformTexcoordScale = 2
+    fullscreenQuadVtxShaderUniformTexcoordOffset = 3
 
 type
     OGLVertexShader = ref object of NativeShader
@@ -73,9 +84,8 @@ type
     OGLSampler = ref object of NativeSampler
         handle: GLuint
 
-    Framebuffer = ref object
+    OGLFramebuffer = ref object of NativeFramebuffer
         handle: GLuint
-        colorbuffer, depthbuffer: NativeTexture
 
     RenderStateEnable = enum
         enableDepthTest
@@ -93,7 +103,7 @@ type
         enable: set[RenderStateEnable]
         depthFunc: CompareFunction
         vertexShader, fragmentShader, geometryShader: NativeShader
-        framebuffer: Framebuffer
+        framebuffer: NativeFramebuffer
         viewport: (float32, float32, float32, float32)
         depthRange: (float32, float32)
         scissorBox: (int32, int32, int32, int32)
@@ -122,9 +132,10 @@ var
     # as long as the same format is bound we must specify the offset via glDrawArrays
     formatVertexOffset: int
 
-    efb: Framebuffer
+    efb: NativeFramebuffer
     rawXfbTexture: NativeTexture
 
+    copyEfbShader: NativeShader
     fullscreenQuadVtxShader, fullscreenQuadFragShader: NativeShader
 
     currentRenderstate: RenderState
@@ -132,6 +143,7 @@ var
     flipperRenderstate: RenderState
     clearRenderstate: RenderState
     metaRenderstate: RenderState
+    copyEfbRenderstate: RenderState
 
 
 proc editTexture(texture: NativeTexture) =
@@ -210,6 +222,9 @@ proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data
         format[texture.fmt], typ[texture.fmt],
         data)
 
+proc destroy*(texture: NativeTexture) =
+    glDeleteTextures(1, addr OGLTexture(texture).handle)
+
 proc createSampler*(): NativeSampler =
     let sampler = OGLSampler()
     glGenSamplers(1, addr sampler.handle)
@@ -247,8 +262,8 @@ proc configure*(sampler: NativeSampler, wrapS, wrapT: TextureWrapMode, magFilter
         glSamplerParameteri(sampler.handle, GL_TEXTURE_MIN_FILTER, translateMinFilter[minFilter])
         sampler.minFilter = minFilter
     
-proc createFramebuffer(width, height: int, depth: bool): Framebuffer =
-    let framebuffer = Framebuffer()
+proc createFramebuffer*(width, height: int, depth: bool): NativeFramebuffer =
+    let framebuffer = OGLFramebuffer()
 
     glGenFramebuffers(1, addr framebuffer.handle)
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.handle)
@@ -265,6 +280,12 @@ proc createFramebuffer(width, height: int, depth: bool): Framebuffer =
     currentRenderstate.framebuffer = framebuffer
 
     framebuffer
+
+proc destroy*(fb: NativeFramebuffer) =
+    let fb = OGLFramebuffer(fb)
+    glDeleteFramebuffers(1, addr fb.handle)
+    fb.colorbuffer.destroy()
+    if fb.depthbuffer != nil: fb.depthbuffer.destroy()
 
 proc debugMessage(source: GLenum,
     typ: GLenum,
@@ -341,7 +362,7 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
 
     if state.framebuffer != currentRenderstate.framebuffer:
         glBindFramebuffer(GL_FRAMEBUFFER,
-            if state.framebuffer != nil: state.framebuffer.handle else: 0)
+            if state.framebuffer != nil: OGLFramebuffer(state.framebuffer).handle else: 0)
         currentRenderstate.framebuffer = state.framebuffer
 
     if not framebufferOnly:
@@ -486,6 +507,8 @@ proc init*() =
     fullscreenQuadVtxShader = compileShader(shaderStageVertex, fullscreenQuadVtxShaderSource)
     fullscreenQuadFragShader = compileShader(shaderStageFragment, fullscreenQuadFragShaderSource)
 
+    copyEfbShader = compileShader(shaderStageFragment, copyEfbShaderSource)
+
     metaRenderstate = RenderState(
         vertexShader: fullscreenQuadVtxShader,
         fragmentShader: fullscreenQuadFragShader,
@@ -499,6 +522,11 @@ proc init*() =
         framebuffer: efb)
 
     clearRenderstate = RenderState(framebuffer: efb)
+
+    copyEfbRenderstate = RenderState(
+        vertexShader: fullscreenQuadVtxShader,
+        fragmentShader: copyEfbShader,
+        enable: {enableColorWrite})
 
 proc bindShader*(vertex, fragment: NativeShader) =
     flipperRenderstate.vertexShader = vertex
@@ -517,6 +545,23 @@ proc uploadRegisters*(data: RegistersUniform) =
 proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
     applyRenderstate flipperRenderstate, framebufferOnly = true
     glReadPixels(GLint x, GLint(528 - (y + height)), GLsizei width, GLsizei height, GL_RGBA, GL_UNSIGNED_BYTE, addr data[0])
+
+proc copyEfb*(framebuffer: NativeFramebuffer, dstWidth, dstHeight: int, offsetX, offsetY, srcWidth, srcHeight: float32) =
+    copyEfbRenderstate.framebuffer = framebuffer
+    copyEfbRenderstate.viewport = (0f, 0f, float32 dstWidth, float32 dstHeight)
+    copyEfbRenderstate.textures[0] = efb.colorbuffer
+    applyRenderstate copyEfbRenderstate, textureUnits = 1
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionScale, 1f, 1f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionOffset, 0f, 0f)
+    let
+        scaleX = srcWidth / 640f
+        scaleY = srcHeight / 528f
+        offsetX = offsetX / 640f
+        offsetY = 1f - (offsetY / 528f + scaleY)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordScale, scaleX, scaleY)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordOffset, offsetX, offsetY)
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
 proc clear*(r, g, b, a: uint8, depth: uint32, clearColor, clearAlpha, clearDepth: bool) =
     clearRenderstate.enable[enableColorWrite] = clearColor
@@ -632,7 +677,7 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
         formatVertexOffset = 0
         glBindVertexBuffer(0, vtxBuffer, curVtxBufferOffset + curVtxBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
 
-    assert data.len > 0, &"{counts}"
+    assert data.len > 0, &"{counts} {data.len}"
     copyMem(cast[pointer](cast[ByteAddress](vtxBufferPtr) + VertexBufferSegmentSize * curVtxBufferIdx + curVtxBufferOffset),
         unsafeAddr data[0],
         data.len)
@@ -683,14 +728,37 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
 proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
     uploadTexture(rawXfbTexture, 0, 0, 0, width, height, width, unsafeAddr pixelData[0])
 
+    metaRenderstate.textures[0] = rawXfbTexture
     applyRenderstate metaRenderstate, textureUnits = 1
 
     glClear(GL_COLOR_BUFFER_BIT)
 
     glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionScale, 1f, 1f)
-    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordScale, float32(width) / 1024f, float32(height) / 1024f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionOffset, 0f, 0f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordScale, float32(width) / 1024f, -float32(height) / 1024f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordOffset, 0f, float32(height) / 1024f)
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+
+proc presentFrame*(totalLines: int, textures: seq[(int, int, NativeTexture)]) =
+    applyRenderstate metaRenderstate, framebufferOnly = true
+
+    glClear(GL_COLOR_BUFFER_BIT)
+
+    for (y, height, texture) in textures:
+        metaRenderstate.textures[0] = texture
+        applyRenderstate metaRenderstate, textureUnits = 1
+
+        let
+            normHeight = float32(height) / float32(totalLines)
+            normY = 1f - (float32(y) / float32(totalLines) + normHeight)
+
+        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionScale, 1f, normHeight)
+        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionOffset, 0f, normY)
+        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordScale, 1f, 1f)
+        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordOffset, 0f, 0f)
+
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
 proc presentBlankFrame*() =
     applyRenderstate metaRenderstate, framebufferOnly = true

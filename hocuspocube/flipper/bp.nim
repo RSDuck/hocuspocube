@@ -2,8 +2,11 @@ import
     strformat,
     stew/endians2,
     bpcommon,
+    opengl/rasterogl,
     ../gekko/[gekko, memory],
-    pe
+    ../vi,
+    pe,
+    texturedecode
 
 proc convertRgbToYuv(r0, g0, b0, r1, g1, b1: uint8): (uint8, uint8, uint8, uint8) =
     result[0] = uint8 clamp(((int32(r0) * 77) div 256) + ((int32(g0) * 150) div 256) + ((int32(b0) * 29) div 256), 0, 255)
@@ -181,14 +184,20 @@ proc bpWrite*(adr, val: uint32) =
             width = efbCopySize.x+1
             height = efbCopySize.y+1
             stride = efbCopyDstStride.stride shl 5
+            dstAdr = HwPtr(efbCopyDst shl 5).adr
+
+            # not accurate!!!
+            xfbHeight = uint32(1f+256f/float32(efbCopyStepY)*float32(height-1))
+
+        echo &"efb copy {dstAdr:08X} {width} {height} {stride} {efbCopyStepY} {copyExecute.yscale}"
 
         assert peCntrl.fmt != peFmtZ24, "depth copies are not supported"
         assert not copyExecute.intensity, "intensity copies are not supported"
 
         case copyExecute.mode
         of copyXfb:
-            var efbContent = newSeq[uint32](width * height)
-            retrieveFrame(efbContent, srcX, srcY, width, height)
+            #[var efbContent = newSeq[uint32](width * height)
+            rasterinterface.retrieveFrame(efbContent, srcX, srcY, width, height)
 
             let xfbLines = uint32(float32(height) * (256f / float32(stride div 2)))
             withMainRamWritePtr(HwPtr(efbCopyDst shl 5).adr, stride*xfbLines):
@@ -207,8 +216,11 @@ proc bpWrite*(adr, val: uint32) =
                     while (line shr 8) == i:
                         copyMem(addr ramPtr[offset], unsafeAddr ramPtr[uniqueOffset], width*2)
                         line += efbCopyStepY
-                        offset += stride
-            #echo &"actually copied {copied} lines"
+                        offset += stride]#
+
+            let fb = getOrCreateXfbFramebuffer(dstAdr, width, xfbHeight, stride)
+
+            rasterinterface.copyEfb(fb, int width, int xfbHeight, float32 srcX, float32 srcY, float32 width, float32 height)
         of copyTexture:
             let
                 fmt = CopyTexFmt(copyExecute.fmt)
@@ -220,7 +232,7 @@ proc bpWrite*(adr, val: uint32) =
 
             withMainRamWritePtr(dstAdr, fmtInfo.textureDataSize(roundedWidth, roundedHeight)):
                 var efbContent = newSeq[uint32](roundedWidth * roundedHeight)
-                retrieveFrame(efbContent, srcX, srcY, roundedWidth, roundedHeight)
+                rasterinterface.retrieveFrame(efbContent, srcX, srcY, roundedWidth, roundedHeight)
 
                 echo &"texcopy {srcX}, {srcY} {width}x{height} (rounded to {roundedWidth}x{roundedHeight}) to {efbCopyDst:08X} stride: {stride} {fmt}"
 

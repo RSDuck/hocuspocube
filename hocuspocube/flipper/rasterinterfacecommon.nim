@@ -81,6 +81,9 @@ type
         width*, height*, miplevels*: int
         fmt*: TextureFormat
 
+    NativeFramebuffer* = ref object of RootObj
+        colorbuffer*, depthbuffer*: NativeTexture
+
     NativeSampler* = ref object of RootObj
         wrapS*, wrapT*: TextureWrapMode
         magFilter*: TextureMagFilter

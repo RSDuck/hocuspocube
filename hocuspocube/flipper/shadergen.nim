@@ -18,9 +18,11 @@ type
         lightCtrls*: array[LightCtrlKind, LightCtrl]
 
     FragmentShaderKey* = object
-        numTevStages*: uint32
+        numTevStages*, numIndTevStages*: uint32
         colorEnv*: array[16, TevColorEnv]
         alphaEnv*: array[16, TevAlphaEnv]
+        indCmd*: array[16, IndCmd]
+        ras1iref*: Ras1Iref
         ras1Tref*: array[8, Ras1Tref]
         ksel*: array[8, TevKSel]
         alphaCompLogic*: AlphaCompLogic
@@ -71,6 +73,7 @@ proc hash*(key: VertexShaderKey): Hash =
 proc `==`*(a, b: FragmentShaderKey): bool =
     result =
         a.numTevStages == b.numTevStages and
+        a.numIndTevStages == b.numIndTevStages and
         a.alphaCompLogic == b.alphaCompLogic and
         a.alphaComp0 == b.alphaComp0 and
         b.alphaComp1 == b.alphaComp1
@@ -80,6 +83,10 @@ proc `==`*(a, b: FragmentShaderKey): bool =
             (a.zenv1.op != zenvOpDisable and a.zenv1.typ != b.zenv1.typ):
             return false
 
+        for i in 0..<a.numIndTevStages:
+            if a.ras1iref.stage(int i) != b.ras1iref.stage(int i):
+                return false
+
         for i in 0..<a.numTevStages:
             if a.colorEnv[i] != b.colorEnv[i]:
                 return false
@@ -88,6 +95,8 @@ proc `==`*(a, b: FragmentShaderKey): bool =
             if a.ras1Tref.getRas1Tref(i) != b.ras1Tref.getRas1Tref(i):
                 return false
             if a.ksel.getTevKSel(i) != b.ksel.getTevKSel(i):
+                return false
+            if a.indCmd[i] != b.indCmd[i]:
                 return false
 
             for j in 0'u32..<2:
@@ -102,6 +111,7 @@ proc `==`*(a, b: FragmentShaderKey): bool =
 
 proc hash*(key: FragmentShaderKey): Hash =
     result = result !& hash(key.numTevStages)
+    result = result !& hash(key.numIndTevStages)
     result = result !& hash(key.alphaCompLogic)
     result = result !& hash(key.alphaComp0)
     result = result !& hash(key.alphaComp1)
@@ -134,6 +144,10 @@ vec4 TextureSizes[8];
 ivec4 RegValues[2];
 ivec4 Konstants[2];
 uvec4 MatColor;
+int IndMatA0, IndMatB0, IndMatC0;
+int IndMatA1, IndMatB1, IndMatC1;
+int IndMatA2, IndMatB2, IndMatC2;
+uint Ras1SS0, Ras1SS1;
 uint AlphaRefs;
 uint ZEnvBias;
 };"""
@@ -380,15 +394,20 @@ proc genVertexShader*(key: VertexShaderKey): string =
 
     line "}"
 
-proc signedExtract(val: string, start, bits: int): string =
-    &"(({val} << {32 - bits - start}) >> {32 - bits})"
-
 proc swizzleFromSwapTable(idx: uint32, swaptable: array[8, TevKSel]): string =
     const letters: array[4, char] = ['r', 'g', 'b', 'a']
     result &= letters[swaptable[idx*2+0].swaprb]
     result &= letters[swaptable[idx*2+0].swapga]
     result &= letters[swaptable[idx*2+1].swaprb]
     result &= letters[swaptable[idx*2+1].swapga]
+
+proc indWrap(texcoord: string, wrap: IndWrap): string =
+    case wrap
+    of itwOff: texcoord
+    of itw256..itw16:
+        let wrap = (1'u32 shl ((5 - (ord(wrap) - ord(itw256))) + 4 + 7)) - 1
+        &"({texcoord} & {wrap})"
+    of itw0: "0"
 
 proc genFragmentShader*(key: FragmentShaderKey): string =
     line "#version 430 core"
@@ -411,19 +430,44 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
             swizzle0 = if (i mod 2) == 0: "x" else: "z"
             swizzle1 = if (i mod 2) == 0: "y" else: "w"
             idx = i div 2
-            konstR = signedExtract(&"Konstants[{idx}].{swizzle0}", 0, 11)
-            konstG = signedExtract(&"Konstants[{idx}].{swizzle1}", 12, 11)
-            konstB = signedExtract(&"Konstants[{idx}].{swizzle1}", 0, 11)
-            konstA = signedExtract(&"Konstants[{idx}].{swizzle0}", 12, 11)
-            regR = signedExtract(&"RegValues[{idx}].{swizzle0}", 0, 11)
-            regG = signedExtract(&"RegValues[{idx}].{swizzle1}", 12, 11)
-            regB = signedExtract(&"RegValues[{idx}].{swizzle1}", 0, 11)
-            regA = signedExtract(&"RegValues[{idx}].{swizzle0}", 12, 11)
+            konstR = &"bitfieldExtract(Konstants[{idx}].{swizzle0}, 0, 11)"
+            konstG = &"bitfieldExtract(Konstants[{idx}].{swizzle1}, 12, 11)"
+            konstB = &"bitfieldExtract(Konstants[{idx}].{swizzle1}, 0, 11)"
+            konstA = &"bitfieldExtract(Konstants[{idx}].{swizzle0}, 12, 11)"
+            regR = &"bitfieldExtract(RegValues[{idx}].{swizzle0}, 0, 11)"
+            regG = &"bitfieldExtract(RegValues[{idx}].{swizzle1}, 12, 11)"
+            regB = &"bitfieldExtract(RegValues[{idx}].{swizzle1}, 0, 11)"
+            regA = &"bitfieldExtract(RegValues[{idx}].{swizzle0}, 12, 11)"
         line &"ivec4 reg{i} = ivec4({regR}, {regG}, {regB}, {regA});"
         line &"ivec4 konst{i} = ivec4({konstR}, {konstG}, {konstB}, {konstA});"
 
+    for mat in 'A'..'C':
+        line &"int indMatShift{mat} = bitfieldExtract(IndMat{mat}0, 22, 10);"
+        for i in 0..<3:
+            let
+                lower = &"bitfieldExtract(IndMat{mat}{i}, 0, 11)"
+                upper = &"bitfieldExtract(IndMat{mat}{i}, 11, 11)"
+            line &"ivec2 indMat{mat}{i} = ivec2({lower}, {upper});"
+
+    for i in 0..<8:
+        line &"ivec3 texcoord{i} = ivec3(round(vec3(inTexcoord{i}.xy / inTexcoord{i}.z, inTexcoord{i}.z)));"
+
     if key.zenv1.op != zenvOpDisable:
         line "ivec4 lastTexColor;"
+
+    for i in 0..<key.numIndTevStages:
+        line &"ivec3 indval{i};"
+    for i in 0..<key.numIndTevStages:
+        line "{"
+        let
+            texmap = key.ras1iref.texmap(int i)
+            coord = key.ras1iref.coord(int i)
+        line &"uint sShift = bitfieldExtract(Ras1SS{i div 2}, {(i mod 2)*8}, 4);"
+        line &"uint tShift = bitfieldExtract(Ras1SS{i div 2}, {(i mod 2)*8+4}, 4);"
+        line &"indval{i} = ivec3(texture(Textures[{texmap}], TextureSizes[{texmap}].zw * (texcoord{coord}.xy >> ivec2(sShift, tShift))).abg * 255.0);"
+        line "}"
+
+    line "ivec2 texcoord = ivec2(0);"
 
     for i in 0..<key.numTevStages:
         line "{"
@@ -452,6 +496,7 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
                     "konst0.g", "konst1.g", "konst2.g", "konst3.g",
                     "konst0.b", "konst1.b", "konst2.b", "konst3.b",
                     "konst0.a", "konst1.a", "konst2.a", "konst3.a"]
+            mapIndShift: array[IndTexFmt, string] = ["0", "3", "4", "5"]
 
         let
             colorEnv = key.colorEnv[i]
@@ -459,6 +504,16 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
             (texmap, texcoordNum, texmapEnable, color) = key.ras1tref.getRas1Tref(i)
             (kselColor, kselAlpha) = key.ksel.getTevKSel(i)
+
+            regularTexcoord = &"texcoord{texcoordNum}"
+
+            indirect = key.indCmd[i]
+            indBiasAmount = if indirect.fmt == itf8: -128 else: 1
+            indShift = mapIndShift[indirect.fmt]
+            indSBias = if indirect.biasS: indBiasAmount else: 0
+            indTBias = if indirect.biasT: indBiasAmount else: 0
+            indUBias = if indirect.biasS: indBiasAmount else: 0
+            indBias = &"ivec3({indSBias}, {indTBias}, {indUBias})"
 
             colorDst = &"reg{colorEnv.dst}.rgb"
             alphaDst = &"reg{alphaEnv.dst}.a"
@@ -479,19 +534,58 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
             alphaKonstant = mapAlphaKonstant[kselAlpha]
 
             rascolor = case color
-                of ras1trefColorColor0: "inColor0"
-                of ras1trefColorColor1: "inColor1"
+                of ras1trefColorColor0: "ivec4(inColor0)"
+                of ras1trefColorColor1: "ivec4(inColor1)"
                 of ras1trefColorZero: "vec4(0)"
-                else: "unimplemented"
+                of ras1trefColorBump: "ivec4(alphaBump)"
+                of ras1trefColorBumpN: "ivec4(alphaBump | alphaBump >> 5)"
+                else: raiseAssert("invalid raster color as TEV input")
 
         let colorSwizzle = swizzleFromSwapTable(alphaEnv.rswap, key.ksel)
+
+        if color in {ras1trefColorBump, ras1trefColorBumpN}:
+            case indirect.alphaSel
+            of itbaOff: line "int alphaBump = 0;"
+            of itbaS: line &"int alphaBump = indval{indirect.stage}.r;"
+            of itbaT: line &"int alphaBump = indval{indirect.stage}.g;"
+            of itbaU: line &"int alphaBump = indval{indirect.stage}.b;"
+            case indirect.fmt
+            of itf8: line &"alphaBump &= 0xF8;"
+            of itf5: line &"alphaBump <<= 5;"
+            of itf4: line &"alphaBump <<= 4;"
+            of itf3: line &"alphaBump <<= 3;"
+
         line &"ivec4 rascolor = ivec4({rascolor}).{colorSwizzle};"
 
         line &"ivec4 konstant = ivec4({colorKonstant}, {alphaKonstant});"
 
+        let
+            addTexcoord = if indirect.addprev: "+" else: ""
+            indWrapS = indWrap(&"{regularTexcoord}.x", indirect.wrapS)
+            indWrapT = indWrap(&"{regularTexcoord}.y", indirect.wrapT)
+        line &"texcoord {addTexcoord}= ivec2({indWrapS}, {indWrapT});"
+
+        if indirect.matId != itmOff:
+            line &"ivec3 indtexcoord = (indval{indirect.stage} >> {indShift}) + {indBias};"
+
+            let matLetter = 'A'.succ((ord(indirect.matId) - ord(itm0)) mod 3)
+            case indirect.matId
+            of itm0, itm1, itm2:
+                line &"""ivec2 indtexcoordfinal = ivec2(indMat{matLetter}0.x * indtexcoord.x + indMat{matLetter}1.x * indtexcoord.y + indMat{matLetter}2.x * indtexcoord.z,
+indMat{matLetter}0.y * indtexcoord.x + indMat{matLetter}1.y * indtexcoord.y + indMat{matLetter}2.y * indtexcoord.z) >> 3;"""
+            of itmS0, itmS1, itmS2:
+                line &"ivec2 indtexcoordfinal = (regularTexcoord.xy * indtexcoord.x) >> 8;"
+            of itmT0, itmT1, itmT2:
+                line &"ivec2 indtexcoordfinal = (regularTexcoord.xy * indtexcoord.y) >> 8;"
+            of itmOff: discard
+
+            line &"if (indMatShift{matLetter} >= 0) indtexcoordfinal <<= indMatShift{matLetter};"
+            line &"else indtexcoordfinal >>= -indMatShift{matLetter};"
+            line "texcoord += indtexcoordfinal;"
+
         if texmapEnable:
             let textureSwizzle = swizzleFromSwapTable(alphaEnv.tswap, key.ksel)
-            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], round(inTexcoord{texcoordNum}.xy) * TextureSizes[{texmap}].zw) * 255.0).{textureSwizzle};"
+            line &"ivec4 texcolor = ivec4(texture(Textures[{texmap}], vec2(texcoord) * TextureSizes[{texmap}].zw) * 255.0).{textureSwizzle};"
         else:
             # welp what happens here?
             line &"ivec4 texcolor = ivec4(0xFFU);"

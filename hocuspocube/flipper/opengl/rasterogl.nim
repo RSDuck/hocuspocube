@@ -225,13 +225,7 @@ proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data
 proc destroy*(texture: NativeTexture) =
     glDeleteTextures(1, addr OGLTexture(texture).handle)
 
-proc createSampler*(): NativeSampler =
-    let sampler = OGLSampler()
-    glGenSamplers(1, addr sampler.handle)
-
-    sampler
-
-proc configure*(sampler: NativeSampler, wrapS, wrapT: TextureWrapMode, magFilter: TextureMagFilter, minFilter: TextureMinFilter) =
+proc configure*(sampler: NativeSampler, wrapS, wrapT: TextureWrapMode, magFilter: TextureMagFilter, minFilter: TextureMinFilter, force = false) =
     let sampler = OGLSampler(sampler)
 
     const
@@ -246,22 +240,28 @@ proc configure*(sampler: NativeSampler, wrapS, wrapT: TextureWrapMode, magFilter
             GL_LINEAR
         ]
 
-    if sampler.wrapS != wrapS:
+    if sampler.wrapS != wrapS or force:
         glSamplerParameteri(sampler.handle, GL_TEXTURE_WRAP_S, translateWrapMode[wrapS])
         sampler.wrapS = wrapS
 
-    if sampler.wrapT != wrapT:
+    if sampler.wrapT != wrapT or force:
         glSamplerParameteri(sampler.handle, GL_TEXTURE_WRAP_T, translateWrapMode[wrapT])
         sampler.wrapT = wrapT
 
-    if sampler.magFilter != magFilter:
+    if sampler.magFilter != magFilter or force:
         glSamplerParameteri(sampler.handle, GL_TEXTURE_MAG_FILTER, translateMagFilter[magFilter])
         sampler.magFilter = magFilter
 
-    if sampler.minFilter != minFilter:
+    if sampler.minFilter != minFilter or force:
         glSamplerParameteri(sampler.handle, GL_TEXTURE_MIN_FILTER, translateMinFilter[minFilter])
         sampler.minFilter = minFilter
     
+proc createSampler*(): NativeSampler =
+    let sampler = OGLSampler()
+    glGenSamplers(1, addr sampler.handle)
+    sampler.configure(sampler.wrapS, sampler.wrapT, sampler.magFilter, sampler.minFilter, true)
+    sampler
+
 proc createFramebuffer*(width, height: int, depth: bool): NativeFramebuffer =
     let framebuffer = OGLFramebuffer()
 

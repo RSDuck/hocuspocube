@@ -55,6 +55,12 @@ var
 
     peCMode0*: PeCMode0
 
+    indMat*: array[9, IndMatElement]
+    indCmd*: array[16, IndCmd]
+
+    ras1ss*: array[2, Ras1SS]
+    ras1iref*: Ras1Iref
+
     colorEnv*: array[16, TevColorEnv]
     alphaEnv*: array[16, TevAlphaEnv]
     ras1Tref*: array[8, Ras1Tref]
@@ -80,22 +86,6 @@ var
     tmem*: array[1024*1024, byte]
 
     bpMask: uint32
-
-proc getRas1Tref*(regs: array[8, Ras1Tref], i: uint32):
-    tuple[texmap: uint32, texcoord: uint32, texmapEnable: bool, color: Ras1TrefColor] =
-
-    let reg = regs[i div 2]
-    if (i mod 2) == 0:
-        (reg.texmap0, reg.texcoord0, reg.texmapEnable0, reg.color0)
-    else:
-        (reg.texmap1, reg.texcoord1, reg.texmapEnable1, reg.color1)
-
-proc getTevKSel*(regs: array[8, TevKSel], i: uint32): (TevKColorSel, TevKAlphaSel) =
-    let reg = regs[i div 2]
-    if (i mod 2) == 0:
-        (reg.kcsel0, reg.kasel0)
-    else:
-        (reg.kcsel1, reg.kasel1)
 
 proc getScissor*(): (int32, int32, int32, int32) =
     result[0] = int32(scissorTL.x) - 342
@@ -124,15 +114,24 @@ proc bpWrite*(adr, val: uint32) =
     of 0x01..0x04:
         # copy filter stuff
         discard
-    of 0x06..0x1F:
-        # indirect stuff
-        discard
+    of 0x06..0x0E:
+        if indMat[adr - 0x06].maskedWrite val:
+            registerUniformDirty = true
+    of 0x10..0x1F:
+        if indCmd[adr - 0x10].maskedWrite val:
+            fragmentShaderDirty = true
     of 0x20:
         if scissorTL.maskedWrite val:
             rasterStateDirty = true
     of 0x21:
         if scissorBR.maskedWrite val:
             rasterStateDirty = true
+    of 0x25..0x26:
+        if ras1ss[adr - 0x25].maskedWrite val:
+            registerUniformDirty = true
+    of 0x27:
+        if ras1iref.maskedWrite val:
+            fragmentShaderDirty = true
     of 0x28..0x2F:
         if ras1Tref[adr - 0x28].maskedWrite val:
             fragmentShaderDirty = true

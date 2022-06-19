@@ -148,6 +148,39 @@ type
         txLutfmtRGB5A3
         txLutfmtReserved
 
+    IndTexFmt* = enum
+        itf8
+        itf5
+        itf4
+        itf3
+
+    IndAlphaSel* = enum
+        itbaOff
+        itbaS
+        itbaT
+        itbaU
+
+    IndMatId* = enum
+        itmOff
+        itm0
+        itm1
+        itm2
+        itmS0
+        itmS1
+        itmS2
+        itmT0
+        itmT1
+        itmT2
+
+    IndWrap* = enum
+        itwOff
+        itw256
+        itw128
+        itw64
+        itw32
+        itw16
+        itw0
+
     Ras1TrefColor* = enum
         ras1trefColorColor0
         ras1trefColorColor1
@@ -348,6 +381,43 @@ makeBitStruct uint32, *PeCMode0:
     srcFactor[8..10]: BlendFactor
     blendOp[11]: BlendOp
 
+makeBitStruct uint32, *IndMatElement:
+    element0[0..10]: uint32
+    element1[11..21]: uint32
+    s[22..23]: uint32
+    sTop[22]: uint32
+
+makeBitStruct uint32, *IndCmd:
+    stage[0..1]: uint32
+    fmt[2..3]: IndTexFmt
+    biasS[4]: bool
+    biasT[5]: bool
+    biasU[6]: bool
+    alphaSel[7..8]: IndAlphaSel
+    matId[9..12]: IndMatId
+    wrapS[13..15]: IndWrap
+    wrapT[16..18]: IndWrap
+    utclod[19]: bool
+    addprev[20]: bool
+
+makeBitStruct uint32, *Ras1SS:
+    sshift0[0..3]: uint32
+    tshift0[4..7]: uint32
+    sshift1[8..11]: uint32
+    tshift1[12..15]: uint32
+
+proc getRas1SS*(regs: array[2, Ras1SS], i: uint32): (uint32, uint32) =
+    let reg = regs[i div 2]
+    if (i mod 2) == 0:
+        (reg.sshift0, reg.tshift0)
+    else:
+        (reg.sshift1, reg.tshift1)
+
+makeBitStruct uint32, *Ras1Iref:
+    texmap[n, n*6..n*6+2]: uint32
+    coord[n, n*6+3..n*6+5]: uint32
+    stage[n, n*6..n*6+5]: uint32
+
 makeBitStruct uint32, *Ras1Tref:
     texmap0[0..2]: uint32
     texcoord0[3..5]: uint32
@@ -358,6 +428,15 @@ makeBitStruct uint32, *Ras1Tref:
     texcoord1[15..17]: uint32
     texmapEnable1[18]: bool
     color1[19..21]: Ras1TrefColor
+
+proc getRas1Tref*(regs: array[8, Ras1Tref], i: uint32):
+    tuple[texmap: uint32, texcoord: uint32, texmapEnable: bool, color: Ras1TrefColor] =
+
+    let reg = regs[i div 2]
+    if (i mod 2) == 0:
+        (reg.texmap0, reg.texcoord0, reg.texmapEnable0, reg.color0)
+    else:
+        (reg.texmap1, reg.texcoord1, reg.texmapEnable1, reg.color1)
 
 makeBitStruct uint32, *TevColorEnv:
     seld[0..3]: TevColorEnvSel
@@ -411,6 +490,13 @@ makeBitStruct uint32, *TevKSel:
     kasel0[9..13]: TevKAlphaSel
     kcsel1[14..18]: TevKColorSel
     kasel1[19..23]: TevKAlphaSel
+
+proc getTevKSel*(regs: array[8, TevKSel], i: uint32): (TevKColorSel, TevKAlphaSel) =
+    let reg = regs[i div 2]
+    if (i mod 2) == 0:
+        (reg.kcsel0, reg.kasel0)
+    else:
+        (reg.kcsel1, reg.kasel1)
 
 makeBitStruct uint32, *SuSize:
     size[0..15]: uint32

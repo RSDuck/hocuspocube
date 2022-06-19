@@ -108,6 +108,8 @@ type
         regValues*: array[8, uint32]
         konstants*: array[8, uint32]
         matColors*: array[4, uint32]
+        indMat*: array[9, uint32]
+        ras1ss*: array[2, uint32]
         alphaRefs*: uint32
         zenvBias*: uint32
         pad0, pad1: uint32

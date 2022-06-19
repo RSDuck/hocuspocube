@@ -99,6 +99,16 @@ proc setupUniforms() =
             registerUniform.dualTexMatIndices1 = registerUniform.dualTexMatIndices1 or
                 (dualTex[i+4].dualMtx shl (i*8))
 
+        for i in 0..<9:
+            registerUniform.indMat[i] = uint32 indMat[i]
+        for i in 0..<3:
+            let val = (indMat[i].s or (indMat[i+3].s shl 2) or (indMat[i+6].sTop shl 4))-17
+            registerUniform.indMat[i] =
+                (registerUniform.indMat[i] and 0x3FFFFF'u32) or (val shl 22)
+            #assert (val shl 22) == (uint32(int(val)) shl 22), &"difference {val} {(val shl 22)} {(uint32(int(val)) shl 22)}"
+        for i in 0..<2:
+            registerUniform.ras1ss[i] = uint32 ras1ss[i]
+
         registerUniform.alphaRefs = alphaCompare.ref0 or (alphaCompare.ref1 shl 8)  
         registerUniform.zenvBias = zenv0
 
@@ -114,6 +124,8 @@ proc usedTextures(): set[0..7] =
         let (texmap, _, texmapEnable, _) = ras1Tref.getRas1Tref(i)
         if texmapEnable:
             result.incl texmap
+    for i in 0..<genMode.nbmp:
+        result.incl ras1iref.texmap(int i)
 
 proc setupTextures() =
     let dirtyImagesInUse = imageStateDirty * usedTextures()
@@ -142,6 +154,9 @@ proc getVtxShaderKey(fmt: DynamicVertexFmt): VertexShaderKey =
 
 proc getFragShaderKey(): FragmentShaderKey =
     result.numTevStages = genMode.ntev+1
+    result.numIndTevStages = genMode.nbmp
+    result.indCmd = indCmd
+    result.ras1iref = ras1iref
     result.colorEnv = colorEnv
     result.alphaEnv = alphaEnv
     result.ras1Tref = ras1Tref
@@ -202,8 +217,6 @@ proc startDraw(kind: PrimitiveKind) =
 #    echo "starting draw"
 
 proc draw*(kind: PrimitiveKind, count: int) =
-    assert(genMode.nbmp == 0)
-
     if count > 0:
         if rasterStateDirty or
             registerUniformDirty or

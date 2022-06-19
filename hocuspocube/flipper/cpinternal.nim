@@ -413,7 +413,7 @@ proc processVertices(data: openArray[byte], offset: int, draw: DrawCallDesc, ver
                     color[1] = byte((col0 shr 4) and 0xFC)
                     color[2] = byte(((col0 shr 10) and 0x3C) or ((col1 shl 6) and 0xC0))
                     color[3] = byte(col1 and 0xFC)]#
-                    echo "stupid rgba6666 format!"
+                    doAssert false, "stupid rgba6666 format!"
                 of vtxColRGBA8888:
                     color = toBE colRead(status, uint32, read32(), arr)
                 else: echo "invalid color fmt ", fmt
@@ -538,6 +538,7 @@ proc run(data: openArray[byte],
                             vcdLo != vertexFormats[draw.vertexFormat].vcdLo or
                             vcdHi != vertexFormats[draw.vertexFormat].vcdHi:
                             vertexFormatDirty.excl draw.vertexFormat
+                            vertexShaderDirty = true
 
                             vertexFormats[draw.vertexFormat].vcdLo = vcdLo
                             vertexFormats[draw.vertexFormat].vcdHi = vcdHi

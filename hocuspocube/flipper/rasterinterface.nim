@@ -1,5 +1,5 @@
 import
-    strformat, tables, hashes,
+    tables, hashes,
     opengl/rasterogl,
     rasterinterfacecommon,
     bpcommon

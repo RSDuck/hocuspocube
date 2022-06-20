@@ -1,5 +1,5 @@
 import
-    heapqueue, strformat
+    heapqueue
 
 const
     gekkoCyclesPerSecond* = 486'i64*1000*1000

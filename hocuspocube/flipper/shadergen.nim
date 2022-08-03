@@ -205,6 +205,13 @@ proc genVertexShader*(key: VertexShaderKey): string =
     line "vec4 LightRemainingFactors[8];"
     line "};"
 
+    line """out gl_PerVertex
+{
+vec4 gl_Position;
+float gl_PointSize;
+float gl_ClipDistance[];
+};"""
+
     line "void main() {"
 
     if vtxAttrPosNrmMat in key.enabledAttrs:

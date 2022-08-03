@@ -10,58 +10,65 @@ const
     VertexBufferSize = VertexBufferSegmentSize*VertexBufferSegments
 
     fullscreenQuadVtxShaderSource = """
-        #version 430 core
+#version 430 core
 
-        layout (location = 0) out vec2 outTexcoord;
+layout (location = 0) out vec2 outTexcoord;
 
-        const vec2 Coords[4] = vec2[]
-        (
-            vec2(0.0, 0.0),
-            vec2(1.0, 0.0),
-            vec2(0.0, 1.0),
-            vec2(1.0, 1.0)
-        );
+const vec2 Coords[4] = vec2[]
+(
+    vec2(0.0, 0.0),
+    vec2(1.0, 0.0),
+    vec2(0.0, 1.0),
+    vec2(1.0, 1.0)
+);
 
-        layout (location = 0) uniform vec2 PositionScale;
-        layout (location = 1) uniform vec2 PositionOffset;
-        layout (location = 2) uniform vec2 TexcoordScale;
-        layout (location = 3) uniform vec2 TexcoordOffset;
+layout (location = 0) uniform vec2 PositionScale;
+layout (location = 1) uniform vec2 PositionOffset;
+layout (location = 2) uniform vec2 TexcoordScale;
+layout (location = 3) uniform vec2 TexcoordOffset;
 
-        void main()
-        {
-            gl_Position = vec4((Coords[gl_VertexID] * PositionScale + PositionOffset) * 2.0 - vec2(1.0, 1.0), 0.5, 1.0);
-            outTexcoord = Coords[gl_VertexID];
-            outTexcoord *= TexcoordScale;
-            outTexcoord += TexcoordOffset;
-        }
+out gl_PerVertex
+{
+vec4 gl_Position;
+float gl_PointSize;
+float gl_ClipDistance[];
+};
+
+void main()
+{
+    gl_Position = vec4((Coords[gl_VertexID] * PositionScale + PositionOffset) * 2.0 - vec2(1.0, 1.0), 0.5, 1.0);
+    outTexcoord = Coords[gl_VertexID];
+    outTexcoord *= TexcoordScale;
+    outTexcoord += TexcoordOffset;
+}
     """
     fullscreenQuadFragShaderSource = """
-        #version 430 core
+#version 430 core
 
-        layout (location = 0) in vec2 inTexcoord;
+layout (location = 0) in vec2 inTexcoord;
 
-        layout (location = 0) out vec4 outColor;
+layout (location = 0) out vec4 outColor;
 
-        layout (binding = 0) uniform sampler2D inXfb;
+layout (binding = 0) uniform sampler2D inXfb;
 
-        void main()
-        {
-            outColor = texture(inXfb, inTexcoord);
-        }
+void main()
+{
+    outColor = texture(inXfb, inTexcoord);
+}
     """
     copyEfbShaderSource = """
-        #version 430 core
+#version 430 core
 
-        layout (location = 0) in vec2 inTexcoord;
+layout (location = 0) in vec2 inTexcoord;
 
-        layout (location = 0) out vec4 outColor;
+layout (location = 0) out vec4 outColor;
 
-        layout (location = 0) uniform sampler2D inEfb;
+layout (location = 0) uniform sampler2D inEfb;
 
-        void main()
-        {
-            outColor = texture(inEfb, inTexcoord);
-        }
+void main()
+{
+    outColor = texture(inEfb, inTexcoord);
+}
     """
 
 const

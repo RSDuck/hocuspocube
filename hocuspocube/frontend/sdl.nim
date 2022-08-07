@@ -17,7 +17,7 @@ proc initFrontend* =
 
     discard sdl2.glSetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE)
     discard sdl2.glSetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4)
-    discard sdl2.glSetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0)
+    discard sdl2.glSetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5)
     #discard sdl2.glSetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG)
 
     window = sdl2.createWindow("hocuspocube", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, 

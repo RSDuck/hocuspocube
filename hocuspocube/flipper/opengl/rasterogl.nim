@@ -41,7 +41,7 @@ void main()
     outTexcoord *= TexcoordScale;
     outTexcoord += TexcoordOffset;
 }
-    """
+"""
     fullscreenQuadFragShaderSource = """
 #version 430 core
 
@@ -55,21 +55,7 @@ void main()
 {
     outColor = texture(inXfb, inTexcoord);
 }
-    """
-    copyEfbShaderSource = """
-#version 430 core
-
-layout (location = 0) in vec2 inTexcoord;
-
-layout (location = 0) out vec4 outColor;
-
-layout (location = 0) uniform sampler2D inEfb;
-
-void main()
-{
-    outColor = texture(inEfb, inTexcoord);
-}
-    """
+"""
 
 const
     fullscreenQuadVtxShaderUniformPositionScale = 0
@@ -100,6 +86,7 @@ type
         enableScissor
         enableCulling
         enableBlending
+        enableLogicOp
         enableColorWrite
         enableAlphaWrite
 
@@ -115,7 +102,9 @@ type
         depthRange: (float32, float32)
         scissorBox: (int32, int32, int32, int32)
         blendOp: BlendOp
-        blendSrcFactor, blendDstFactor: BlendFactor
+        blendSrcFactorColor, blendSrcFactorAlpha: BlendFactor
+        blendDstFactorColor, blendDstFactorAlpha: BlendFactor
+        logicOp: LogicOp
         cullface: CullFace
 
 var
@@ -142,7 +131,6 @@ var
     efb: NativeFramebuffer
     rawXfbTexture: NativeTexture
 
-    copyEfbShader: NativeShader
     fullscreenQuadVtxShader, fullscreenQuadFragShader: NativeShader
 
     currentRenderstate: RenderState
@@ -174,7 +162,6 @@ proc createTexture*(width, height, miplevels: int, fmt: TextureFormat): NativeTe
 
     const translateFmt: array[TextureFormat, GLenum] = [
         GL_R8,
-        GL_R8,
         GL_RG8,
         GL_RGBA8,
         GL_RGB5_A1,
@@ -182,17 +169,15 @@ proc createTexture*(width, height, miplevels: int, fmt: TextureFormat): NativeTe
         GL_DEPTH_COMPONENT24]
     glTexStorage2D(GL_TEXTURE_2D, GLsizei miplevels, translateFmt[fmt], GLsizei width, GLsizei height)
 
-    if fmt in {texfmtI8, texfmtL8, texfmtIA8}:
+    if fmt in {texfmtI8, texfmtIA8}:
         let
             swizzleI8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_RED)]
             swizzleIA8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_GREEN)]
-            swizzleL8 = [GLint(GL_RED), GLint(GL_RED), GLint(GL_RED), GLint(GL_ONE)]
             swizzleRGB5A1 = [GLint(GL_BLUE), GLint(GL_GREEN), GLint(GL_RED), GLint(GL_ALPHA)]
         glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA,
             case fmt
             of texfmtI8: unsafeAddr(swizzleI8[0])
             of texfmtIA8: unsafeAddr(swizzleIA8[0])
-            of texfmtL8: unsafeAddr(swizzleL8[0])
             of texfmtRGB5A1: unsafeAddr(swizzleRGB5A1[0])
             else: raiseAssert("blah"))
 
@@ -209,14 +194,12 @@ proc uploadTexture*(texture: NativeTexture, x, y, level, w, h, stride: int, data
     const
         format: array[TextureFormat, GLenum] = [
             GL_RED,
-            GL_RED,
             GL_RG,
             GL_RGBA,
             GL_RGBA,
             GL_RGB,
             GL_DEPTH_COMPONENT]
         typ: array[TextureFormat, GLenum] = [
-            GL_UNSIGNED_BYTE,
             GL_UNSIGNED_BYTE,
             GL_UNSIGNED_BYTE,
             GL_UNSIGNED_BYTE,
@@ -269,13 +252,13 @@ proc createSampler*(): NativeSampler =
     sampler.configure(sampler.wrapS, sampler.wrapT, sampler.magFilter, sampler.minFilter, true)
     sampler
 
-proc createFramebuffer*(width, height: int, depth: bool): NativeFramebuffer =
+proc createFramebuffer*(width, height: int, depth: bool, colfmt = texfmtRGBA8): NativeFramebuffer =
     let framebuffer = OGLFramebuffer()
 
     glGenFramebuffers(1, addr framebuffer.handle)
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.handle)
 
-    framebuffer.colorbuffer = createTexture(width, height, 1, texfmtRGBA8)
+    framebuffer.colorbuffer = createTexture(width, height, 1, colfmt)
 
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, OGLTexture(framebuffer.colorbuffer).handle, 0)
     if depth:
@@ -379,6 +362,8 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
             glEnable(GL_CULL_FACE)
         if enableBlending in toEnable:
             glEnable(GL_BLEND)
+        if enableLogicOp in toEnable:
+            glEnable(GL_COLOR_LOGIC_OP)
 
         if enableDepthTest in toDisable:
             glDisable(GL_DEPTH_TEST)
@@ -386,6 +371,8 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
             glDisable(GL_CULL_FACE)
         if enableBlending in toDisable:
             glDisable(GL_BLEND)
+        if enableLogicOp in toDisable:
+            glDisable(GL_COLOR_LOGIC_OP)
         currentRenderstate.enable = state.enable
 
         if enableCulling in currentRenderstate.enable and state.cullface != currentRenderstate.cullface:
@@ -420,7 +407,7 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
             glUseProgramStages(shaderPipeline, GL_GEOMETRY_SHADER_BIT,
                 if state.geometryShader != nil: OGLGeometryShader(state.geometryShader).handle else: 0)
             currentRenderstate.geometryShader = state.geometryShader
-        
+
         if state.viewport != currentRenderstate.viewport:
             let (x, y, w, h) = state.viewport
             glViewportIndexedf(0, x, y, w, h)
@@ -443,12 +430,15 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
             if state.blendOp != currentRenderstate.blendOp:
                 const translateEquation: array[BlendOp, GLenum] = [
                     GL_FUNC_ADD,
-                    GL_FUNC_SUBTRACT]
-                glBlendEquation(translateEquation[currentRenderstate.blendOp])
+                    GL_FUNC_REVERSE_SUBTRACT]
+                glBlendEquation(translateEquation[state.blendOp])
 
                 currentRenderstate.blendOp = state.blendOp
-            if state.blendSrcFactor != currentRenderstate.blendSrcFactor or
-                state.blendDstFactor != currentRenderstate.blendDstFactor:
+
+            if state.blendSrcFactorColor != currentRenderstate.blendSrcFactorColor or
+                state.blendSrcFactorAlpha != currentRenderstate.blendSrcFactorAlpha or
+                state.blendDstFactorColor != currentRenderstate.blendDstFactorColor or
+                state.blendDstFactorAlpha != currentRenderstate.blendDstFactorAlpha:
                 
                 const translateFactor: array[BlendFactor, GLenum] = [
                     GL_ZERO,
@@ -460,11 +450,44 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
                     GL_DST_ALPHA,
                     GL_ONE_MINUS_DST_ALPHA,
                     GL_DST_COLOR,
-                    GL_ONE_MINUS_DST_COLOR]
+                    GL_ONE_MINUS_DST_COLOR,
+                    GL_SRC1_COLOR,
+                    GL_ONE_MINUS_SRC1_COLOR,
+                    GL_SRC1_ALPHA,
+                    GL_ONE_MINUS_SRC1_ALPHA]
 
-                glBlendFunc(translateFactor[state.blendSrcFactor], translateFactor[state.blendDstFactor])
-                currentRenderstate.blendSrcFactor = state.blendSrcFactor
-                currentRenderstate.blendDstFactor = state.blendDstFactor
+                glBlendFuncSeparate(translateFactor[state.blendSrcFactorColor],
+                    translateFactor[state.blendDstFactorColor],
+                    translateFactor[state.blendSrcFactorAlpha],
+                    translateFactor[state.blendDstFactorAlpha])
+
+                currentRenderstate.blendSrcFactorColor = state.blendSrcFactorColor
+                currentRenderstate.blendSrcFactorAlpha = state.blendSrcFactorAlpha
+                currentRenderstate.blendDstFactorColor = state.blendDstFactorColor
+                currentRenderstate.blendDstFactorAlpha = state.blendDstFactorAlpha
+
+        if enableLogicOp in currentRenderstate.enable and
+                state.logicOp != currentRenderstate.logicOp:
+
+            const translateLogicOp: array[LogicOp, GLenum] = [
+                GL_CLEAR,
+                GL_AND,
+                GL_AND_REVERSE,
+                GL_COPY,
+                GL_AND_INVERTED,
+                GL_NOOP,
+                GL_XOR,
+                GL_OR,
+                GL_NOR,
+                GL_EQUIV,
+                GL_INVERT,
+                GL_OR_REVERSE,
+                GL_COPY_INVERTED,
+                GL_OR_INVERTED,
+                GL_NAND,
+                GL_SET]
+
+            glLogicOp(translateLogicOp[state.logicOp])
 
 proc init*() =
     #glDebugMessageCallback(debugMessage, nil)
@@ -514,8 +537,6 @@ proc init*() =
     fullscreenQuadVtxShader = compileShader(shaderStageVertex, fullscreenQuadVtxShaderSource)
     fullscreenQuadFragShader = compileShader(shaderStageFragment, fullscreenQuadFragShaderSource)
 
-    copyEfbShader = compileShader(shaderStageFragment, copyEfbShaderSource)
-
     metaRenderstate = RenderState(
         vertexShader: fullscreenQuadVtxShader,
         fragmentShader: fullscreenQuadFragShader,
@@ -532,8 +553,7 @@ proc init*() =
 
     copyEfbRenderstate = RenderState(
         vertexShader: fullscreenQuadVtxShader,
-        fragmentShader: copyEfbShader,
-        enable: {enableColorWrite})
+        enable: {enableColorWrite, enableAlphaWrite})
 
 proc bindShader*(vertex, fragment: NativeShader) =
     flipperRenderstate.vertexShader = vertex
@@ -553,13 +573,14 @@ proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
     applyRenderstate flipperRenderstate, framebufferOnly = true
     glReadPixels(GLint x, GLint(528 - (y + height)), GLsizei width, GLsizei height, GL_RGBA, GL_UNSIGNED_BYTE, addr data[0])
 
-proc copyEfb*(framebuffer: NativeFramebuffer, dstWidth, dstHeight: int, offsetX, offsetY, srcWidth, srcHeight: float32) =
+proc copyEfb*(framebuffer: NativeFramebuffer, shader: NativeShader, dstWidth, dstHeight: int, offsetX, offsetY, srcWidth, srcHeight: float32, depth: bool) =
     copyEfbRenderstate.framebuffer = framebuffer
     copyEfbRenderstate.viewport = (0f, 0f, float32 dstWidth, float32 dstHeight)
-    copyEfbRenderstate.textures[0] = efb.colorbuffer
+    copyEfbRenderstate.textures[0] = if depth: efb.depthbuffer else: efb.colorbuffer
+    copyEfbRenderstate.fragmentShader = shader
     applyRenderstate copyEfbRenderstate, textureUnits = 1
-    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionScale, 1f, 1f)
-    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionOffset, 0f, 0f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionScale, 1f, -1f)
+    glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionOffset, 0f, 1f)
     let
         scaleX = srcWidth / 640f
         scaleY = srcHeight / 528f
@@ -594,11 +615,16 @@ proc setZMode*(enable: bool, fun: CompareFunction, update: bool) =
     flipperRenderstate.enable[enableDepthWrite] = update
 proc bindTexture*(unit: int, texture: NativeTexture) =
     flipperRenderstate.textures[unit] = texture
-proc setBlendState*(enable: bool, op: BlendOp, srcFactor, dstFactor: BlendFactor) =
+proc setBlendState*(enable: bool, op: BlendOp, srcFactorColor, srcFactorAlpha, dstFactorColor, dstFactorAlpha: BlendFactor) =
     flipperRenderstate.enable[enableBlending] = enable
     flipperRenderstate.blendOp = op
-    flipperRenderstate.blendSrcFactor = srcFactor
-    flipperRenderstate.blendDstFactor = dstFactor
+    flipperRenderstate.blendSrcFactorColor = srcFactorColor
+    flipperRenderstate.blendSrcFactorAlpha = srcFactorAlpha
+    flipperRenderstate.blendDstFactorColor = dstFactorColor
+    flipperRenderstate.blendDstFactorAlpha = dstFactorAlpha
+proc setLogicOp*(enable: bool, op: LogicOp) =
+    flipperRenderstate.enable[enableLogicOp] = enable
+    flipperRenderstate.logicOp = op
 proc setCullFace*(mode: CullFace) =
     if mode == cullNone:
         flipperRenderstate.enable.excl enableCulling
@@ -762,8 +788,8 @@ proc presentFrame*(totalLines: int, textures: seq[(int, int, NativeTexture)]) =
 
         glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionScale, 1f, normHeight)
         glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformPositionOffset, 0f, normY)
-        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordScale, 1f, 1f)
-        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordOffset, 0f, 0f)
+        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordScale, 1f, -1f)
+        glProgramUniform2f(OGLVertexShader(fullscreenQuadVtxShader).handle, fullscreenQuadVtxShaderUniformTexcoordOffset, 0f, 1f)
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 

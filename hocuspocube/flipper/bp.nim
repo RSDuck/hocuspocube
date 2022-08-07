@@ -2,11 +2,11 @@ import
     strformat,
     stew/endians2,
     bpcommon,
-    opengl/rasterogl,
     ../gekko/[gekko, memory],
     ../vi,
     pe,
-    texturedecode
+    texturedecode,
+    rasterinterfacecommon
 
 proc convertRgbToYuv(r0, g0, b0, r1, g1, b1: uint8): (uint8, uint8, uint8, uint8) =
     result[0] = uint8 clamp(((int32(r0) * 77) div 256) + ((int32(g0) * 150) div 256) + ((int32(b0) * 29) div 256), 0, 255)
@@ -54,6 +54,7 @@ var
     texMaps*: array[8, TexMap]
 
     peCMode0*: PeCMode0
+    peCMode1*: PeCMode1
 
     indMat*: array[9, IndMatElement]
     indCmd*: array[16, IndCmd]
@@ -148,6 +149,10 @@ proc bpWrite*(adr, val: uint32) =
     of 0x41:
         if peCMode0.maskedWrite val:
             rasterStateDirty = true
+    of 0x42:
+        if peCMode1.maskedWrite val:
+            registerUniformDirty = true
+            rasterStateDirty = true
     of 0x43:
         peCntrl.maskedWrite val
     of 0x49:
@@ -188,61 +193,121 @@ proc bpWrite*(adr, val: uint32) =
             # not accurate!!!
             xfbHeight = uint32(1f+256f/float32(efbCopyStepY)*float32(height-1))
 
-        echo &"efb copy {dstAdr:08X} {width} {height} {stride} {efbCopyStepY} {copyExecute.yscale}"
-
-        assert peCntrl.fmt != peFmtZ24, "depth copies are not supported"
         assert not copyExecute.intensity, "intensity copies are not supported"
 
-        case copyExecute.mode
-        of copyXfb:
-            #[var efbContent = newSeq[uint32](width * height)
-            rasterinterface.retrieveFrame(efbContent, srcX, srcY, width, height)
+        let (fb, finalHeight, shader, depthCopy) = case copyExecute.mode
+            of copyXfb:
+                #[var efbContent = newSeq[uint32](width * height)
+                rasterinterface.retrieveFrame(efbContent, srcX, srcY, width, height)
 
-            let xfbLines = uint32(float32(height) * (256f / float32(stride div 2)))
-            withMainRamWritePtr(HwPtr(efbCopyDst shl 5).adr, stride*xfbLines):
-                #echo &"dispcopy {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
-                var
-                    offset = 0'u32
-                    line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
-                for i in 0..<height:
-                    let uniqueOffset = offset
-                    convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr ramPtr[offset]),
-                        toOpenArray(efbContent, int (height-i-1)*width, int (height-i-1+1)*width-1),
-                        int width)
-                    offset += stride
-                    line += efbCopyStepY
-
-                    while (line shr 8) == i:
-                        copyMem(addr ramPtr[offset], unsafeAddr ramPtr[uniqueOffset], width*2)
+                let xfbLines = uint32(float32(height) * (256f / float32(stride div 2)))
+                withMainRamWritePtr(HwPtr(efbCopyDst shl 5).adr, stride*xfbLines):
+                    #echo &"dispcopy {srcX}, {srcY} {width}x{height} to {efbCopyDst:08X} stride: {stride} {efbCopyStepY}"
+                    var
+                        offset = 0'u32
+                        line = efbCopyStepY - 1 # in .8 fix point like efbCopyStepY
+                    for i in 0..<height:
+                        let uniqueOffset = offset
+                        convertLineRgbToYuv(cast[ptr UncheckedArray[uint32]](addr ramPtr[offset]),
+                            toOpenArray(efbContent, int (height-i-1)*width, int (height-i-1+1)*width-1),
+                            int width)
+                        offset += stride
                         line += efbCopyStepY
-                        offset += stride]#
 
-            let fb = getOrCreateXfbFramebuffer(dstAdr, width, xfbHeight, stride)
+                        while (line shr 8) == i:
+                            copyMem(addr ramPtr[offset], unsafeAddr ramPtr[uniqueOffset], width*2)
+                            line += efbCopyStepY
+                            offset += stride]#
 
-            rasterinterface.copyEfb(fb, int width, int xfbHeight, float32 srcX, float32 srcY, float32 width, float32 height)
-        of copyTexture:
-            let
-                fmt = CopyTexFmt(copyExecute.fmt)
-                fmtInfo = texCopyFmtProperties[fmt]
-                dstAdr = HwPtr(efbCopyDst shl 5).adr
+                (vi.getOrCreateXfbFramebuffer(dstAdr, width, xfbHeight, stride),
+                    xfbHeight,
+                    efbColorCopyShaders[copyTexfmtRGBA8][false],
+                    false)
+            of copyTexture:
+                const
+                    resultColorFmt: array[CopyTexFmt, TextureFormat] = [
+                        texfmtI8, # R4
+                        texfmtI8,
+                        texfmtIA8, # RA4
+                        texfmtIA8, # RA8
+                        texfmtRGBA8, # RGB565
+                        texfmtRGBA8, # RGB5A3
+                        texfmtRGBA8, # RGBA8
+                        texfmtI8, # A8
+                        texfmtI8, # R8
+                        texfmtI8, # G8
+                        texfmtI8, # B8
+                        texfmtIA8, # RG8
+                        texfmtIA8, # GB8
+                        texfmtI8,
+                        texfmtI8,
+                        texfmtI8]
+                    resultDepthFmt: array[CopyTexZFmt, TextureFormat] = [
+                        texfmtI8, # Z4
+                        texfmtI8, # Z8
+                        texfmtI8,
+                        texfmtI8,
+                        texfmtI8,
+                        texfmtI8,
+                        texfmtRGBA8, # Z24X
+                        texfmtI8,
+                        texfmtI8,
+                        texfmtI8, # Z8M
+                        texfmtI8, # Z8L
+                        texfmtI8,
+                        texfmtIA8, # Z16L
+                        texfmtI8,
+                        texfmtI8,
+                        texfmtI8]
 
-                roundedWidth = fmtInfo.roundedWidth(width)
-                roundedHeight = fmtInfo.roundedHeight(height)
+                let
+                    depthCopy = peCntrl.fmt == peFmtZ24
+                
+                    targetTex = texturesetup.getOrCreateXfbFramebuffer(dstAdr,
+                        width, height,
+                        if depthCopy: resultDepthFmt[CopyTexZFmt copyExecute.fmt]
+                        else: resultColorFmt[CopyTexFmt copyExecute.fmt])
 
-            withMainRamWritePtr(dstAdr, fmtInfo.textureDataSize(roundedWidth, roundedHeight)):
-                var efbContent = newSeq[uint32](roundedWidth * roundedHeight)
-                rasterinterface.retrieveFrame(efbContent, srcX, srcY, roundedWidth, roundedHeight)
+                    shader =
+                        if depthCopy:
+                            efbDepthCopyShaders[CopyTexZFmt copyExecute.fmt]
+                        else:
+                            efbColorCopyShaders[CopyTexFmt copyExecute.fmt][peCntrl.fmt == peFmtRGBA6Z24]
+                (targetTex, height, shader, depthCopy)
+                #[let
+                    fmt = CopyTexFmt(copyExecute.fmt)
+                    fmtInfo = texCopyFmtProperties[fmt]
+                    dstAdr = HwPtr(efbCopyDst shl 5).adr
 
-                echo &"texcopy {srcX}, {srcY} {width}x{height} (rounded to {roundedWidth}x{roundedHeight}) to {efbCopyDst:08X} stride: {stride} {fmt}"
+                    roundedWidth = fmtInfo.roundedWidth(width)
+                    roundedHeight = fmtInfo.roundedHeight(height)
 
-                if fmt == copyTexfmtRGB565:
-                    let dst = cast[ptr UncheckedArray[uint16]](ramPtr)
+                invalidateTexture(dstAdr)
 
-                    for (srcIdx, dstIdx) in doTileLoop(int roundedWidth, int roundedHeight, 4, 4, flipY = true, tileStride = int(stride) div 2):
-                        let src = efbContent[srcIdx]
-                        dst[dstIdx] = toBE uint16(((src and 0xF8) shl 8) or ((src and 0xFC00) shr 5) or ((src and 0xF80000) shr 19))
-                else:
-                    raiseAssert(&"unimplemented texcopy format {fmt}")
+                withMainRamWritePtr(dstAdr, fmtInfo.textureDataSize(roundedWidth, roundedHeight)):
+                    var efbContent = newSeq[uint32](roundedWidth * roundedHeight)
+                    rasterinterface.retrieveFrame(efbContent, srcX, srcY, roundedWidth, roundedHeight)
+
+                    echo &"texcopy {srcX}, {srcY} {width}x{height} (rounded to {roundedWidth}x{roundedHeight}) to {efbCopyDst:08X} stride: {stride} {fmt}"
+
+                    if fmt == copyTexfmtRGB565:
+                        let dst = cast[ptr UncheckedArray[uint16]](ramPtr)
+
+                        for (srcIdx, dstIdx) in doTileLoop(int roundedWidth, int roundedHeight, 4, 4, flipY = true, tileStride = int(stride) div 2):
+                            let src = efbContent[srcIdx]
+                            dst[dstIdx] = toBE uint16(((src and 0xF8) shl 8) or ((src and 0xFC00) shr 5) or ((src and 0xF80000) shr 19))
+                    else:
+                        raiseAssert(&"unimplemented texcopy format {fmt}")
+                (nil, 0'u32)]#
+
+        #echo &"efb copy {dstAdr:08X} {copyExecute.fmt} {depthCopy} {width} {height} {stride} {efbCopyStepY} {copyExecute.yscale}"
+
+        assert shader != nil, &"{depthCopy} {peCntrl.fmt == peFmtRGBA6Z24} {copyExecute.fmt}"
+        rasterinterface.copyEfb(fb,
+            shader,
+            int width, int finalHeight,
+            float32 srcX, float32 srcY, float32 width, float32 height,
+            depthCopy)
 
         if copyExecute.clear:
             rasterinterface.clear(clearR, clearG, clearB, clearA, clearZ, peCMode0.colorUpdate, peCMode0.alphaUpdate, zmode.update)

@@ -38,7 +38,7 @@ type
 
     BlendOp* = enum
         blendAdd
-        blendSub
+        blendRevSub
 
     BlendFactor* = enum
         blendFactorZero
@@ -51,6 +51,30 @@ type
         blendFactorInvDstAlpha
         blendFactorDstColor
         blendFactorInvDstColor
+        # these aren't actual flipper blend factors, they're
+        # just here so that we don't need a second enum
+        blendFactorSrc1Color
+        blendFactorInvSrc1Color
+        blendFactorSrc1Alpha
+        blendFactorInvSrc1Alpha
+
+    LogicOp* = enum
+        loClear
+        loAnd
+        loRevAnd
+        loCopy
+        loInvAnd
+        loNop
+        loXor
+        loOr
+        loNor
+        loEquiv
+        loInv
+        loRevOr
+        loInvCopy
+        loInvOr
+        loNand
+        loSet
 
     PeFmt* = enum
         peFmtRGB8Z24
@@ -118,7 +142,7 @@ type
         copyTexfmtZReserved0x8
         copyTexfmtZ8M
         copyTexfmtZ8L
-        copyTexfmtZReserved0xB
+        copyTexfmtZ16
         copyTexfmtZ16L
         copyTexfmtZReserved0xD
         copyTexfmtZReserved0xE
@@ -324,6 +348,89 @@ type
         zenvOpTypeU24
         zenvOpTypeReserved
 
+    TexFmtProperties* = object
+        tileW*, tileH*: uint8 # as log2 (to calculate proper size use 1 shl tileW/tileH)
+        cacheLines*: uint8
+
+const texFmtProperties*: array[TxTextureFmt, TexFmtProperties] = [
+    # I4
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    # I8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # IA4
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # IA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB565
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB5A3
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGBA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 2),
+    TexFmtProperties(),
+    # C4
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    # C8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # C14X2
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    TexFmtProperties(),
+    TexFmtProperties(),
+    TexFmtProperties(),
+    # Cmp
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    TexFmtProperties(),
+]
+
+const texCopyFmtProperties*: array[CopyTexFmt, TexFmtProperties] = [
+    # R4
+    TexFmtProperties(tileW: 3, tileH: 3, cacheLines: 1),
+    TexFmtProperties(),
+    # RA4
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # RA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB565
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGB5A3
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # RGBA8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 2),
+    # A8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # R8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # G8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # B8
+    TexFmtProperties(tileW: 3, tileH: 2, cacheLines: 1),
+    # RG8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    # GB8
+    TexFmtProperties(tileW: 2, tileH: 2, cacheLines: 1),
+    TexFmtProperties(),
+    TexFmtProperties(),
+    TexFmtProperties(),
+]
+
+proc numTilesX*(fmt: TexFmtProperties, width: uint32): uint32 =
+    (width + (1'u32 shl fmt.tileW) - 1) shr fmt.tileW
+proc numTilesY*(fmt: TexFmtProperties, height: uint32): uint32 =
+    (height + (1'u32 shl fmt.tileH) - 1) shr fmt.tileH
+proc roundedWidth*(fmt: TexFmtProperties, width: uint32): uint32 =
+    fmt.numTilesX(width) shl fmt.tileW
+proc roundedHeight*(fmt: TexFmtProperties, height: uint32): uint32 =
+    fmt.numTilesY(height) shl fmt.tileH
+
+proc textureDataSize*(fmt: TexFmtProperties, width, height: uint32): uint32 =
+    let
+        numTilesX = fmt.numTilesX(width)
+        numTilesY = fmt.numTilesY(height)
+
+    result = numTilesX * numTilesY * 32
+    if fmt.cacheLines == 2:
+        result *= 2
+
 const PalettedTexFmts* = {txTexfmtC4, txTexfmtC8, txTexfmtC14X2}
 
 makeBitStruct uint32, *GenMode:
@@ -375,11 +482,16 @@ makeBitStruct uint32, *PeCntrl:
 makeBitStruct uint32, *PeCMode0:
     # still misses all the logicop stuff
     blendEnable[0]: bool
+    logicOpEnable[1]: bool
     colorUpdate[3]: bool
     alphaUpdate[4]: bool
     dstFactor[5..7]: BlendFactor
     srcFactor[8..10]: BlendFactor
     blendOp[11]: BlendOp
+
+makeBitStruct uint32, *PeCMode1:
+    dstAlphaVal[0..7]: uint32
+    dstAlphaEnable[8]: bool
 
 makeBitStruct uint32, *IndMatElement:
     element0[0..10]: uint32

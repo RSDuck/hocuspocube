@@ -144,12 +144,13 @@ vec4 TextureSizes[8];
 ivec4 RegValues[2];
 ivec4 Konstants[2];
 uvec4 MatColor;
-int IndMatA0, IndMatB0, IndMatC0;
-int IndMatA1, IndMatB1, IndMatC1;
-int IndMatA2, IndMatB2, IndMatC2;
+int IndMat0Col0, IndMat0Col1, IndMat0Col2;
+int IndMat1Col0, IndMat1Col1, IndMat1Col2;
+int IndMat2Col0, IndMat2Col1, IndMat2Col2;
 uint Ras1SS0, Ras1SS1;
 uint AlphaRefs;
 uint ZEnvBias;
+float DstAlpha;
 };"""
 
 func mapPackedArray2(n: uint32): (uint32, string) =
@@ -426,7 +427,8 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
 
     line "layout (binding = 0) uniform sampler2D Textures[8];"
 
-    line "out vec4 outColor;"
+    line "layout (location = 0, index = 0) out vec4 outColor0;"
+    line "layout (location = 0, index = 1) out vec4 outColor1;"
 
     line registerUniformSource
 
@@ -448,13 +450,13 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         line &"ivec4 reg{i} = ivec4({regR}, {regG}, {regB}, {regA});"
         line &"ivec4 konst{i} = ivec4({konstR}, {konstG}, {konstB}, {konstA});"
 
-    for mat in 'A'..'C':
-        line &"int indMatShift{mat} = bitfieldExtract(IndMat{mat}0, 22, 10);"
+    for mat in 0..<3:
+        line &"int indMatShift{mat} = bitfieldExtract(IndMat{mat}Col0, 22, 10);"
         for i in 0..<3:
             let
-                lower = &"bitfieldExtract(IndMat{mat}{i}, 0, 11)"
-                upper = &"bitfieldExtract(IndMat{mat}{i}, 11, 11)"
-            line &"ivec2 indMat{mat}{i} = ivec2({lower}, {upper});"
+                lower = &"bitfieldExtract(IndMat{mat}Col{i}, 0, 11)"
+                upper = &"bitfieldExtract(IndMat{mat}Col{i}, 11, 11)"
+            line &"ivec2 indMat{mat}Col{i} = ivec2({lower}, {upper});"
 
     for i in 0..<8:
         line &"ivec3 texcoord{i} = ivec3(round(vec3(inTexcoord{i}.xy / inTexcoord{i}.z, inTexcoord{i}.z)));"
@@ -462,8 +464,13 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
     if key.zenv1.op != zenvOpDisable:
         line "ivec4 lastTexColor;"
 
-    for i in 0..<key.numIndTevStages:
-        line &"ivec3 indval{i};"
+    # we need to always define all of them
+    # sometimes games leave indirect calculations on
+    # but calculate zero indirect stages.
+    # This works because they end up never using the indirect texture coordinate
+    # TODO: detect these cases and don't do the indirect calculation there
+    for i in 0..<4:
+        line &"ivec3 indval{i} = ivec3(0);"
     for i in 0..<key.numIndTevStages:
         line "{"
         let
@@ -575,19 +582,19 @@ proc genFragmentShader*(key: FragmentShaderKey): string =
         if indirect.matId != itmOff:
             line &"ivec3 indtexcoord = (indval{indirect.stage} >> {indShift}) + {indBias};"
 
-            let matLetter = 'A'.succ((ord(indirect.matId) - ord(itm0)) mod 3)
+            let matNum = (ord(indirect.matId) - ord(itm0)) mod 3
             case indirect.matId
             of itm0, itm1, itm2:
-                line &"""ivec2 indtexcoordfinal = ivec2(indMat{matLetter}0.x * indtexcoord.x + indMat{matLetter}1.x * indtexcoord.y + indMat{matLetter}2.x * indtexcoord.z,
-indMat{matLetter}0.y * indtexcoord.x + indMat{matLetter}1.y * indtexcoord.y + indMat{matLetter}2.y * indtexcoord.z) >> 3;"""
+                line &"""ivec2 indtexcoordfinal = ivec2(indMat{matNum}Col0.x * indtexcoord.x + indMat{matNum}Col1.x * indtexcoord.y + indMat{matNum}Col2.x * indtexcoord.z,
+indMat{matNum}Col0.y * indtexcoord.x + indMat{matNum}Col1.y * indtexcoord.y + indMat{matNum}Col2.y * indtexcoord.z) >> 3;"""
             of itmS0, itmS1, itmS2:
                 line &"ivec2 indtexcoordfinal = (regularTexcoord.xy * indtexcoord.x) >> 8;"
             of itmT0, itmT1, itmT2:
                 line &"ivec2 indtexcoordfinal = (regularTexcoord.xy * indtexcoord.y) >> 8;"
             of itmOff: discard
 
-            line &"if (indMatShift{matLetter} >= 0) indtexcoordfinal <<= indMatShift{matLetter};"
-            line &"else indtexcoordfinal >>= -indMatShift{matLetter};"
+            line &"if (indMatShift{matNum} >= 0) indtexcoordfinal <<= indMatShift{matNum};"
+            line &"else indtexcoordfinal >>= -indMatShift{matNum};"
             line "texcoord += indtexcoordfinal;"
 
         if texmapEnable:
@@ -718,10 +725,10 @@ indMat{matLetter}0.y * indtexcoord.x + indMat{matLetter}1.y * indtexcoord.y + in
 
         const translateVal: array[ZEnvOpType, string] =
             ["lastTexColor.a", "(lastTexColor.a << 8) | lastTexColor.r",
-                "(lastTexColor.r << 16) | (lastTexColor.g << 8) | lastTexColor.r", "0"]
+                "(lastTexColor.r << 16) | (lastTexColor.g << 8) | lastTexColor.b", "0"]
 
         let val = translateVal[key.zenv1.typ]
-        line &"float depth = float({val} + ZEnvBias) / 16777216.0;"
+        line &"float depth = float(({val}) + ZEnvBias) / 16777216.0;"
 
         if key.zenv1.op == zenvOpAdd:
             line "gl_FragDepth = gl_FragCoord.z + depth;"
@@ -730,5 +737,75 @@ indMat{matLetter}0.y * indtexcoord.x + indMat{matLetter}1.y * indtexcoord.y + in
 
         line "}"
 
-    line "outColor = vec4(reg0) / 255.0;"
+    line "outColor0 = vec4(reg0) / 255.0;"
+    line "outColor1 = vec4(outColor0.a);"
+    line "if (DstAlpha >= 0.0) outColor0.a = DstAlpha;"
+    line "}"
+
+
+const copyEfbShaderHeader = """
+#version 430 core
+
+layout (location = 0) in vec2 inTexcoord;
+
+layout (location = 0) out vec4 outColor;
+
+layout (location = 0) uniform sampler2D inEfb;
+
+void main()
+{
+vec4 inColor = texture(inEfb, inTexcoord);
+"""
+
+proc genCopyEfbShaderColor*(texfmt: CopyTexFmt, haveAlpha: bool): string =
+    result = copyEfbShaderHeader
+    let value = 
+        # we always output into a four component vector, eventhough the final
+        # texture might have less components, so we just repeat the last component here
+        # it will be thrown away
+        case texfmt
+        of copyTexfmtRA4, copyTexfmtRA8:
+            if haveAlpha:
+                "inColor.raaa"
+            else:
+                "vec4(inColor.r, 1.0, 1.0, 1.0)"
+        of copyTexfmtA8:
+            if haveAlpha:
+                "inColor.aaaa"
+            else:
+                "vec4(1.0)"
+        of copyTexfmtG8:
+            "inColor.gggg"
+        of copyTexfmtB8:
+            "inColor.bbbb"
+        of copyTexfmtGB8:
+            "inColor.gbbb"
+        of copyTexfmtRGB565:
+            "vec4(inColor.rgb, 1.0)"
+        of copyTexfmtRGBA8, copyTexfmtRGB5A3:
+            if haveAlpha:
+                "inColor"
+            else:
+                "vec4(inColor.rgb, 1.0)"
+        else:
+            "inColor"
+    line &"outColor = {value};"
+    line "}"
+
+proc genCopyEfbShaderDepth*(texfmt: CopyTexZFmt): string =
+    result = copyEfbShaderHeader
+    line "uint depth24 = uint(inColor.r * 16777216.0);"
+    case texfmt
+    of copyTexfmtZ24X8:
+        line "outColor = vec4(uvec4(bitfieldExtract(depth24, 16, 8), bitfieldExtract(depth24, 8, 8), bitfieldExtract(depth24, 0, 8), 255U));"
+    of copyTexfmtZ16:
+        line "outColor = vec4(uvec4(bitfieldExtract(depth24, 8, 8), bitfieldExtract(depth24, 16, 8), 255U, 255U));"
+    of copyTexfmtZ8M:
+        line "outColor = vec4(bitfieldExtract(depth24, 8, 8));"
+    of copyTexfmtZ8L:
+        line "outColor = vec4(bitfieldExtract(depth24, 0, 8));"
+    of copyTexfmtZ16L:
+        line "outColor = vec4(uvec4(bitfieldExtract(depth24, 0, 8), bitfieldExtract(depth24, 8, 8), 255U, 255U));"
+    else: discard
+    line "outColor /= 255.0;"
     line "}"

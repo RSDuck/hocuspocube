@@ -24,6 +24,9 @@ var
     batchFmt: DynamicVertexFmt
     batchNumVertices: seq[int]
 
+    efbColorCopyShaders*: array[CopyTexFmt, array[bool, NativeShader]]
+    efbDepthCopyShaders*: array[CopyTexZFmt, NativeShader]
+
 proc endDraw() =
     if batchNumVertices.len > 0:
 #        echo &"end draw {numVertices} vertices"
@@ -40,10 +43,18 @@ proc retrieveFrame*(data: var openArray[uint32], x, y, width, height: uint32) =
     rasterogl.retrieveFrame(data, x, y, width, height)
 
 
-proc copyEfb*(framebuffer: NativeFramebuffer, width, height: int, offsetX, offsetY, scaleX, scaleY: float32) =
+proc copyEfb*(framebuffer: NativeFramebuffer,
+        shader: NativeShader,
+        width, height: int,
+        offsetX, offsetY, scaleX, scaleY: float32,
+        depth: bool) =
     endDraw()
 
-    rasterogl.copyEfb(framebuffer, width, height, offsetX, offsetY, scaleX, scaleY)
+    rasterogl.copyEfb(framebuffer,
+        shader,
+        width, height,
+        offsetX, offsetY, scaleX, scaleY,
+        depth)
     #rasterogl.retrieveFrame(data, x, y, width, height)
 
 proc clear*(r, g, b, a: uint8, depth: uint32, clearColor, clearAlpha, clearDepth: bool) =
@@ -102,15 +113,19 @@ proc setupUniforms() =
         for i in 0..<9:
             registerUniform.indMat[i] = uint32 indMat[i]
         for i in 0..<3:
-            let val = (indMat[i].s or (indMat[i+3].s shl 2) or (indMat[i+6].sTop shl 4))-17
-            registerUniform.indMat[i] =
-                (registerUniform.indMat[i] and 0x3FFFFF'u32) or (val shl 22)
+            let val = (indMat[i].s or (indMat[i+1].s shl 2) or (indMat[i+2].sTop shl 4)) - 17
+            registerUniform.indMat[i*3] =
+                (registerUniform.indMat[i*3] and 0x3FFFFF'u32) or (val shl 22)
             #assert (val shl 22) == (uint32(int(val)) shl 22), &"difference {val} {(val shl 22)} {(uint32(int(val)) shl 22)}"
         for i in 0..<2:
             registerUniform.ras1ss[i] = uint32 ras1ss[i]
 
         registerUniform.alphaRefs = alphaCompare.ref0 or (alphaCompare.ref1 shl 8)  
         registerUniform.zenvBias = zenv0
+
+        registerUniform.dstAlpha =
+            if peCMode1.dstAlphaEnable: float32(peCMode1.dstAlphaVal) / 255f
+            else: -1f
 
         rasterogl.uploadRegisters(registerUniform)
         registerUniformDirty = false
@@ -173,6 +188,25 @@ proc init*() =
         samplers[i] = rasterogl.createSampler()
         rasterogl.bindSampler(i, samplers[i])
 
+    for copyFmt in CopyTexFmt:
+        if copyFmt in {copyTexfmtReservedC0x1, copyTexfmtReservedC0xD..copyTexfmtReservedC0xF}:
+            continue
+
+        efbColorCopyShaders[copyFmt][true] = compileShader(shaderStageFragment, genCopyEfbShaderColor(copyFmt, true))
+        efbColorCopyShaders[copyFmt][false] = 
+            if copyFmt in {copyTexfmtRA4, copyTexfmtRA8, copyTexfmtA8, copyTexfmtRGBA8}:
+                compileShader(shaderStageFragment, genCopyEfbShaderColor(copyFmt, false))
+            else:
+                efbColorCopyShaders[copyFmt][true]
+
+    for copyFmt in CopyTexZFmt:
+        if copyFmt in {copyTexfmtZReserved0x2..copyTexfmtZReserved0x5,
+                copyTexfmtZReserved0x7..copyTexfmtZReserved0x8,
+                copyTexfmtZReserved0xD..copyTexfmtZReserved0xF}:
+            continue
+
+        efbDepthCopyShaders[copyFmt] = compileShader(shaderStageFragment, genCopyEfbShaderDepth(copyFmt))
+
 proc startDraw(kind: PrimitiveKind) =
     assert batchNumVertices.len == 0
     if rasterStateDirty:
@@ -185,15 +219,61 @@ proc startDraw(kind: PrimitiveKind) =
         #echo &"setup scissor {scissorX}, {scissorY} {scissorW}x{scissorH} (offset: {offsetX} {offsetY})"
         rasterogl.setViewport(viewportX - float32(offsetX), viewportY - float32(offsetY), viewportW, viewportH, viewportNear, viewportFar)
         rasterogl.setScissor(true, scissorX - offsetX, scissorY - offsetY, scissorW, scissorH)
-        if peCMode0.blendOp == blendSub:
-            rasterogl.setBlendState(peCMode0.blendEnable, blendSub, blendFactorOne, blendFactorOne)
+
+        if peCMode0.blendEnable:
+            var
+                op = blendAdd
+                srcColorFactor, srcAlphaFactor: BlendFactor
+                dstColorFactor, dstAlphaFactor: BlendFactor
+            if peCMode0.blendOp == blendRevSub:
+                op = blendRevSub
+                srcColorFactor = blendFactorOne
+                srcAlphaFactor = blendFactorOne
+                dstColorFactor = blendFactorOne
+                dstAlphaFactor = blendFactorOne
+            else:
+                srcColorFactor = case peCMode0.srcFactor
+                    of blendFactorSrcColor: blendFactorDstColor
+                    of blendFactorInvSrcColor: blendFactorInvDstColor
+                    else: peCMode0.srcFactor
+                srcAlphaFactor = srcColorFactor
+                dstColorFactor = peCMode0.dstFactor
+                dstAlphaFactor = dstColorFactor
+
+
+            if peCntrl.fmt != peFmtRGBA6Z24:
+                template alphaOne(x, replaceColor): untyped =
+                    if x == blendFactorDstAlpha or (replaceColor and x == blendFactorDstColor):
+                        x = blendFactorOne
+                    elif x == blendFactorInvDstAlpha or (replaceColor and x == blendFactorInvDstColor):
+                        x = blendFactorZero
+
+                alphaOne srcColorFactor, false
+                alphaOne srcAlphaFactor, true
+                alphaOne dstColorFactor, false
+                alphaOne dstAlphaFactor, true
+
+            if peCMode1.dstAlphaEnable:
+                srcAlphaFactor = blendFactorOne
+                dstAlphaFactor = blendFactorZero
+
+                template useSecondAlpha(x): untyped =
+                    if x == blendFactorSrcAlpha:
+                        x = blendFactorSrc1Alpha
+                    elif x == blendFactorInvSrcAlpha:
+                        x = blendFactorInvSrc1Alpha
+                useSecondAlpha srcColorFactor
+                useSecondAlpha dstColorFactor
+
+            rasterogl.setBlendState(not(srcColorFactor == blendFactorOne and
+                    srcAlphaFactor == blendFactorOne and dstColorFactor == blendFactorZero and
+                    dstAlphaFactor == blendFactorZero),
+                op,
+                srcColorFactor, srcAlphaFactor,
+                dstColorFactor, dstAlphaFactor)
         else:
-            rasterogl.setBlendState(peCMode0.blendEnable, blendAdd,
-                case peCMode0.srcFactor
-                of blendFactorSrcColor: blendFactorDstColor
-                of blendFactorInvSrcColor: blendFactorInvDstColor
-                else: peCMode0.srcFactor,
-                peCMode0.dstFactor)
+            rasterogl.setBlendState(false, blendAdd, blendFactorOne, blendFactorOne, blendFactorZero, blendFactorZero)
+            doAssert not peCMode0.logicOpEnable
         rasterogl.setColorAlphaUpdate(peCMode0.colorUpdate, peCMode0.alphaUpdate)
         rasterogl.setCullFace(genMode.cullmode)
         rasterogl.setZMode(zmode.enable, zmode.fun, zmode.update and zmode.enable)

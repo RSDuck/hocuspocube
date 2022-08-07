@@ -70,7 +70,6 @@ type
 
     TextureFormat* = enum
         texfmtI8
-        texfmtL8
         texfmtIA8
         texfmtRGBA8
         texfmtRGB5A1
@@ -112,7 +111,8 @@ type
         ras1ss*: array[2, uint32]
         alphaRefs*: uint32
         zenvBias*: uint32
-        pad0, pad1: uint32
+        dstAlpha*: float32
+        pad0: uint32
 
 using vtxbuffer: var VertexBuffer
 

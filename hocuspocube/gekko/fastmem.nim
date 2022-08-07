@@ -159,6 +159,7 @@ when defined(windows):
                 #echo &"{cast[ptr PpcState](info.ContextRecord.Rbp).pc:08X}"
                 EXCEPTION_CONTINUE_EXECUTION
         else:
+            echo "it all returns to nothing"
             EXCEPTION_CONTINUE_SEARCH
 
     AddVectoredExceptionHandler(1, exceptionHandler)

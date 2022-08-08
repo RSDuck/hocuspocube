@@ -728,9 +728,11 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
     if kind in {primitiveQuads, primitiveQuads2} or (kind in {primitiveTriangleFan, primitiveTriangleStrips, primitiveLineStrip} and counts.len > 1):
         let indicesCount =
                 if kind in {primitiveQuads, primitiveQuads2}:
-                    (totalCount div 4) * 5
+                    numIndicesForQuad(counts)
                 else:
                     totalCount + counts.len
+
+        assert totalCount == 0 or indicesCount > 0
 
         if curIdxBufferOffset + indicesCount*4 > VertexBufferSegmentSize:
             idxBufferLocks[curIdxBufferIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, GLbitfield 0)
@@ -746,7 +748,7 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
             indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset
             indicesPtr = cast[ptr UncheckedArray[uint32]](cast[ByteAddress](idxBufferPtr) + indexBufferOffset)
         if kind in {primitiveQuads, primitiveQuads2}:
-            generateQuadIndices(indicesPtr, 0, totalCount)
+            generateQuadIndices(indicesPtr, 0, counts)
         else:
             generateSeparatingIndices(indicesPtr, 0, counts)
 

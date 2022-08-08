@@ -181,18 +181,34 @@ proc define*[T](vtxbuffer; attr: VertexAttrKind, data: openArray[T], offset = 0)
     #echo data, " ", sizeof(T)*data.len
     #echo toOpenArray(vtxbuffer.data, dataOffset, dataOffset+sizeof(T)*data.len-1)
 
-proc generateQuadIndices*(data: ptr UncheckedArray[uint32], offset, count: int) =
+proc numIndicesForQuad*(numVerts: openArray[int]): int =
+    for num in numVerts:
+        result += (num div 4) * 5
+        if (num mod 4) == 3:
+            result += 4
+
+proc generateQuadIndices*(data: ptr UncheckedArray[uint32], offset: int, numVerts: openArray[int]) =
     var
-        count = count
-        i = 0
-    while count >= 4:
-        data[i*5+0] = uint32(offset + i*4) + 1
-        data[i*5+1] = uint32(offset + i*4) + 2
-        data[i*5+2] = uint32(offset + i*4) + 0
-        data[i*5+3] = uint32(offset + i*4) + 3
-        data[i*5+4] = 0xFFFFFFFF'u32
-        count -= 4
-        i += 1
+        i = uint32(offset)
+        j = 0
+    for num in numVerts:
+        var num = num
+        while num >= 4:
+            data[j+0] = i+1
+            data[j+1] = i+2
+            data[j+2] = i+0
+            data[j+3] = i+3
+            data[j+4] = 0xFFFFFFFF'u32
+            num -= 4
+            i += 4
+            j += 5
+        if num == 3:
+            data[j+0] = i+1
+            data[j+1] = i+2
+            data[j+2] = i+0
+            data[j+3] = 0xFFFFFFFF'u32
+            i += 3
+            j += 4
 
 proc generateSeparatingIndices*(data: ptr UncheckedArray[uint32], offset: int, counts: openArray[int]) =
     var

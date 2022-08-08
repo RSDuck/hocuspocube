@@ -118,6 +118,10 @@ proc bpWrite*(adr, val: uint32) =
     of 0x06..0x0E:
         if indMat[adr - 0x06].maskedWrite val:
             registerUniformDirty = true
+    of 0x0F:
+        # indmask
+        # it's just a bitmap of which textures are used in indirect stages
+        discard
     of 0x10..0x1F:
         if indCmd[adr - 0x10].maskedWrite val:
             fragmentShaderDirty = true
@@ -127,6 +131,10 @@ proc bpWrite*(adr, val: uint32) =
     of 0x21:
         if scissorBR.maskedWrite val:
             rasterStateDirty = true
+    of 0x22:
+        # lpWidth
+        # line and point emulation is currently completely bad anyway
+        discard
     of 0x25..0x26:
         if ras1ss[adr - 0x25].maskedWrite val:
             registerUniformDirty = true
@@ -324,7 +332,7 @@ proc bpWrite*(adr, val: uint32) =
         let
             src = HwPtr(loadLut0 shl 5).adr
             dst = (loadLut1.tmemAdr shl 9) + 0x80000
-            count = loadLut1.size*16
+            count = loadLut1.size*32
 
         assert dst + count <= uint32(sizeof(tmem))
         #echo &"uploading tlut {src:08X} {dst:X} {count}"
@@ -409,6 +417,8 @@ proc bpWrite*(adr, val: uint32) =
         registerUniformDirty = registerUniformDirty or dirty
     of 0xE8..0xEF:
         discard # fog stuff
+    of 0xF0..0xF2:
+        discard # more fog
     of 0xF3:
         let val = AlphaCompare val
         if alphaCompare.ref0 != val.ref0 or alphaCompare.ref1 != val.ref1:

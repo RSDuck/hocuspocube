@@ -187,6 +187,9 @@ proc xfWrite*(adr, val: uint32) =
         of 0xA..0xC: xfMemoryUniform.lightPositionA1[lightNum*4+((adr and 0xF) - 0xA)] = cast[float32](val)
         of 0xD..0xF: xfMemoryUniform.lightDirectionA0[lightNum*4+((adr and 0xF) - 0xD)] = cast[float32](val)
         xfMemoryDirty = true
+    of 0x1005:
+        # clip mode
+        discard
     of 0x1008:
         # INVTXSPEC
         # should produce some undefined behaviour if this mismatches with cp

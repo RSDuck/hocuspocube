@@ -1439,61 +1439,63 @@ proc genCode*(fn: IrFunc, cycles: int32, flags: set[GenCodeFlags], dataAdrSpace 
             if dst != src0: s.movapd(dst.toXmm, reg(src0.toXmm))
             case instr.kind:
             of fMaddsd:
-                s.mulsd(dst.toXmm, reg(src2.toXmm))
-                s.addsd(dst.toXmm, reg(src1.toXmm))
+                s.vfmadd132sd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fMsubsd:
-                s.mulsd(dst.toXmm, reg(src2.toXmm))
-                s.subsd(dst.toXmm, reg(src1.toXmm))
+                s.vfmsub132sd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
+            #[
+                Annoyingly with x64 negated multiply-add is defined as
+                    -(a * c) + b
+                while PowerPC defines it as:
+                    -((a * c) + b)
+
+                and negated multiply-sub as:
+                    -(a * c) - b
+                while PowerPC defines it as:
+                    -((a * c) - b)
+
+                By the laws of algebra we can deduce that
+                    x64 nmadd <=> PowerPC nmsub and
+                    x64 nmsub <=> PowerPC
+
+                but this is floating point math, so algebra doesn't apply here!
+
+                For once, both negated madd and msub should result -0 in the PowerPC variant.
+                For x64 it is only nmsub which has this.
+
+                We could implement nmadd by using madd and then negating the result.
+                Unfortunately this would also flip the sign bit of NaN values, which should not occur!
+                Also the NaN propagation is wrong anyway (a, b, c in PowerPC vs. a, c, b everywhere else).
+
+                So in the end it's all just a mess however we flip it.
+            ]#
             of fNmaddsd:
-                s.mulsd(dst.toXmm, reg(src2.toXmm))
-                s.addsd(dst.toXmm, reg(src1.toXmm))
-                s.xxorpd(dst.toXmm, memXmm(unsafeAddr doubleSignMask[0]))
+                s.vfnmsub132sd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fNmsubsd:
-                s.mulsd(dst.toXmm, reg(src2.toXmm))
-                s.subsd(dst.toXmm, reg(src1.toXmm))
-                s.xxorpd(dst.toXmm, memXmm(unsafeAddr doubleSignMask[0]))
+                s.vfnmadd132sd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fMaddpd:
-                s.mulpd(dst.toXmm, reg(src2.toXmm))
-                s.addpd(dst.toXmm, reg(src1.toXmm))
+                s.vfmadd132pd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fMsubpd:
-                s.mulpd(dst.toXmm, reg(src2.toXmm))
-                s.subpd(dst.toXmm, reg(src1.toXmm))
+                s.vfmsub132pd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fNmaddpd:
-                s.mulpd(dst.toXmm, reg(src2.toXmm))
-                s.addpd(dst.toXmm, reg(src1.toXmm))
-                s.xxorpd(dst.toXmm, memXmm(unsafeAddr doubleSignMaskPair[0]))
+                s.vfnmsub132pd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fNmsubpd:
-                s.mulpd(dst.toXmm, reg(src2.toXmm))
-                s.subpd(dst.toXmm, reg(src1.toXmm))
-                s.xxorpd(dst.toXmm, memXmm(unsafeAddr doubleSignMaskPair[0]))
+                s.vfnmadd132pd(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fMaddss:
-                s.mulss(dst.toXmm, reg(src2.toXmm))
-                s.addss(dst.toXmm, reg(src1.toXmm))
+                s.vfmadd132ss(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fMsubss:
-                s.mulss(dst.toXmm, reg(src2.toXmm))
-                s.subss(dst.toXmm, reg(src1.toXmm))
+                s.vfmsub132ss(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fNmaddss:
-                s.mulss(dst.toXmm, reg(src2.toXmm))
-                s.addss(dst.toXmm, reg(src1.toXmm))
-                s.xxorps(dst.toXmm, memXmm(unsafeAddr singleSignMask[0]))
+                s.vfnmsub132ss(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fNmsubss:
-                s.mulss(dst.toXmm, reg(src2.toXmm))
-                s.subss(dst.toXmm, reg(src1.toXmm))
-                s.xxorps(dst.toXmm, memXmm(unsafeAddr singleSignMask[0]))
+                s.vfnmadd132ss(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fMaddps:
-                s.mulps(dst.toXmm, reg(src2.toXmm))
-                s.addps(dst.toXmm, reg(src1.toXmm))
+                s.vfmadd132ps(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fMsubps:
-                s.mulps(dst.toXmm, reg(src2.toXmm))
-                s.subps(dst.toXmm, reg(src1.toXmm))
+                s.vfmsub132ps(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fNmaddps:
-                s.mulps(dst.toXmm, reg(src2.toXmm))
-                s.addps(dst.toXmm, reg(src1.toXmm))
-                s.xxorps(dst.toXmm, memXmm(unsafeAddr singleSignMaskPair[0]))
+                s.vfnmsub132ps(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             of fNmsubps:
-                s.mulps(dst.toXmm, reg(src2.toXmm))
-                s.subps(dst.toXmm, reg(src1.toXmm))
-                s.xxorps(dst.toXmm, memXmm(unsafeAddr singleSignMaskPair[0]))
+                s.vfnmadd132ps(dst.toXmm, src1.toXmm, reg(src2.toXmm))
             else: raiseAssert("shouldn't happen")
         of fCmpEqualsd, fCmpGreatersd, fCmpLesssd, fUnorderedsd:
             let

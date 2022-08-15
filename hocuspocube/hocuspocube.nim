@@ -38,7 +38,7 @@ proc start*() =
                 none(string)
 
         if mediumPath.isSome:
-            echo &"booting with as medium inserted {mediumPath}"
+            echo &"booting with medium inserted {mediumPath.get}"
             loadDvd(mediumPath.get)
 
         boot()

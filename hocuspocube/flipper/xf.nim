@@ -178,7 +178,7 @@ proc xfWrite*(adr, val: uint32) =
         xfMemoryDirty = true
     of 0x600..0x67F:
         let lightNum = (adr and 0xFF) div 16
-        case cast[0x0..0xF](adr and 0xF)
+        case range[0x0..0xF](adr and 0xF)
         of 0x0, 0x1, 0x2: #[echo &"writing reserved light value {adr:04X} {val:08X}"]#discard
         of 0x3: xfMemoryUniform.lightColor[lightNum] = val
         of 0x4: xfMemoryUniform.lightDirectionA0[lightNum*4+3] = cast[float32](val)

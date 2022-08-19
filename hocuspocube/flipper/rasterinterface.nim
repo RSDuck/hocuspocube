@@ -273,7 +273,7 @@ proc startDraw(kind: PrimitiveKind) =
                 dstColorFactor, dstAlphaFactor)
         else:
             rasterogl.setBlendState(false, blendAdd, blendFactorOne, blendFactorOne, blendFactorZero, blendFactorZero)
-            doAssert not peCMode0.logicOpEnable
+            rasterogl.setLogicOp(peCMode0.logicOpEnable and peCMode0.logicOp != loCopy, peCMode0.logicOp)
         rasterogl.setColorAlphaUpdate(peCMode0.colorUpdate, peCMode0.alphaUpdate)
         rasterogl.setCullFace(genMode.cullmode)
         rasterogl.setZMode(zmode.enable, zmode.fun, zmode.update and zmode.enable)

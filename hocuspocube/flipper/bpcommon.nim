@@ -488,6 +488,7 @@ makeBitStruct uint32, *PeCMode0:
     dstFactor[5..7]: BlendFactor
     srcFactor[8..10]: BlendFactor
     blendOp[11]: BlendOp
+    logicOp[12..15]: LogicOp
 
 makeBitStruct uint32, *PeCMode1:
     dstAlphaVal[0..7]: uint32

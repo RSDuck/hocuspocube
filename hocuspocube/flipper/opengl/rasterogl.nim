@@ -488,6 +488,7 @@ proc applyRenderstate(state: RenderState, textureUnits = 8, framebufferOnly = fa
                 GL_SET]
 
             glLogicOp(translateLogicOp[state.logicOp])
+            currentRenderstate.logicOp = state.logicOp
 
 proc init*() =
     #glDebugMessageCallback(debugMessage, nil)

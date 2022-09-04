@@ -706,7 +706,7 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
         if pointer(vtxBufferLocks[curVtxBufferIdx]) != nil:
             discard glClientWaitSync(vtxBufferLocks[curVtxBufferIdx], GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED)
             glDeleteSync(vtxBufferLocks[curVtxBufferIdx])
-            vtxBufferLocks[curVtxBufferIdx] = nil
+            vtxBufferLocks[curVtxBufferIdx] = GLsync nil
 
         formatVertexOffset = 0
         glBindVertexBuffer(0, vtxBuffer, curVtxBufferOffset + curVtxBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
@@ -743,7 +743,7 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
             if pointer(idxBufferLocks[curIdxBufferIdx]) != nil:
                 discard glClientWaitSync(idxBufferLocks[curIdxBufferIdx], GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED)
                 glDeleteSync(idxBufferLocks[curIdxBufferIdx])
-                idxBufferLocks[curIdxBufferIdx] = nil
+                idxBufferLocks[curIdxBufferIdx] = GLsync nil
 
         let
             indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset

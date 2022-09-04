@@ -14,7 +14,6 @@ proc eieio*(builder) =
 
 proc isync*(builder) =
     discard builder.triop(ppcBranch, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
-    builder.regs.branch = true
 
 proc lwarx*(builder; d, a, b: uint32) =
     raiseAssert "instr not implemented lwarx"
@@ -24,7 +23,6 @@ proc stwcxdot*(builder; s, a, b: uint32) =
 
 proc sync*(builder) =
     discard builder.triop(ppcBranch, builder.imm(true), builder.imm(builder.regs.pc + 4), builder.imm(0))
-    builder.regs.branch = true
 
 const
     exceptionSavedMask = Msr(0xFFFFFFFF'u32).exceptionSaved
@@ -45,20 +43,18 @@ proc rfi*(builder) =
 
         builder.storectx(ctxStore32, uint32 offsetof(PpcState, msr), newMsr)
         discard builder.triop(ppcBranch, builder.imm(true), srr0, builder.imm(0))
-    builder.regs.branch = true
 
 proc sc*(builder) =
     when interpretSystem:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.sc)
     else:
         discard builder.unop(ppcSyscall, builder.imm(builder.regs.pc + 4))
-    builder.regs.branch = true
 
 proc tw*(builder; to, a, b: uint32) =
-    raiseAssert "instr not implemented tw"
+    builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.tw)
 
 proc twi*(builder; to, a, imm: uint32) =
-    raiseAssert "unimplemented instr twi"
+    builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.twi)
 
 proc mcrxr*(builder; crfS: uint32) =
     raiseAssert "instr not implemented mcrxr"

@@ -15,8 +15,8 @@ import
     makes the dispatching more complicated, but we'll see how it goes.
 ]#
 
-const PpcPatterns* =
-    (block:
+const
+    PpcPatterns* = (block:
         var patterns: seq[(string, string)]
 
         # Integer Arithmetic
@@ -349,6 +349,8 @@ const PpcPatterns* =
         patterns.add(("dcbz_l",     "00010000000aaaaabbbbb11111101100"))
 
         patterns)
+
+    PpcPatternsTbl* = PpcPatterns.toOrderedTable
 
 macro dispatchPpc*[T](instr: uint32, state: var T, undefinedInstr: proc(state: var T, instr: uint32)) =
     generateDecoder[26..31, 1..10](PpcPatterns, initTable[string, seq[(string, uint32)]](), 32, instr, state, undefinedInstr)

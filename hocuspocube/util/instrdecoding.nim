@@ -45,15 +45,20 @@ iterator validEncodings*(mask, fixbits: uint32, len: int): uint32 =
         else:
             yield value
 
-proc generateFields*(instr, letBlock: NimNode, patterns: OrderedTable[string, Slice[int]]): seq[NimNode] =
+proc generateFields*(instr, letBlock: NimNode, patterns: OrderedTable[string, Slice[int]], existingIdents: seq[NimNode] = @[]): seq[NimNode] =
+    var i = 0
     for name, slice in pairs patterns:
-        result.add(nskLet.genSym name)
+        result.add(if existingIdents.len == 0: nskLet.genSym name else: existingIdents[i])
+        i += 1
 
         let
             idx = slice.a
             mask = toMask[uint32](0..slice.len-1)
 
-        letBlock.add(nnkIdentDefs.newTree(result[^1], newEmptyNode(), (quote do: (`instr` shr `idx`) and `mask`)))
+        letBlock.add(nnkIdentDefs.newTree(nnkPragmaExpr.newTree(result[^1],
+            nnkPragma.newTree(ident"used")),
+            newEmptyNode(),
+            (quote do: (`instr` shr `idx`) and cast[typeof(`instr`)](`mask`))))
 
 func extractBits[T](x: T, slice: Slice[int]): T {.inline.} =
     (x and slice.toMask[:T]) shr slice.a
@@ -61,6 +66,28 @@ func extractBits[T](x: T, slice: Slice[int]): T {.inline.} =
 func insertBits*[T](x: var T, slice: Slice[int], val: T) =
     let mask = slice.toMask[:T]
     x = (x and not(mask)) or ((val shl slice.a) and mask)
+
+macro matchSparseInstrs*[T](instr: T, patterns: static[OrderedTable[string, string]], body: varargs[untyped]): untyped =
+    result = nnkIfStmt.newTree()
+    for branch in body:
+        if branch.kind == nnkOfBranch:
+            branch[0].expectKind nnkStrLit
+            let
+                pattern = patterns[$branch[0]]
+                (mask, fixbits) = decodePattern(pattern)
+                fields = parseFields(pattern)
+
+                matches = quote do: ((`instr` and cast[typeof(`instr`)](`mask`)) == cast[typeof(`instr`)](`fixbits`))
+
+                letBlock = nnkLetSection.newTree()
+
+            discard generateFields(instr, letBlock, fields, branch[1..^1])
+
+            branch[^1].insert(0, letBlock)
+            result.add nnkElifBranch.newTree(matches, branch[^1])
+        else:
+            result.add nnkElse.newTree(branch[0])
+    echo result.repr
 
 proc generateShortDecoder*[bits: static[Slice[int]]](patterns: openArray[(string, string)],
     instrWidth: int,

@@ -23,8 +23,6 @@ proc bx*(builder; li, aa, lk: uint32) =
 
         discard builder.triop(ppcBranch, builder.imm(true), builder.imm(target), builder.imm(0))
 
-    builder.regs.branch = true
-
 proc handleCondAndCtr(builder; bo, bi: uint32): IrInstrRef =
     let
         ctrOk =
@@ -68,8 +66,6 @@ proc bcx*(builder; bo, bi, bd, aa, lk: uint32) =
 
         discard builder.triop(ppcBranch, cond, builder.imm(target), prevNia)
 
-    builder.regs.branch = true
-
 proc bcctrx*(builder; bo, bi, lk: uint32) =
     when interpretBranch:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.bcctrx)
@@ -82,8 +78,6 @@ proc bcctrx*(builder; bo, bi, lk: uint32) =
             builder.storeLr(builder.triop(csel, prevNia, builder.loadLr(), cond))
 
         discard builder.triop(ppcBranch, cond, builder.loadCtr(), prevNia)
-
-    builder.regs.branch = true
 
 proc bclrx*(builder; bo, bi, lk: uint32) =
     when interpretBranch:
@@ -98,5 +92,3 @@ proc bclrx*(builder; bo, bi, lk: uint32) =
             builder.storeLr(builder.triop(csel, prevNia, lr, cond))
 
         discard builder.triop(ppcBranch, cond, lr, prevNia)
-
-    builder.regs.branch = true

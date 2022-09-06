@@ -92,8 +92,6 @@ proc updateInt(chan: uint32) =
         (channels[chan].csr.exiint and channels[chan].csr.exiintmsk) or
         (channels[chan].csr.extint and channels[chan].csr.extintmsk)
 
-import macros
-
 ioBlock exi, 0x40:
 of exiCsr, 0x00, 4, 3, 20:
     read: uint32 channels[idx].csr

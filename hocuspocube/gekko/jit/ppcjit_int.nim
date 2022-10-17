@@ -12,6 +12,8 @@ const
     interpretAdd = false
     interpretSub = false
     interpretMulDiv = false
+    interpretCmp = false
+    intepretShiftMask = false
 
 proc setCr(builder; signed: bool, cond: uint32, a, b: IrInstrRef) =
     let
@@ -327,28 +329,28 @@ proc subfzex*(builder; d, a, oe, rc: uint32) =
         builder.storereg d, val
 
 proc cmp*(builder; crfD, l, a, b: uint32) =
-    when interpretInt:
+    when interpretInt or interpretCmp:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmp)
     else:
         let (ra, rb) = builder.loadregs(a, b)
         builder.setCr(true, crfD, ra, rb)
 
 proc cmpi*(builder; crfD, l, a, imm: uint32) =
-    when interpretInt:
+    when interpretInt or interpretCmp:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmpi)
     else:
         let ra = builder.loadreg(a)
         builder.setCr(true, crfD, ra, builder.imm(signExtend[uint32](imm, 16)))
 
 proc cmpl*(builder; crfD, l, a, b: uint32) =
-    when interpretInt:
+    when interpretInt or interpretCmp:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmpl)
     else:
         let (ra, rb) = builder.loadregs(a, b)
         builder.setCr(false, crfD, ra, rb)
 
 proc cmpli*(builder; crfD, l, a, imm: uint32) =
-    when interpretInt:
+    when interpretInt or interpretCmp:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.cmpli)
     else:
         let ra = builder.loadreg(a)
@@ -484,7 +486,7 @@ proc xoris*(builder; s, a, imm: uint32) =
         logicOpImm builder.biop(bitXor, rs, builder.imm(imm shl 16)), 0
 
 proc rlwimix*(builder; s, a, sh, mb, me, rc: uint32) =
-    when interpretInt:
+    when interpretInt or intepretShiftMask:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.rlwimix)
     else:
         let
@@ -501,7 +503,7 @@ proc rlwimix*(builder; s, a, sh, mb, me, rc: uint32) =
         builder.storereg a, val
 
 proc rlwinmx*(builder; s, a, sh, mb, me, rc: uint32) =
-    when interpretInt:
+    when interpretInt or intepretShiftMask:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.rlwinmx)
     else:
         let
@@ -521,7 +523,7 @@ proc rlwinmx*(builder; s, a, sh, mb, me, rc: uint32) =
         builder.storereg a, val
 
 proc rlwnmx*(builder; s, a, b, mb, me, rc: uint32) =
-    when interpretInt:
+    when interpretInt or intepretShiftMask:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.rlwnmx)
     else:
         let
@@ -536,7 +538,7 @@ proc rlwnmx*(builder; s, a, b, mb, me, rc: uint32) =
         builder.storereg a, val
 
 proc slwx*(builder; s, a, b, rc: uint32) =
-    when interpretInt:
+    when interpretInt or intepretShiftMask:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.slwx)
     else:
         let
@@ -548,9 +550,10 @@ proc slwx*(builder; s, a, b, rc: uint32) =
         builder.storereg a, val
 
 proc srawx*(builder; s, a, b, rc: uint32) =
-    when interpretInt:
+    when interpretInt or intepretShiftMask:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.srawx)
     else:
+        # kaputt
         let
             (rs, rb) = builder.loadregs(s, b)
             val = builder.unop(extzwX, builder.biop(asrX, builder.unop(extswX, rs), rb))
@@ -563,13 +566,13 @@ proc srawx*(builder; s, a, b, rc: uint32) =
                 builder.biop(iCmpEqual,
                     builder.biop(bitAnd,
                         rs,
-                        builder.unop(bitNot, builder.biop(lsl, builder.imm(0xFFFFFFFF'u32), rb))),
+                        builder.unop(bitNot, builder.biop(lslX, builder.imm(0xFFFFFFFF'u32), rb))),
                     builder.imm(0)))))
 
         builder.storereg a, val
 
 proc srawix*(builder; s, a, sh, rc: uint32) =
-    when interpretInt:
+    when interpretInt or intepretShiftMask:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.srawix)
     else:
         let
@@ -587,11 +590,10 @@ proc srawix*(builder; s, a, sh, rc: uint32) =
                         rs),
                     builder.imm(0)))))
 
-
         builder.storereg a, val
 
 proc srwx*(builder; s, a, b, rc: uint32) =
-    when interpretInt:
+    when interpretInt or intepretShiftMask:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.srwx)
     else:
         let

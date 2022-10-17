@@ -153,11 +153,13 @@ proc clear*(vtxbuffer) =
     vtxbuffer.data.setLen(0)
     vtxbuffer.curOffset = 0
 
-proc startVertex*(vtxbuffer) =
-    vtxbuffer.curOffset = vtxbuffer.data.len
-    vtxbuffer.data.setLen(vtxbuffer.data.len + vtxbuffer.curFmt.vertexSize)
+proc reserveVertices*(vtxbuffer; num: int) =
+    vtxbuffer.data.setLen(vtxbuffer.data.len + vtxbuffer.curFmt.vertexSize * num)
 
-proc define*[T](vtxbuffer; attr: VertexAttrKind, data: openArray[T], offset = 0) =
+proc nextVertex*(vtxbuffer) {.inline.} =
+    vtxbuffer.curOffset += vtxbuffer.curFmt.vertexSize
+
+proc define*[T](vtxbuffer; attr: VertexAttrKind, data: openArray[T], offset = 0) {.inline.} =
     when not defined(release):
         assert attr in vtxbuffer.curFmt.enabledAttrs, &"{attr} not in {vtxbuffer.curFmt.enabledAttrs}"
         let endOffset = data.len + offset

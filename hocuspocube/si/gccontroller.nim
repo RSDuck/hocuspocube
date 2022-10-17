@@ -158,7 +158,7 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
 
             recvData.add analog.stickX
             recvData.add analog.stickY
-            case range[0..3](mode)
+            case range[0..7](mode)
             of 0:
                 recvData.add analog.substickX
                 recvData.add analog.substickY

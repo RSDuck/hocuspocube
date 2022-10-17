@@ -1,4 +1,5 @@
 import
+    strformat,
     ".."/[ppcstate, memory]
 
 type BlockEntryFunc* = proc(ppcstate: ptr PpcState): int32 {.cdecl.}
@@ -17,8 +18,9 @@ proc mapBlockEntryAdr*(adr: uint32): uint32 =
 proc lookupBlock*(adr: uint32): BlockEntryFunc =
     blockEntries[mapBlockEntryAdr(adr)]
 
-proc lookupBlockTranslateAddr*(state: var PpcState): BlockEntryFunc =
-    lookupBlock(state.translateInstrAddr(state.pc))
+proc lookupBlockTranslateAddr*(state: var PpcState, adr: uint32): BlockEntryFunc =
+    result = lookupBlock(state.translateInstrAddr(adr))
+    #echo &"lookup and translate {adr:08X} {repr(result)}"
 
 proc setBlock*(adr: uint32, f: BlockEntryFunc) =
     blockEntries[mapBlockEntryAdr(adr)] = f

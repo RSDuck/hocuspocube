@@ -157,10 +157,14 @@ type
         dspLoadDMem
         dspStoreDMem
 
-        ppcBranch
-        ppcSyscall
-
-        dspBranch
+        dispatchExternalPpc
+        dispatchExternalDsp
+        funcInternBranch
+        funcInternBranchUncond
+        leaveJitPpc
+        leaveJitDsp
+        syscallPpc
+        fpExceptionPpc
 
         fSwizzleD00
         fSwizzleD11
@@ -263,6 +267,9 @@ type
 const
     CtxLoadInstrs* = {ctxLoad8..ctxLoadFprPair}
     CtxStoreInstrs* = {ctxStore8..ctxStoreFprPair}
+    ZeroOpInstrs* = {
+        funcInternBranchUncond,
+        leaveJitPpc, leaveJitDsp}
     UnOpInstrs* = {
         identity,
 
@@ -281,7 +288,8 @@ const
 
         dspLoadIMem, dspLoadDMem,
 
-        ppcSyscall,
+        dispatchExternalPpc, dispatchExternalDsp,
+        syscallPpc, fpExceptionPpc,
 
         fSwizzleD00,
         fSwizzleD11,
@@ -361,8 +369,6 @@ const
 
         ppcStoreFsq, ppcStoreFpq,
 
-        ppcBranch, dspBranch,
-
         fMaddsd, fMsubsd, fNmaddsd, fNmsubsd,
         fMaddpd, fMsubpd, fNmaddpd, fNmsubpd,
 
@@ -376,23 +382,24 @@ const
         ppcStore8..ppcStoreFpq,
         dspStoreDMem,
 
-        ppcBranch,
-        ppcSyscall,
-
-        dspBranch,
+        dispatchExternalPpc,
+        dispatchExternalDsp,
+        funcInternBranch,
         
         ppcCallInterpreter,
         dspCallInterpreter}
 
     SideEffectOps* = CtxStoreInstrs + {
-        sprStore32,
+        sprLoad32, sprStore32,
 
         ppcLoadU8..dspStoreDMem,
 
-        ppcBranch, ppcSyscall,
-        dspBranch,
+        leaveJitPpc, leaveJitDsp,
+        dispatchExternalPpc, dispatchExternalDsp,
+        funcInternBranch, funcInternBranchUncond,
+        syscallPpc, fpExceptionPpc,
+
         ppcCallInterpreter, dspCallInterpreter}
-    StrictSideEffectOps* = SideEffectOps + CtxLoadInstrs + {sprLoad32}
 
     FpScalarOps* = {
         ppcStoreFsd, ppcStoreFss,
@@ -427,6 +434,16 @@ const
         extsbX, extshX,
         extswX}
 
+    BlockEndingInstrs* = {
+        dispatchExternalPpc,
+        dispatchExternalDsp,
+        funcInternBranch,
+        funcInternBranchUncond,
+        leaveJitPpc,
+        leaveJitDsp,
+        syscallPpc,
+        fpExceptionPpc}
+
 type
     IrInstrRef* = distinct uint32
 
@@ -443,6 +460,10 @@ type
             bit*: uint32
         of sprStore32, sprLoad32:
             spr*: Spr
+        of funcInternBranch:
+            blockTaken*, blockNotTaken*: IrBasicBlock
+        of funcInternBranchUncond:
+            blockUncond*: IrBasicBlock
         else: discard
 
         srcRegular: array[3, IrInstrRef]
@@ -497,9 +518,9 @@ const
 
 proc numSources*(instr: IrInstr): int =
     case instr.kind
-    of loadImmI, sprLoad32, CtxLoadInstrs, ppcCallInterpreter, dspCallInterpreter:
+    of loadImmI, sprLoad32, CtxLoadInstrs, ppcCallInterpreter, dspCallInterpreter, ZeroOpInstrs:
         0
-    of CtxStoreInstrs, sprStore32, extractBit, UnopInstrs:
+    of CtxStoreInstrs, sprStore32, extractBit, UnopInstrs, funcInternBranch:
         1
     of BiOpInstrs, mergeBit:
         2
@@ -558,6 +579,11 @@ func `==`*(a, b: IrInstr): bool =
             a.srcRegular[0] == b.srcRegular[0] and
                 a.srcRegular[1] == b.srcRegular[1] and
                 a.srcRegular[2] == b.srcRegular[2]
+        of funcInternBranch:
+            a.srcRegular[0] == b.srcRegular[0] and
+                a.blockTaken == b.blockTaken and
+                a.blockNotTaken == b.blockNotTaken
+        of ZeroOpInstrs: true
     else:
         false
 
@@ -595,17 +621,18 @@ func hash*(instr: IrInstr): Hash =
     of TriOpInstrs:
         for i in 0..<3:
             result = result !& hash(instr.srcRegular[i])
+    of funcInternBranch:
+        result = result !& hash(instr.srcRegular[0])
+        result = result !& hash(cast[pointer](instr.blockTaken))
+        result = result !& hash(cast[pointer](instr.blockNotTaken))
+    of ZeroOpInstrs: discard
     result = !$ result
 
 iterator msources*(instr: var IrInstr): var IrInstrRef =
-    case instr.kind
-    of CtxLoadInstrs, loadImmI:
-        discard
-    else:
-        var i = 0
-        while i < instr.numSources:
-            yield instr.source(i)
-            i += 1
+    var i = 0
+    while i < instr.numSources:
+        yield instr.source(i)
+        i += 1
 
 proc allocInstr(fn: IrFunc): IrInstrRef =
     if fn.freeInstrs.len > 0:
@@ -646,6 +673,13 @@ proc makeStorectx*(kind: InstrKind, offset: uint32, val: IrInstrRef): IrInstr {.
     else:
         raiseAssert(&"invalid context store kind {kind}")
 
+proc makeZeroop*(kind: InstrKind): IrInstr {.inline.} =
+    case kind
+    of ZeroOpInstrs:
+        IrInstr(kind: kind)
+    else:
+        raiseAssert(&"invalid zeroop kind {kind}")
+
 proc makeUnop*(kind: InstrKind, operand: IrInstrRef): IrInstr {.inline.} =
     case kind
     of UnOpInstrs:
@@ -682,6 +716,12 @@ proc makeStoreSpr*(spr: Spr, val: IrInstrRef): IrInstr {.inline.} =
 proc makeIdentity*(iref: IrInstrRef): IrInstr {.inline.} =
     makeUnop(identity, iref)
 
+proc makeFuncInternBranch*(cond: IrInstrRef, taken, notTaken: IrBasicBlock): IrInstr {.inline.} =
+    IrInstr(kind: funcInternBranch, srcRegular: [cond, InvalidIrInstrRef, InvalidIrInstrRef], blockTaken: taken, blockNotTaken: notTaken)
+
+proc makeFuncInternBranch*(target: IrBasicBlock): IrInstr {.inline.} =
+    IrInstr(kind: funcInternBranchUncond, blockUncond: target)
+
 proc narrowIdentity*(fn: IrFunc, iref: IrInstrRef): IrInstr {.inline.} =
     let kind = fn.getInstr(iref).kind
     if kind == loadImmI:
@@ -692,70 +732,60 @@ proc narrowIdentity*(fn: IrFunc, iref: IrInstrRef): IrInstr {.inline.} =
         makeIdentity(iref)
 
 # block building helpers
+
+template constructInstr(construct): IrInstrRef =
+    let iref = builder.fn.allocInstr()
+    builder.fn.getInstr(iref) = construct
+    add(builder.instrs, iref)
+    iref
+
 proc imm*[T](builder: var IrBlockBuilder[T], val: uint64): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeImm(val)
-    add(builder.instrs, result)
+    constructInstr makeImm(val)
 
 proc imm*[T](builder: var IrBlockBuilder[T], val: bool): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeImm(val)
-    add(builder.instrs, result)
+    constructInstr makeImm(val)
 
 proc loadctx*[T](builder: var IrBlockBuilder[T], kind: InstrKind, idx: uint32): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeLoadctx(kind, idx)
-    add(builder.instrs, result)
+    constructInstr makeLoadctx(kind, idx)
 
 proc storectx*[T](builder: var IrBlockBuilder[T], kind: InstrKind, idx: uint32, val: IrInstrRef) =
-    let result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeStorectx(kind, idx, val)
-    add(builder.instrs, result)
+    discard constructInstr makeStorectx(kind, idx, val)
+
+proc zeroop*[T](builder: var IrBlockBuilder[T], kind: InstrKind): IrInstrRef =
+    constructInstr makeZeroop(kind)
 
 proc unop*[T](builder: var IrBlockBuilder[T], kind: InstrKind, val: IrInstrRef): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeUnop(kind, val)
-    add(builder.instrs, result)
+    constructInstr makeUnop(kind, val)
 
 proc biop*[T](builder: var IrBlockBuilder[T], kind: InstrKind, a, b: IrInstrRef): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeBiop(kind, a, b)
-    add(builder.instrs, result)
+    constructInstr makeBiop(kind, a, b)
 
 proc triop*[T](builder: var IrBlockBuilder[T], kind: InstrKind, a, b, c: IrInstrRef): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeTriop(kind, a, b, c)
-    add(builder.instrs, result)
+    constructInstr makeTriop(kind, a, b, c)
 
 proc interpretppc*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
-    let result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = IrInstr(kind: ppcCallInterpreter, target: target, instr: instrcode, pc: pc)
-    add(builder.instrs, result)
+    discard constructInstr IrInstr(kind: ppcCallInterpreter, target: target, instr: instrcode, pc: pc)
 
 proc interpretdsp*[T](builder: var IrBlockBuilder[T], instrcode, pc: uint32, target: pointer) =
-    let result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = IrInstr(kind: dspCallInterpreter, target: target, instr: instrcode, pc: pc)
-    add(builder.instrs, result)
+    discard constructInstr IrInstr(kind: dspCallInterpreter, target: target, instr: instrcode, pc: pc)
 
 proc extractBit*[T](builder: var IrBlockBuilder[T], val: IrInstrRef, bit: uint32): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeExtractBit(val, bit)
-    add(builder.instrs, result)
+    constructInstr makeExtractBit(val, bit)
 
 proc mergeBit*[T](builder: var IrBlockBuilder[T], val, mergeVal: IrInstrRef, bit: uint32): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeMergeBit(val, mergeVal, bit)
-    add(builder.instrs, result)
+    constructInstr makeMergeBit(val, mergeVal, bit)
 
 proc loadSpr*[T](builder: var IrBlockBuilder[T], spr: Spr): IrInstrRef =
-    result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeLoadSpr(spr)
-    add(builder.instrs, result)
+    constructInstr makeLoadSpr(spr)
 
 proc storeSpr*[T](builder: var IrBlockBuilder[T], spr: Spr, val: IrInstrRef) =
-    let result = builder.fn.allocInstr()
-    builder.fn.getInstr(result) = makeStoreSpr(spr, val)
-    add(builder.instrs, result)
+    discard constructInstr makeStoreSpr(spr, val)
+
+proc funcInternBranch*[T](builder: var IrBlockBuilder[T], cond: IrInstrRef, taken, notTaken: IrBasicBlock) =
+    discard constructInstr makeFuncInternBranch(cond, taken, notTaken)
+
+proc funcInternBranch*[T](builder: var IrBlockBuilder[T], target: IrBasicBlock) =
+    discard constructInstr makeFuncInternBranch(target)
 
 proc isImmVal*(fn: IrFunc, iref: IrInstrRef, imm: bool): bool =
     let instr = fn.getInstr(iref)
@@ -810,6 +840,7 @@ proc isEitherImmIX*(fn: IrFunc, a, b: IrInstrRef): Option[(IrInstrRef, uint64)] 
         none((IrInstrRef, uint64))
 
 proc prettify*(blk: IrBasicBlock, fn: IrFunc): string =
+    result &= &"block {repr(cast[pointer](blk))}\n"
     for i, iref in pairs blk.instrs:
         if iref == InvalidIrInstrRef:
             result &= "<invalid instr ref>"
@@ -852,6 +883,8 @@ proc prettify*(blk: IrBasicBlock, fn: IrFunc): string =
                 result &= &"{instr.spr}, {instr.source(0)}"
             of dspCallInterpreter, ppcCallInterpreter:
                 result &= &"{instr.instr:08X}"
+            of funcInternBranch:
+                result &= &"{instr.source(0)}, {repr(cast[pointer](instr.blockTaken))}, {repr(cast[pointer](instr.blockNotTaken))}"
             else:
                 for i in 0..<instr.numSources:
                     if i > 0:

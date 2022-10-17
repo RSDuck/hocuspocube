@@ -28,6 +28,13 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
 
     builder.regs.pc = blockAdr
 
+    let
+        leaveBlock = IrBasicBlock()
+        entryPointBlock = IrBasicBlock()
+        mainBlock = IrBasicBlock()
+
+
+    #echo &"dsp block {builder.regs.pc:04X}"
     while not builder.regs.branch:
         builder.regs.instr = instrRead(builder.regs.pc)
         #echo &"dsp instr {builder.regs.instr:04X}"
@@ -44,16 +51,43 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
         numInstrs += 1
 
         if isLoopEnd(builder.regs.pc-1) or builder.regs.cycles >= 128 and not builder.regs.branch:
-            discard builder.triop(dspBranch, builder.imm(true), builder.imm(builder.regs.pc), builder.imm(0))
+            #echo &"loop end/too many cycles {builder.regs.cycles}"
+            discard builder.unop(dispatchExternalDsp, builder.imm(builder.regs.pc))
             break
 
-    let blk = IrBasicBlock(instrs: move builder.instrs)
-    fn.blocks.add(blk)
+    # this is not ideal because it might hide errors
+    # but it should work
+    if (let instr = fn.getInstr(builder.instrs[^1]); instr.kind == dspCallInterpreter):
+        discard builder.unop(dispatchExternalDsp, builder.loadctx(ctxLoad16, uint32 offsetof(DspState, pc)))
 
-    var flags = {GenCodeFlags.dsp}
-    if fn.checkIdleLoopDsp(blk, instrReadWrites, blockAdr):
-        flags.incl idleLoop
-    #echo &"dsp block {blockAdr:04X} (is idle loop: {idleLoop in flags})"
+    let
+        lastInstr = builder.instrs.pop()
+        oldCycles = builder.loadctx(ctxLoadU32, uint32 offsetof(DspState, negativeCycles))
+        newCycles = builder.biop(iAdd, oldCycles, builder.imm(uint32(numInstrs)))
+    builder.storectx(ctxStore32, uint32 offsetof(DspState, negativeCycles), newCycles)
+    builder.instrs.add lastInstr
+
+    mainBlock.instrs = move builder.instrs
+
+    block:
+        builder.storectx(ctxStore16, uint32 offsetof(DspState, pc), builder.imm(blockAdr))
+        discard builder.zeroop(leaveJitDsp)
+
+        leaveBlock.instrs = move builder.instrs
+
+    block:
+        let
+            oldCycles = builder.loadctx(ctxLoadU32, uint32 offsetof(DspState, negativeCycles))
+            sliceNotDone = builder.biop(iCmpLessS, oldCycles, builder.imm(0))
+        builder.funcInternBranch(sliceNotDone, mainBlock, leaveBlock)
+
+        entryPointBlock.instrs = move builder.instrs
+
+    fn.blocks.add leaveBlock
+    fn.blocks.add entryPointBlock
+    fn.blocks.add mainBlock
+
+    fn.transformIdleLoopDsp(mainBlock, instrReadWrites, blockAdr)
     fn.ctxLoadStoreEliminiate()
     fn.removeIdentities()
     fn.mergeExtractEliminate()
@@ -62,11 +96,13 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
     fn.foldConstants()
     fn.removeIdentities()
     fn.removeDeadCode()
-    #echo "dsp block (after op): \n", builder.blk
+    #echo "dsp block (after op): \n", prettify(mainBlock, fn)
     fn.calcLiveIntervals()
     fn.verify()
 
-    result = cast[BlockEntryFunc](genCode(fn, builder.regs.cycles, flags))
+    var entryPoints: seq[pointer]
+    genCode(fn, entryPoints = entryPoints)
+    result = cast[BlockEntryFunc](entryPoints[1])
     setBlock blockAdr, result
 
 proc dspRun*() =
@@ -80,4 +116,5 @@ proc dspRun*() =
         #echo &"skipping dsp slice {dspCsr.halt} {dspCsr.busyCopying}"
         return
 
+    #echo &"dsp run {mDspState.pc:04X}"
     codegenx64.dspRun(mDspState)

@@ -43,11 +43,3 @@ proc handleLoopStack*(offset: uint16 = 0) =
             discard mDspState.loopCountStack.pop()
         else:
             mDspState.pc = mDspState.callStack.peek() - 1 - offset
-
-proc postBlock*() =
-    if dspCsr.halt:
-        if mDspState.negativeCycles < 0:
-            mDspState.negativeCycles = 0
-
-    handleLoopStack(0xFFFF'u16)
-    handleExceptions()

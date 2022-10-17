@@ -1,4 +1,5 @@
 import
+    tables, options,
     ../ppcstate,
     ../../util/jit/ir
 
@@ -9,6 +10,12 @@ type
         floatInstr*: bool
 
 using builder: var IrBlockBuilder[PpcIrRegState]
+
+proc branchUncond*(builder; target: IrInstrRef) =
+    discard builder.unop(dispatchExternalPpc, target)
+
+proc branchCond*(builder; cond, taken, notTaken: IrInstrRef) =
+    discard builder.unop(dispatchExternalPpc, builder.triop(csel, taken, notTaken, cond))
 
 proc loadreg*(builder; a: uint32): IrInstrRef =
     builder.loadctx(ctxLoadU32, uint32(offsetof(PpcState, r)) + a*4)

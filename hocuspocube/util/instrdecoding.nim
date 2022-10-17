@@ -87,7 +87,7 @@ macro matchSparseInstrs*[T](instr: T, patterns: static[OrderedTable[string, stri
             result.add nnkElifBranch.newTree(matches, branch[^1])
         else:
             result.add nnkElse.newTree(branch[0])
-    echo result.repr
+    #echo result.repr
 
 proc generateShortDecoder*[bits: static[Slice[int]]](patterns: openArray[(string, string)],
     instrWidth: int,

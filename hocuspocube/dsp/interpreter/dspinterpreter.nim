@@ -5,6 +5,8 @@ import
     dspinterpreter_branch,
     dspinterpreter_loadstore,
 
+    ../../cycletiming,
+
     strformat
 
 proc undefinedInstr(state: var DspState, instr: uint16) =
@@ -32,8 +34,8 @@ proc dspRun*() =
         handleLoopStack()
 
         mDspState.pc += 1
-        mDspState.negativeCycles += 1
+        mDspState.negativeCycles += int32 gekkoCyclesPerDspCycle
 
-        if mDspState.negativeCycles >= 0 or dspCsr.halt:
+        if mDspState.negativeCycles >= 0:
             #echo &"dsp slice, halted: {dspCsr.halt} pc: {mDspState.pc:04X}"
             return

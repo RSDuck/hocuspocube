@@ -93,3 +93,4 @@ proc trap*(state) =
 
 proc wait*(state) =
     dspCsr.halt = true
+    if state.negativeCycles < 0: state.negativeCycles = 0

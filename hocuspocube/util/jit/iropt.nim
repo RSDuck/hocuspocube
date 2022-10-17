@@ -531,7 +531,7 @@ proc globalValueEnumeration*(fn: IrFunc) =
         knownValues.clear()
         for i in 0..<blk.instrs.len:
             let iref = blk.instrs[i]
-            if fn.getInstr(iref).kind notin StrictSideEffectOps:
+            if fn.getInstr(iref).kind notin SideEffectOps:
                 for source in msources fn.getInstr(iref):
                     let replacedVal = IrInstrRef(int(replacedValues[int(source)]) - 1)
                     if replacedVal != InvalidIrInstrRef:
@@ -557,13 +557,69 @@ proc verify*(fn: IrFunc) =
             instrsEncountered.setBit(int(iref)-1)
 
             if i == blk.instrs.len - 1:
-                assert instr.kind in {ppcBranch, ppcSyscall, ppcCallInterpreter,
-                    dspBranch, dspCallInterpreter}, &"last instruction of IR block not valid\n{prettify(blk, fn)}"
+                assert instr.kind in BlockEndingInstrs,
+                    &"last instruction of IR block not valid\n{prettify(blk, fn)}"
+            else:
+                assert instr.kind notin BlockEndingInstrs,
+                    &"block ending instruction inside block\n{prettify(blk, fn)}"
 
-proc checkIdleLoopPpc*(fn: IrFunc, blk: IrBasicBlock, startAdr: uint32): bool =
+proc deconstructImmBranch*(fn: IrFunc, branchInstr: IrInstr): (IrInstrRef, Option[uint32], Option[uint32]) =
+    let target = fn.getInstr(branchInstr.source(0))
+    if target.kind == loadImmI:
+        (InvalidIrInstrRef, some(uint32 target.immValI), none(uint32))
+    elif target.kind == csel:
+        (target.source(2), fn.isImmValI(target.source(0)), fn.isImmValI(target.source(1)))
+    else:
+        (InvalidIrInstrRef, none(uint32), none(uint32))
+
+proc transformIdleLoop(cond: IrInstrRef, targetTaken, targetNotTaken: Option[uint32],
+        fn: IrFunc, blk: IrBasicBlock, dispatchInstrKind, leaveInstrKind, pcStoreKind: InstrKind, startAdr, pcOffset, cyclesOffset: uint32) =
+
+    proc writeIdleLoopExit(builder: var IrBlockBuilder[void],
+            fn: IrFunc, blk: IrBasicBlock,
+            exitAdr, pcOffset, cyclesOffset: uint32,
+            pcStoreKind: InstrKind) =
+        let cycles = builder.loadctx(ctxLoadU32, cyclesOffset)
+        builder.storectx(ctxStore32, uint32 cyclesOffset,
+            builder.triop(csel, builder.imm(0), cycles, builder.biop(iCmpLessS, cycles, builder.imm(0))))
+
+        builder.storectx(pcStoreKind, uint32 pcOffset, builder.imm(exitAdr))
+        discard builder.zeroop(leaveInstrKind)
+
+    var
+        builder = IrBlockBuilder[void](fn: fn)
+    if cond != InvalidIrInstrRef:
+        let
+            takenBlock = IrBasicBlock()
+            notTakenBlock = IrBasicBlock()
+
+        fn.getInstr(blk.instrs[^1]) = makeFuncInternBranch(cond, takenBlock, notTakenBlock)
+
+        for (blk, target) in [(takenBlock, targetTaken), (notTakenBlock, targetNotTaken)]:
+            if target == some(startAdr):
+                builder.writeIdleLoopExit(fn, blk, target.get, pcOffset, cyclesOffset, pcStoreKind)
+            else:
+                discard builder.unop(dispatchInstrKind, builder.imm(target.get))
+            blk.instrs = move builder.instrs
+
+            fn.blocks.add blk
+
+        #echo "transforming cond idle loop"
+    else:
+        #echo "transforming uncond idle loop ", prettify(blk, fn)
+        builder.instrs = move blk.instrs
+        builder.instrs.setLen builder.instrs.len-1
+        builder.writeIdleLoopExit(fn, blk, targetTaken.get, pcOffset, cyclesOffset, pcStoreKind)
+        blk.instrs = move builder.instrs
+
+proc transformIdleLoopsPpc*(fn: IrFunc, blk: IrBasicBlock, startAdr: uint32) =
     let lastInstr = fn.getInstr(blk.instrs[^1])
-    if lastInstr.kind == ppcBranch and
-        (let target = fn.isImmValI(lastInstr.source(1)); target.isSome and target.get == startAdr):
+    if lastInstr.kind == dispatchExternalPpc:
+        # check whether this is a back jump to the start of the block
+        let (cond, targetTaken, targetNotTaken) = fn.deconstructImmBranch(lastInstr)
+        if (cond != InvalidIrInstrRef and targetNotTaken.isNone) or
+                not(targetTaken == some(startAdr) or targetNotTaken == some(startAdr)):
+            return
 
         var
             regsLocked: set[0..31]
@@ -571,10 +627,10 @@ proc checkIdleLoopPpc*(fn: IrFunc, blk: IrBasicBlock, startAdr: uint32): bool =
         for i in 0..<blk.instrs.len-1:
             let instr = fn.getInstr(blk.instrs[i])
             case instr.kind
-            of ppcSyscall, ppcStore8, ppcStore16, ppcStore32,
+            of ppcStore8, ppcStore16, ppcStore32,
                 ppcStoreFss, ppcStoreFsd, ppcStoreFsq, sprStore32,
                 ppcCallInterpreter:
-                return false
+                return
             of CtxLoadInstrs:
                 if instr.ctxOffset-uint32(offsetof(PpcState, r)) < 32*4:
                     let reg = (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
@@ -587,31 +643,40 @@ proc checkIdleLoopPpc*(fn: IrFunc, blk: IrBasicBlock, startAdr: uint32): bool =
                 let reg = (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
 
                 if reg in regsLocked:
-                    return false
+                    return
 
                 regsLocked.incl reg
             else: discard
 
-        return true
-    return false
+        transformIdleLoop(cond, targetTaken, targetNotTaken,
+            fn, blk,
+            dispatchExternalPpc, leaveJitPpc, ctxStore32,
+            startAdr,
+            uint32 offsetof(PpcState, pc), uint32 offsetof(PpcState, negativeCycles))
 
-proc checkIdleLoopDsp*(fn: IrFunc, blk: IrBasicBlock, instrs: seq[tuple[read, write: set[DspReg]]], startAdr: uint16): bool =
+proc transformIdleLoopDsp*(fn: IrFunc, blk: IrBasicBlock, instrs: seq[tuple[read, write: set[DspReg]]], startAdr: uint16) =
     let lastInstr = fn.getInstr(blk.instrs[^1])
-    if lastInstr.kind == dspBranch and
-        (let target = fn.isImmValI(lastInstr.source(1));
-        target.isSome and target.get == startAdr):
+    if lastInstr.kind == dispatchExternalDsp:
+        let (cond, targetTaken, targetNotTaken) = fn.deconstructImmBranch(lastInstr)
+        if (cond != InvalidIrInstrRef and targetNotTaken.isNone) or
+                not(targetTaken == some(uint32 startAdr) or targetNotTaken == some(uint32 startAdr)):
+            return
 
         var regsLocked, regsWritten: set[DspReg]
         for instr in instrs:
             regsLocked.incl instr.read * complement(regsWritten)
 
             if regsLocked * instr.write != {}:
-                return false
+                return
 
             regsWritten.incl instr.write
 
-        return true
-    return false
+        echo &"found dsp idle loop {startAdr:04X}"
+        transformIdleLoop(cond, targetTaken, targetNotTaken,
+            fn, blk,
+            dispatchExternalDsp, leaveJitDsp, ctxStore16,
+            startAdr,
+            uint32 offsetof(DspState, pc), uint32 offsetof(DspState, negativeCycles))
 
 proc calcLiveIntervals*(fn: IrFunc) =
     for blk in fn.blocks:
@@ -619,3 +684,34 @@ proc calcLiveIntervals*(fn: IrFunc) =
             let instr = fn.getInstr(blk.instrs[i])
             for src in instr.sources:
                 fn.getInstr(src).lastRead = int32 i
+
+proc findTarget(targets: seq[(uint32, IrBasicBlock)], target: uint32): IrBasicBlock =
+    #let target = targets.binarySearch(target) do (a: (uint32, IrBasicBlock), b: uint32) -> int:
+    #    cmp(a[0], b)
+    
+    #if target != -1:
+    #    targets[target][1]
+    #else:
+    #    nil
+    for (adr, blk) in targets:
+        if adr == target:
+            return blk
+    nil
+
+proc resolveInnerFuncBranches*(fn: IrFunc, targets: seq[(uint32, IrBasicBlock)]) =
+    for blk in fn.blocks:
+        let lastInstr = fn.getInstr(blk.instrs[^1])
+        if lastInstr.kind == dispatchExternalPpc:
+            let (cond, immTaken, immNotTaken) = fn.deconstructImmBranch(lastInstr)
+            if cond == InvalidIrInstrRef and immTaken.isSome:
+                let target = targets.findTarget(immTaken.get)
+                if target != nil:
+                    #echo "replaced branch uncond"
+                    fn.getInstr(blk.instrs[^1]) = makeFuncInternBranch(target)
+            elif cond != InvalidIrInstrRef and immTaken.isSome and immNotTaken.isSome:
+                let
+                    takenTarget = targets.findTarget(immTaken.get)
+                    notTakenTarget = targets.findTarget(immNotTaken.get)
+                if takenTarget != nil and notTakenTarget != nil:
+                    #echo "replaced cond branch"
+                    fn.getInstr(blk.instrs[^1]) = makeFuncInternBranch(cond, takenTarget, notTakenTarget)

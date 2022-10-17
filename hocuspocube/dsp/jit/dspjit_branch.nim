@@ -30,6 +30,10 @@ proc evalCond(builder; cond: uint32): IrInstrRef =
     of 14: builder.readStatus(dspStatusBitOv)
     of 15: builder.imm(true)
 
+proc condJmp(builder; cc: uint16, target: IrInstrRef) =
+    let target = builder.triop(csel, target, builder.imm(builder.regs.pc + 1), evalCond(builder, cc))
+    discard builder.unop(dispatchExternalDsp, target)
+
 proc jmp*(builder; cc: uint16) =
     when interpretBranch:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.jmp)
@@ -37,14 +41,14 @@ proc jmp*(builder; cc: uint16) =
     else:
         let target = builder.fetchFollowingImm
 
-        discard builder.triop(dspBranch, evalCond(builder, cc), builder.imm(target), builder.imm(builder.regs.pc + 1))
+        builder.condJmp(cc, builder.imm(target))
     builder.regs.branch = true
 
 proc jmpr*(builder; r, cc: uint16) =
     when interpretBranch:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.jmpr)
     else:
-        discard builder.triop(dspBranch, evalCond(builder, cc), builder.readReg(DspReg(r)), builder.imm(builder.regs.pc + 1))
+        builder.condJmp(cc, builder.readReg(DspReg(r)))
     builder.regs.branch = true
 
 proc call*(builder; cc: uint16) =
@@ -97,4 +101,7 @@ proc trap*(builder) =
 
 proc wait*(builder) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.wait)
+    # a bit weird, but I'm too lazy to allow writing dspcsr from the JIT
+    # and this isn't exactly performance critical
+    discard builder.zeroop(leaveJitDsp)
     builder.regs.branch = true

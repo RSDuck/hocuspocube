@@ -21,7 +21,7 @@ proc bx*(builder; li, aa, lk: uint32) =
             else:
                 builder.regs.pc + (signExtend(li, 24) shl 2))
 
-        discard builder.triop(ppcBranch, builder.imm(true), builder.imm(target), builder.imm(0))
+        builder.branchUncond(builder.imm(target))
 
 proc handleCondAndCtr(builder; bo, bi: uint32): IrInstrRef =
     let
@@ -64,7 +64,7 @@ proc bcx*(builder; bo, bi, bd, aa, lk: uint32) =
         if lk == 1:
             builder.storeLr(builder.triop(csel, prevNia, builder.loadLr(), cond))
 
-        discard builder.triop(ppcBranch, cond, builder.imm(target), prevNia)
+        builder.branchCond(cond, builder.imm(target), prevNia)
 
 proc bcctrx*(builder; bo, bi, lk: uint32) =
     when interpretBranch:
@@ -77,7 +77,7 @@ proc bcctrx*(builder; bo, bi, lk: uint32) =
         if lk == 1:
             builder.storeLr(builder.triop(csel, prevNia, builder.loadLr(), cond))
 
-        discard builder.triop(ppcBranch, cond, builder.loadCtr(), prevNia)
+        builder.branchCond(cond, builder.loadCtr(), prevNia)
 
 proc bclrx*(builder; bo, bi, lk: uint32) =
     when interpretBranch:
@@ -91,4 +91,4 @@ proc bclrx*(builder; bo, bi, lk: uint32) =
         if lk == 1:
             builder.storeLr(builder.triop(csel, prevNia, lr, cond))
 
-        discard builder.triop(ppcBranch, cond, lr, prevNia)
+        builder.branchCond(cond, lr, prevNia)

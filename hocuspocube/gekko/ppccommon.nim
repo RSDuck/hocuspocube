@@ -88,8 +88,10 @@ proc handleExceptions*(state: var PpcState) =
         #echo &"taking interrupt to {gekkoState.pc:08X} from {oldPc:08X} {gekkoState.lr:08X}"
         break
 
-proc systemCall*(state: var PpcState) =
+proc systemCall*(state: var PpcState): uint32 =
     state.pendingExceptions.incl exceptionSystemCall
+    state.handleExceptions()
+    state.pc
 
 proc setWpar*(state: var PpcState, val: uint32) =
     state.gatherpipeOffset = 0
@@ -138,11 +140,9 @@ proc stateStr*(): string =
     result &= &"pc: {gekkoState.pc:08X}\n"
 
 proc handleFException*(state: var PpcState): uint32 =
-    if unlikely(not state.msr.fp):
-        state.pendingExceptions.incl exceptionNoFloatPoint
-        1
-    else:
-        0
+    state.pendingExceptions.incl exceptionNoFloatPoint
+    state.handleExceptions()
+    state.pc
 
 proc setDbat(state: var PpcState, num: uint32, lo: BatLo, hi: BatHi)
 

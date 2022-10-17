@@ -16,6 +16,7 @@ proc mapBlockEntryAdr*(adr: uint16): uint32 =
         raiseAssert(&"unknown dsp block adr {adr:04X}")
 
 proc lookupBlock*(adr: uint16): BlockEntryFunc =
+    #echo &"look up block {adr:04X}"
     blockEntries[mapBlockEntryAdr(adr)]
 
 proc setBlock*(adr: uint16, f: BlockEntryFunc) =

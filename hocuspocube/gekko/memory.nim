@@ -108,7 +108,7 @@ proc readMainRam*(adr: uint32, data: pointer, len: uint32) =
     copyMem(data, mainRamReadPtr(adr, uint32 len), len)
 
 import
-    options, strutils,
+    strutils,
     stew/endians2,
 
     gekko,

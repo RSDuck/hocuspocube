@@ -28,13 +28,13 @@ type
         alphaCompLogic*: AlphaCompLogic
         alphaComp0*, alphaComp1*: CompareFunction
         zenv1*: TevZEnv1
+        zCompLoc*: bool
 
 proc `==`*(a, b: VertexShaderKey): bool =
     result = a.enabledAttrs == b.enabledAttrs and
         a.numTexcoordGen == b.numTexcoordGen and
         a.numColors == b.numColors and
         a.enableDualTex == b.enableDualTex
-
     if result:
         for i in 0..<a.numTexcoordGen:
             if a.texcoordGen[i] != b.texcoordGen[i]:
@@ -76,7 +76,8 @@ proc `==`*(a, b: FragmentShaderKey): bool =
         a.numIndTevStages == b.numIndTevStages and
         a.alphaCompLogic == b.alphaCompLogic and
         a.alphaComp0 == b.alphaComp0 and
-        b.alphaComp1 == b.alphaComp1
+        b.alphaComp1 == b.alphaComp1 and
+        a.zCompLoc == b.zCompLoc
 
     if result:
         if a.zenv1.op != b.zenv1.op or
@@ -116,6 +117,7 @@ proc hash*(key: FragmentShaderKey): Hash =
     result = result !& hash(key.alphaComp0)
     result = result !& hash(key.alphaComp1)
     result = result !& hash(key.zenv1.op)
+    result = result !& hash(key.zCompLoc)
     if key.zenv1.op != zenvOpDisable:
         result = result !& hash(key.zenv1.typ)
     for i in 0..<key.numTevStages:
@@ -419,6 +421,9 @@ proc indWrap(texcoord: string, wrap: IndWrap): string =
 
 proc genFragmentShader*(key: FragmentShaderKey): string =
     line "#version 430 core"
+
+    if key.zCompLoc:
+        line "layout(early_fragment_tests) in;"
 
     line "layout (location = 0) in vec4 inColor0;"
     line "layout (location = 1) in vec4 inColor1;"
@@ -730,10 +735,11 @@ indMat{matNum}Col0.y * indtexcoord.x + indMat{matNum}Col1.y * indtexcoord.y + in
         let val = translateVal[key.zenv1.typ]
         line &"float depth = float(({val}) + ZEnvBias) / 16777216.0;"
 
-        if key.zenv1.op == zenvOpAdd:
-            line "gl_FragDepth = gl_FragCoord.z + depth;"
-        else:
-            line "gl_FragDepth = depth;"
+        if not key.zCompLoc:
+            if key.zenv1.op == zenvOpAdd:
+                line "gl_FragDepth = gl_FragCoord.z + depth;"
+            else:
+                line "gl_FragDepth = depth;"            
 
         line "}"
 

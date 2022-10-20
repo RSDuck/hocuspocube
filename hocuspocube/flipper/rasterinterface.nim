@@ -180,6 +180,7 @@ proc getFragShaderKey(): FragmentShaderKey =
     result.alphaComp0 = alphaCompare.comp0
     result.alphaComp1 = alphaCompare.comp1
     result.zenv1 = zenv1
+    result.zCompLoc = peCntrl.zcompLoc
 
 proc init*() =
     rasterogl.init()
@@ -271,6 +272,8 @@ proc startDraw(kind: PrimitiveKind) =
                 op,
                 srcColorFactor, srcAlphaFactor,
                 dstColorFactor, dstAlphaFactor)
+
+            rasterogl.setLogicOp(false, loCopy)
         else:
             rasterogl.setBlendState(false, blendAdd, blendFactorOne, blendFactorOne, blendFactorZero, blendFactorZero)
             rasterogl.setLogicOp(peCMode0.logicOpEnable and peCMode0.logicOp != loCopy, peCMode0.logicOp)

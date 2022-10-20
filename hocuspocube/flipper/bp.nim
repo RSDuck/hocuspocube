@@ -162,7 +162,8 @@ proc bpWrite*(adr, val: uint32) =
             registerUniformDirty = true
             rasterStateDirty = true
     of 0x43:
-        peCntrl.maskedWrite val
+        if peCntrl.maskedWrite val:
+            fragmentShaderDirty = true
     of 0x49:
         efbCopySrcPos.maskedWrite val
     of 0x4A:

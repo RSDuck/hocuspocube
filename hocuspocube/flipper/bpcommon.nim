@@ -480,7 +480,6 @@ makeBitStruct uint32, *PeCntrl:
     zcompLoc[6]: bool
 
 makeBitStruct uint32, *PeCMode0:
-    # still misses all the logicop stuff
     blendEnable[0]: bool
     logicOpEnable[1]: bool
     colorUpdate[3]: bool

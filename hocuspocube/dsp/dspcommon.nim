@@ -1,6 +1,6 @@
 import
     strformat,
-    dspstate, dsp
+    dspstate, dsp, jit/dspblockcache
 
 proc handleExceptions*() =
     if mDspState.status.et:
@@ -31,9 +31,10 @@ proc handleReset*() =
             mDspState.wrapReg[i] = 0xFFFF'u16
         mDspState.pc = IRomStartAdr
 
-proc handleLoopStack*(offset: uint16 = 0) =
+proc nextPc*(pc: uint16): uint16 =
+    result = pc
     while mDspState.loopAddrStack.sp > 0 and
-            mDspState.loopAddrStack.peek() == (mDspState.pc + offset):
+            mDspState.loopAddrStack.peek() == result:
 
         mDspState.loopCountStack.peek() -= 1
 
@@ -42,4 +43,14 @@ proc handleLoopStack*(offset: uint16 = 0) =
             discard mDspState.loopAddrStack.pop()
             discard mDspState.loopCountStack.pop()
         else:
-            mDspState.pc = mDspState.callStack.peek() - 1 - offset
+            result = mDspState.callStack.peek() - 1
+
+    result += 1
+
+proc compileBlockDsp(adr: uint16): dspblockcache.BlockEntryFunc {.importc: "compileBlockDsp".}
+
+proc nextBlock*(pc: uint16): BlockEntryFunc =
+    let pc = nextPc(pc-1)
+    result = lookupBlock(pc)
+    if unlikely(result == nil):
+        result = compileBlockDsp(pc)

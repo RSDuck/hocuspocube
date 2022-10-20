@@ -18,10 +18,6 @@ proc mapBlockEntryAdr*(adr: uint32): uint32 =
 proc lookupBlock*(adr: uint32): BlockEntryFunc =
     blockEntries[mapBlockEntryAdr(adr)]
 
-proc lookupBlockTranslateAddr*(state: var PpcState, adr: uint32): BlockEntryFunc =
-    result = lookupBlock(state.translateInstrAddr(adr))
-    #echo &"lookup and translate {adr:08X} {repr(result)}"
-
 proc setBlock*(adr: uint32, f: BlockEntryFunc) =
     blockEntries[mapBlockEntryAdr(adr)] = f
 
@@ -31,3 +27,11 @@ proc invalidateBlockCacheCode*(adr: uint32) =
 
 proc clearBlockCache*() =
     zeroMem(addr blockEntries, sizeof(blockEntries))
+
+proc compileBlockPpc(adr: uint32): BlockEntryFunc {.importc: "compileBlockPpc".}
+
+proc nextBlock*(state: var PpcState, adr: uint32): BlockEntryFunc =
+    result = lookupBlock(state.translateInstrAddr(adr))
+    if unlikely(result == nil):
+        result = compileBlockPpc(adr)
+    #echo &"lookup and translate {adr:08X} {repr(result)}"

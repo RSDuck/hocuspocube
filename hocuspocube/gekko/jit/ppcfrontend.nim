@@ -48,7 +48,7 @@ proc `$`(blk: PreliminaryBlock): string =
     for instr in blk.instrs:
         result &= &"  {fromBE(instr):08X}\n"
 
-proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
+proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
     #[
         we assume a function:
             - has a single entry point
@@ -59,10 +59,10 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
         https://github.com/Ryujinx/Ryujinx/blob/master/ARMeilleure/Decoders/Decoder.cs
     ]#
 
-    echo &"starting func at {gekkoState.pc:08X}"
+    echo &"starting func at {funcAdr:08X}"
 
     var
-        looseEnds = @[gekkoState.pc]
+        looseEnds = @[funcAdr]
         blocks: seq[PreliminaryBlock]
 
     while looseEnds.len > 0:
@@ -104,7 +104,7 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
                     if lk == 0:
                         let targetAdr = (if aa == 0: pc else: 0'u32) + (signExtend(li, 24) shl 2)
                         # if it's jumping above the start of the function it's a tail call
-                        if targetAdr >= gekkoState.pc:
+                        if targetAdr >= funcAdr:
                             looseEnds.add(targetAdr)
                     else:
                         looseEnds.add(nia)
@@ -114,7 +114,7 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
                         looseEnds.add(pc + 4)
                     if lk == 0:
                         let targetAdr = (if aa == 0: pc else: 0'u32) + signExtend(bd, 14) shl 2
-                        if targetAdr >= gekkoState.pc:
+                        if targetAdr >= funcAdr:
                             looseEnds.add(targetAdr)
                     blk.branches = true
                 of "bcctrx", bo, bi, lk:
@@ -270,15 +270,15 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
         #echo "postopt\n", prettify(blk, fn)
 
     fn.resolveInnerFuncBranches(entryPoints)
-    #fn.ctxLoadStoreEliminiate()
-    #fn.removeIdentities()
+    fn.ctxLoadStoreEliminiate()
+    fn.removeIdentities()
     fn.mergeExtractEliminate()
     fn.removeIdentities()
-    #fn.floatOpts()
-    #fn.foldConstants()
-    #fn.removeIdentities()
-    #fn.globalValueEnumeration()
-    #fn.removeDeadCode()
+    fn.floatOpts()
+    fn.foldConstants()
+    fn.removeIdentities()
+#    fn.globalValueEnumeration()
+    fn.removeDeadCode()
     fn.calcLiveIntervals()
     fn.verify()
 
@@ -299,7 +299,7 @@ proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockPpc", used.} =
                 j += 1
 
             setBlock gekkoState.translateInstrAddr(entryPoints[i][0]), cast[BlockEntryFunc](entryPointAddrs[j])
-            if entryPoints[i][0] == gekkoState.pc:
+            if entryPoints[i][0] == funcAdr:
                 result = cast[BlockEntryFunc](entryPointAddrs[j])
 
             i += 1

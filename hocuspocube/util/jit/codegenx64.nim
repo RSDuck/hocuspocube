@@ -7,8 +7,6 @@ import
     ir
 
 proc systemStep(): bool {.importc.}
-proc compileBlockPpc(): gekkoblockcache.BlockEntryFunc {.importc: "compileBlockPpc".}
-proc compileBlockDsp(): dspblockcache.BlockEntryFunc {.importc: "compileBlockDsp".}
 
 when defined(windows):
     const
@@ -324,8 +322,9 @@ type PatchLoc = object
     replacement: int32
     startOffset, len: int16
 
+var codeMemory {.align(0x1000).}: array[32*1024*1024, byte]
+
 var
-    codeMemory {.align(0x1000).}: array[32*1024*1024, byte]
     assembler = initAssemblerX64(cast[ptr UncheckedArray[byte]](addr codeMemory[0]))
     assemblerFar = initAssemblerX64(cast[ptr UncheckedArray[byte]](addr codeMemory[len(codeMemory) div 2]))
 
@@ -337,32 +336,23 @@ var
     dspRun*: proc(state: var DspState) {.cdecl.}
     dspDone: pointer
 
+    assemblerStart = -1
+    assemblerCodeSize = -1
+const
+    assemblerStartFar = sizeof(codeMemory) div 2
+    assemblerCodeSizeFar = assemblerStartFar
+
 doAssert reprotectMemory(addr codeMemory[0], sizeof(codeMemory), {memperm_R, memperm_W, memperm_X})
 
 proc jumpToNextBlockPpc(s: var AssemblerX64) =
     #s.int3()
     s.mov(reg(param1), rcpu)
-    s.mov(mem32(rcpu, int32 offsetof(PpcState, pc)), Register32 ord(param2))
-    s.call(gekkoblockcache.lookupBlockTranslateAddr)
-    s.test(reg(regRax), regRax)
-    let skipCompileBlock = s.jcc(condNotZero, false)
-    s.call(compileBlockPpc)
-    s.label(skipCompileBlock)
+    s.call(gekkoblockcache.nextBlock)
     s.jmp(reg(regRax))
 
 proc jumpToNextBlockDsp(s: var AssemblerX64) =
-    s.mov(mem16(rcpu, int32 offsetof(DspState, pc)), Register16 ord(param1))
-    # giant hack
-    s.mov(reg(Register32 ord(param1)), -1)
-    s.call(handleLoopStack)
-    s.mov(Register16 ord(param1), mem16(rcpu, int32 offsetof(DspState, pc)))
-    s.call(dspblockcache.lookupBlock)
-    s.test(reg(regRax), regRax)
-    let skipCompileBlock = s.jcc(condNotZero, false)
-    s.call(compileBlockDsp)
-    s.label(skipCompileBlock)
+    s.call(dspcommon.nextBlock)
     s.jmp(reg(regRax))
-
 
 proc stackSetupEnter(s: var AssemblerX64, needFp: bool): int32 =
     for i in 0..<calleeSavedRegsNum:
@@ -427,6 +417,9 @@ proc genPpcStartup() =
         s.jumpToNextBlockPpc()
         s.label(doneForever)
         s.jmp(ppcDone)
+    
+    assemblerStart = s.offset
+    assemblerCodeSize = assemblerStartFar - assemblerStart
 
 genPpcStartup()
 
@@ -497,9 +490,11 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
     template s: untyped = assembler
     template sfar: untyped = assemblerFar
 
-    if (sizeof(codeMemory) div 2) - s.offset < 64*1024:
-        clearBlockCache()
-        s.offset = 0
+    if assemblerCodeSize - s.offset < 64*1024 or assemblerCodeSizeFar - sfar.offset < 64*1024:
+        gekkoblockcache.clearBlockCache()
+        dspblockcache.clearBlockCache()
+        s.offset = assemblerStart
+        sfar.offset = assemblerStartFar
 
     var
         forwardLabels: seq[(ForwardsLabel, IrBasicBlock)]

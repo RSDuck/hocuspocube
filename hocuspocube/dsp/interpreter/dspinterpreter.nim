@@ -31,9 +31,7 @@ proc dspRun*() =
 
         dspMainDispatch instr, mDspState, undefinedInstr
 
-        handleLoopStack()
-
-        mDspState.pc += 1
+        mDspState.pc = nextPc(mDspState.pc)
         mDspState.negativeCycles += int32 gekkoCyclesPerDspCycle
 
         if mDspState.negativeCycles >= 0:

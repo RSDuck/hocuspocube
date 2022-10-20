@@ -15,9 +15,9 @@ import
 proc undefinedInstr(state: var IrBlockBuilder[DspIrState], instr: uint16) =
     raiseAssert(&"undefined dsp instr {instr:02X}")
 
-proc compileBlock(): BlockEntryFunc {.exportc: "compileBlockDsp".} =
+proc compileBlock(funcAdr: uint16): BlockEntryFunc {.exportc: "compileBlockDsp".} =
     let
-        blockAdr = mDspState.pc
+        blockAdr = funcAdr
         fn = IrFunc()
     var
         builder = IrBlockBuilder[DspIrState](fn: fn)

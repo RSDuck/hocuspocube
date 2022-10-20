@@ -33,7 +33,7 @@ proc invalidateByAdr*(adr: uint16) =
         loopEnds.excl adr
         blockEntries[adr] = nil
 
-proc invalidateAll*() =
+proc clearBlockCache*() =
     loopEnds.clear()
     for entry in mitems blockEntries:
         entry = nil

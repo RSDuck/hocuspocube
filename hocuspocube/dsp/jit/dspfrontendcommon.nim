@@ -308,7 +308,7 @@ proc storeAccum*(builder; num: uint32): IrInstrRef =
     builder.triop(csel,
         clampVal,
         builder.unop(extractMid, accum),
-        builder.biop(condAnd, xl, builder.unop(condNot, builder.biop(iCmpEqualX, accum, builder.unop(extswX, accum)))))
+        builder.biop(condAnd, xl, builder.biop(iCmpNequalX, accum, builder.unop(extswX, accum))))
 
 proc setZ1*(builder; val: IrInstrRef) =
     builder.writeStatus dspStatusBitZr, builder.biop(iCmpEqualX, val, builder.imm(0))

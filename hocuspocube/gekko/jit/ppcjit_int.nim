@@ -222,9 +222,9 @@ proc mullwx*(builder; d, a, b, oe, rc: uint32) =
 
         builder.updateOv(block:
             let upperResult = builder.biop(iMulhS, ra, rb)
-            builder.unop(condNot, builder.biop(condOr,
-                builder.biop(iCmpEqual, upperResult, builder.imm(0)),
-                builder.biop(iCmpEqual, upperResult, builder.imm(0xFFFFFFFF'u32)))),
+            builder.biop(condAnd,
+                builder.biop(iCmpNequal, upperResult, builder.imm(0)),
+                builder.biop(iCmpNequal, upperResult, builder.imm(0xFFFFFFFF'u32))),
             oe)
         builder.handleRc(val, rc)
 
@@ -562,12 +562,11 @@ proc srawx*(builder; s, a, b, rc: uint32) =
 
         builder.storeCa(builder.biop(condAnd,
             builder.biop(iCmpLessS, rs, builder.imm(0)),
-            builder.unop(condNot,
-                builder.biop(iCmpEqual,
+                builder.biop(iCmpNequal,
                     builder.biop(bitAnd,
                         rs,
                         builder.unop(bitNot, builder.biop(lslX, builder.imm(0xFFFFFFFF'u32), rb))),
-                    builder.imm(0)))))
+                    builder.imm(0))))
 
         builder.storereg a, val
 
@@ -583,12 +582,11 @@ proc srawix*(builder; s, a, sh, rc: uint32) =
 
         builder.storeCa(builder.biop(condAnd,
             builder.biop(iCmpLessS, rs, builder.imm(0)),
-            builder.unop(condNot,
-                builder.biop(iCmpEqual,
+                builder.biop(iCmpNequal,
                     builder.biop(bitAnd,
                         builder.imm((0..int(sh)-1).toMask[:uint32]()),
                         rs),
-                    builder.imm(0)))))
+                    builder.imm(0))))
 
         builder.storereg a, val
 

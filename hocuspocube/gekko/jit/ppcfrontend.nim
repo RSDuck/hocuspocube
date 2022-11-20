@@ -59,7 +59,7 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
         https://github.com/Ryujinx/Ryujinx/blob/master/ARMeilleure/Decoders/Decoder.cs
     ]#
 
-    echo &"starting func at {funcAdr:08X}"
+    #echo &"starting func at {funcAdr:08X}"
 
     var
         looseEnds = @[funcAdr]

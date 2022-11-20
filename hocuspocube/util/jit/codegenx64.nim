@@ -526,19 +526,19 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
         template setFlagUnk(): untyped =
             flagstate = flagStateUnknown
         template setFlagCmpZero(val: IrInstrRef): untyped =
-            discard#flagstate = flagStateCmpZero
-            discard#flagstateL = val
+            flagstate = flagStateCmpZero
+            flagstateL = val
         template setFlagCmpZeroX(val: IrInstrRef): untyped =
-            discard#flagstate = flagStateCmpZeroX
-            discard#flagstateL = val
+            flagstate = flagStateCmpZeroX
+            flagstateL = val
         template setFlagCmp(a, b: IrInstrRef): untyped =
-            discard#flagstate = flagStateCmpVal
-            discard#flagstateL = a
-            discard#flagstateR = b
+            flagstate = flagStateCmpVal
+            flagstateL = a
+            flagstateR = b
         template setFlagCmpX(a, b: IrInstrRef): untyped =
-            discard#flagstate = flagStateCmpValX
-            discard#flagstateL = a
-            discard#flagstateR = b
+            flagstate = flagStateCmpValX
+            flagstateL = a
+            flagstateR = b
 
         if dataAdrSpace != nil:
             s.mov(rmemStart, cast[int64](dataAdrSpace))
@@ -989,7 +989,11 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
                 s.setcc(reg(Register8(dst.toReg.ord)), condNotBelow)
                 s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
                 setFlagUnk()
-            of iCmpEqual, iCmpGreaterU, iCmpLessU, iCmpGreaterS, iCmpLessS:
+            of iCmpEqual, iCmpNequal,
+                    iCmpGreaterU, iCmpGequalU,
+                    iCmpLessU, iCmpLequalU,
+                    iCmpGreaterS, iCmpGequalS,
+                    iCmpLessS, iCmpLequalS:
                 let dst =
                     (if flagstate == flagStateCmpVal and
                             flagstateL == instr.source(0) and flagstateR == instr.source(1):
@@ -1014,13 +1018,22 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
                 s.setcc(reg(Register8(dst.toReg.ord)),
                     case instr.kind
                     of iCmpEqual: condZero
+                    of iCmpNequal: condNotZero
                     of iCmpGreaterU: condNbequal
+                    of iCmpGequalU: condNotBelow
                     of iCmpLessU: condBelow
+                    of iCmpLequalU: condBequal
                     of iCmpGreaterS: condNotLequal
+                    of iCmpGequalS: condNotLess
                     of iCmpLessS: condLess
+                    of iCmpLequalS: condLequal
                     else: raiseAssert("welp"))
                 s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
-            of iCmpEqualX, iCmpGreaterUX, iCmpLessUX, iCmpGreaterSX, iCmpLessSX:
+            of iCmpEqualX, iCmpNequalX,
+                    iCmpGreaterUX, iCmpGequalUX,
+                    iCmpLessUX, iCmpLequalUX,
+                    iCmpGreaterSX, iCmpGequalSX,
+                    iCmpLessSX, iCmpLequalSX:
                 let dst =
                     (if flagstate == flagStateCmpValX and
                             flagstateL == instr.source(0) and flagstateR == instr.source(1):
@@ -1045,10 +1058,15 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
                 s.setcc(reg(Register8(dst.toReg.ord)),
                     case instr.kind
                     of iCmpEqualX: condZero
+                    of iCmpNequalX: condNotZero
                     of iCmpGreaterUX: condNbequal
+                    of iCmpGequalUX: condNotBelow
                     of iCmpLessUX: condBelow
+                    of iCmpLequalUX: condBequal
                     of iCmpGreaterSX: condNotLequal
+                    of iCmpGequalSX: condNotLess
                     of iCmpLessSX: condLess
+                    of iCmpLequalSX: condLequal
                     else: raiseAssert("welp"))
                 s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
             of ppcLoadU8, ppcLoadU16, ppcLoad32:

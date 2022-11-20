@@ -31,11 +31,7 @@ proc handleCondAndCtr(builder; bo, bi: uint32): IrInstrRef =
             else:
                 let ctr = builder.biop(iSub, builder.loadCtr(), builder.imm(1))
                 builder.storeCtr(ctr)
-                let isZero = builder.biop(iCmpEqual, ctr, builder.imm(0))
-                if bo.getBit(1):
-                    isZero
-                else:
-                    builder.unop(condNot, isZero))
+                builder.biop((if bo.getBit(1): iCmpEqual else: iCmpNequal), ctr, builder.imm(0)))
         condOk =
             (if bo.getBit(4):
                 builder.imm(true)

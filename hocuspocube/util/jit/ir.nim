@@ -126,16 +126,30 @@ type
         carrySubExtended
 
         iCmpEqual
+        iCmpNequal
+
         iCmpGreaterU
+        iCmpGequalU
         iCmpLessU
+        iCmpLequalU
+
         iCmpGreaterS
+        iCmpGequalS
         iCmpLessS
+        iCmpLequalS
 
         iCmpEqualX
+        iCmpNequalX
+
         iCmpGreaterUX
+        iCmpGequalUX
         iCmpLessUX
+        iCmpLequalUX
+
         iCmpGreaterSX
+        iCmpGequalSX
         iCmpLessSX
+        iCmpLequalSX
 
         ppcLoadU8
         ppcLoadU16
@@ -335,13 +349,28 @@ const
         carryAddX, carrySubX,
 
         iCmpEqual,
-        iCmpGreaterU, iCmpLessU,
-        iCmpGreaterS, iCmpLessS,
+        iCmpNequal,
+        iCmpGreaterU,
+        iCmpGequalU,
+        iCmpLessU,
+        iCmpLequalU,
+
+        iCmpGreaterS,
+        iCmpGequalS,
+        iCmpLessS,
+        iCmpLequalS,
+
         iCmpEqualX,
+        iCmpNequalX,
         iCmpGreaterUX,
+        iCmpGequalUX,
         iCmpLessUX,
+        iCmpLequalUX,
+
         iCmpGreaterSX,
+        iCmpGequalSX,
         iCmpLessSX,
+        iCmpLequalSX,
 
         condAnd, condOr, condXor,
 

@@ -8,8 +8,11 @@ const
     interpretFloat = false
     interpretPs = false
 
+    interpretArithmetic = false
+    interpretFcmp = false
+
 proc faddx*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.faddx)
     else:
         let
@@ -22,7 +25,7 @@ proc faddx*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc faddsx*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.faddsx)
     else:
         let
@@ -35,7 +38,7 @@ proc faddsx*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fdivx*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fdivx)
     else:
         let
@@ -48,7 +51,7 @@ proc fdivx*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fdivsx*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fdivsx)
     else:
         let
@@ -61,7 +64,7 @@ proc fdivsx*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fmulx*(builder; d, a, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fmulx)
     else:
         let
@@ -74,7 +77,7 @@ proc fmulx*(builder; d, a, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fmulsx*(builder; d, a, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fmulsx)
     else:
         let
@@ -86,7 +89,7 @@ proc fmulsx*(builder; d, a, c, rc: uint32) =
         builder.storefregReplicate d, val
 
 proc fresx*(builder; d, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fresx)
     else:
         let
@@ -98,7 +101,7 @@ proc fresx*(builder; d, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc frsqrtex*(builder; d, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.frsqrtex)
     else:
         let
@@ -110,7 +113,7 @@ proc frsqrtex*(builder; d, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fsubx*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fsubx)
     else:
         let
@@ -123,7 +126,7 @@ proc fsubx*(builder; d, a, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fsubsx*(builder; d, a, b, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fsubsx)
     else:
         let
@@ -140,7 +143,7 @@ proc fselx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fmaddx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fmaddx)
     else:
         let
@@ -154,7 +157,7 @@ proc fmaddx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fmaddsx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fmaddsx)
     else:
         let
@@ -168,7 +171,7 @@ proc fmaddsx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fmsubx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fmsubx)
     else:
         let
@@ -182,7 +185,7 @@ proc fmsubx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fmsubsx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fmsubsx)
     else:
         let
@@ -196,7 +199,7 @@ proc fmsubsx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fnmaddx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fnmaddx)
     else:
         let
@@ -210,7 +213,7 @@ proc fnmaddx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fnmaddsx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fnmaddsx)
     else:
         let
@@ -224,7 +227,7 @@ proc fnmaddsx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fnmsubx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fnmsubx)
     else:
         let
@@ -238,7 +241,7 @@ proc fnmsubx*(builder; d, a, b, c, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fnmsubsx*(builder; d, a, b, c, rc: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretArithmetic:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fnmsubsx)
     else:
         let
@@ -275,7 +278,7 @@ proc frspx*(builder; d, b, rc: uint32) =
     builder.regs.floatInstr = true
 
 proc fcmpo*(builder; crfD, a, b: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretFcmp:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fcmpo)
     else:
         let
@@ -291,7 +294,7 @@ proc fcmpo*(builder; crfD, a, b: uint32) =
     builder.regs.floatInstr = true
 
 proc fcmpu*(builder; crfD, a, b: uint32) =
-    when interpretFloat:
+    when interpretFloat or interpretFcmp:
         builder.interpretppc(builder.regs.instr, builder.regs.pc, fallbacks.fcmpu)
     else:
         let

@@ -1468,6 +1468,17 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
                     flagstateL == instr.source(0) and flagstateR == instr.source(1)):
                     s.ucomisd(src0.toXmm, reg(src1.toXmm))
                     setFlagCmp(instr.source(0), instr.source(1))
+                #[
+                    we have to deal with some SSE madness here:
+                    
+                    when the result of ucomisd is unordered what would be logical
+                    (and what PPC and ARM do) is that all other condition codes
+                    besides unordered are false.
+
+                    with SSE, in case of unordered the zero and the parity flag
+                    are set to 1, which means that some condition codes such as
+                    equal, below and bequal will hold true!
+                ]#
                 s.setcc(reg(Register8(dst.toReg.ord)),
                     case instr.kind
                     of fCmpEqualsd: condZero
@@ -1476,6 +1487,10 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
                     of fUnorderedsd: condParityEven
                     else: raiseAssert("welp"))
                 s.movzx(dst.toReg, reg(Register8(dst.toReg.ord)))
+                if instr.kind in {fCmpEqualsd, fCmpLesssd}:
+                    let notUnordered = s.jcc(condParityOdd, false)
+                    s.xxor(dst.toReg, reg(dst.toReg))
+                    s.label notUnordered
             of cvtsd2intTrunc, cvtss2intTrunc:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)
                 if instr.kind == cvtsd2intTrunc:

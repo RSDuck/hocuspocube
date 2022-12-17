@@ -177,6 +177,7 @@ else:
         {.emit: [pc, " = ", ctx, "->uc_mcontext.gregs[REG_RIP];"].}
 
         if handleSegfault(pc):
+            {.emit: [ctx, "->uc_mcontext.gregs[REG_RIP] = ", pc, ";"].}
             return
     
         if (oldSa.sa_flags and SA_SIGINFO) != 0:

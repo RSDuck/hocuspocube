@@ -144,8 +144,7 @@ template doCall(s: var AssemblerX64, regs: set[Register64], xmms: set[RegisterXm
             s.pop(x64assembler.reg(Register64(i)))
     s.popfq()
 
-proc getCallerSavedRegs[T](regalloc: var RegAlloc[T], s: var AssemblerX64,
-        writeVal: IrInstrRef): auto =
+proc getCallerSavedRegs[T](regalloc: var RegAlloc[T], writeVal: IrInstrRef): auto =
     when T is HostIRegRange:
         type RegSetType = Register64
     else:
@@ -453,8 +452,8 @@ template patchableLoadStore(genInline, genPatch: untyped): untyped =
         len: int16(len))
 
     let
-        callerSavedRegs = regalloc.getCallerSavedRegs(sfar, iref)
-        callerSavedXmms = xmmRegalloc.getCallerSavedRegs(sfar, iref)
+        callerSavedRegs = regalloc.getCallerSavedRegs(iref)
+        callerSavedXmms = xmmRegalloc.getCallerSavedRegs(iref)
 
     sfar.mov(reg(param1), rcpu)
     doCall(sfar, callerSavedRegs, callerSavedXmms):

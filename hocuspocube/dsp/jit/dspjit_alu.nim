@@ -279,8 +279,8 @@ proc btsth*(builder; b: uint16) =
 
 proc getAddSubParam(builder; d, s: uint16): IrInstrRef =
     case range[0..7](s)
-    of 0..1: builder.biop(lsl, builder.unop(extsh, builder.readReg(x0.succ(int s))), builder.imm(16))
-    of 2..3: builder.biop(bitAnd, builder.readAuxAccum(s-2), builder.imm(not 0xFFFF'u64))
+    of 0..1: builder.biop(lslX, builder.unop(extshX, builder.readReg(x0.succ(int s))), builder.imm(16))
+    of 2..3: builder.biop(bitAndX, builder.readAuxAccum(s-2), builder.imm(not 0xFFFF'u64))
     of 4..5: builder.readAuxAccum(s - 4)
     of 6: builder.readAccum(1 - d)
     of 7: builder.readProd()
@@ -304,7 +304,24 @@ proc sub*(builder; s, d, x: uint16) =
         builder.subAccumOp(d, builder.getAddSubParam(d, s), some(x), false)
 
 proc amv*(builder; s, d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.amv)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.amv)
+    else:
+        var val = builder.getAddSubParam(d, s)
+        if s == 7:
+            # the other values are guranteed to be in range
+            val = builder.signExt40(val)  
+
+        builder.dispatchSecondary(x)
+
+        builder.writeStatus(dspStatusBitOv, builder.imm(false))
+        builder.writeStatus(dspStatusBitCa, builder.imm(false))
+        builder.setZ1(val)
+        builder.setN1(val)
+        builder.setE1(val)
+        builder.setU1(val)
+
+        builder.writeAccum(d, val)
 
 proc cmp*(builder; s, d, x: uint16) =
     when interpretAlu:

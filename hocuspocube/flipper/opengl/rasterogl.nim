@@ -145,7 +145,7 @@ proc editTexture(texture: NativeTexture) =
     for i in 0..<8:
         if currentRenderstate.textures[i] == texture:
             if currentRenderstate.textureUnit != i:
-                glActiveTexture(cast[GLenum](cast[int](GL_TEXTURE0)+i))
+                glActiveTexture(GLenum(int(GL_TEXTURE0)+i))
                 currentRenderstate.textureUnit = int32(i)
             return
     currentRenderstate.textures[currentRenderstate.textureUnit] = texture
@@ -303,7 +303,7 @@ proc compileShader*(stage: ShaderStage, source: string): NativeShader =
             log: string
         glGetProgramiv(shader, GL_INFO_LOG_LENGTH, addr logLength)
         log.setLen logLength - 1
-        glGetProgramInfoLog(shader, GLsizei logLength, addr logLength, log)
+        glGetProgramInfoLog(shader, GLsizei logLength, addr logLength, cstring log)
         echo "shader compilation failed:"
         echo log
         echo "source:"

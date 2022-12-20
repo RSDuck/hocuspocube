@@ -75,17 +75,19 @@ proc mainRamReadPtr*(adr, size: uint32): ptr UncheckedArray[byte] {.inline.} =
     cast[ptr UncheckedArray[byte]](addr mainRAM[adr])
 
 template withMainRamWritePtr*(adrIn, sizeIn: uint32, body: untyped) =
-    let
-        adr = adrIn
-        size = sizeIn
-    var ramPtr {.inject.} = mainRamReadPtr(adr, size)
-    body
-    invalidateMainRam(adr, size)
+    block:
+        let
+            adr = adrIn
+            size = sizeIn
+        var ramPtr {.inject.} = mainRamReadPtr(adr, size)
+        body
+        invalidateMainRam(adr, size)
 
 template withMainRamOpenArray*(adr, count: uint32, typ: typedesc, body: untyped) =
-    let ramPtr = mainRamReadPtr(adr, count * uint32(sizeof(typ)))
-    template ramArr: untyped {.inject.} = toOpenArray(cast[ptr UncheckedArray[typ]](ramPtr), 0, int(count)-1)
-    body
+    block:
+        let ramPtr = mainRamReadPtr(adr, count * uint32(sizeof(typ)))
+        template ramArr: untyped {.inject.} = toOpenArray(cast[ptr UncheckedArray[typ]](ramPtr), 0, int(count)-1)
+        body
 
 template withMainRamOpenArrayWrite*(adr, count: uint32, typ: typedesc, body: untyped) =
     withMainRamWritePtr(adr, count*uint32(sizeof(typ))):

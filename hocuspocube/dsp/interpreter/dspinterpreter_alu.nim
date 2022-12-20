@@ -405,7 +405,7 @@ proc asr16*(state; d, x: uint16) =
 proc addp*(state; s, d, x: uint16) =
     let
         prod = cast[int64](signExtend(cast[uint64](state.readProduct()), 32))
-        addend = int64(cast[int32](state.readReg(x1.succ(int s)))) shl 16
+        addend = int64(cast[int16](state.readReg(x1.succ(int s)))) shl 16
         sum = prod + addend
 
     state.dispatchSecondary(x)

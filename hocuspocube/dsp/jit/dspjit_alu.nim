@@ -72,6 +72,38 @@ proc logicOp(builder; accumN: uint32, op: InstrKind, operand: IrInstrRef, second
 
     builder.writeAccum(accumN, res, {a1.succ(int accumN)})
 
+proc shiftOp(builder; accumN: uint32, shift: IrInstrRef, logical, negate: bool, secondary: Option[uint16]) =
+    let accum = builder.readAccum(accumN)
+
+    let
+        negatedShift = builder.biop(iSub, builder.imm(0), shift)
+        rshift = if logical: lsrX else: asrX
+
+        shifted = 
+            if not negate:
+                builder.triop(csel,
+                    builder.biop(lslX, accum, shift),
+                    builder.biop(rshift, accum, negatedShift),
+                    builder.biop(iCmpGequalS, shift, builder.imm(0)))
+            else:
+                builder.triop(csel,
+                    builder.biop(lslX, accum, negatedShift),
+                    builder.biop(rshift, accum, shift),
+                    builder.biop(iCmpLessS, shift, builder.imm(0)))
+        sext40 = builder.signExt40(shifted)
+
+    if secondary.isSome:
+        builder.dispatchSecondary(secondary.get)
+
+    builder.writeStatus(dspStatusBitOv, builder.imm(false))
+    builder.writeStatus(dspStatusBitCa, builder.imm(false))
+    builder.setZ1(sext40)
+    builder.setN1(sext40)
+    builder.setE1(sext40)
+    builder.setU1(sext40)
+
+    builder.writeAccum(accumN, sext40)
+
 proc mr*(builder; m, r: uint16) =
     when interpretAlu:
         builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.mr)
@@ -114,10 +146,16 @@ proc cmpli*(builder; s: uint16) =
         builder.subAccumOp(s, builder.imm(signExtend[uint64](builder.fetchFollowingImm, 16) shl 16), none(uint16), true)
 
 proc lsfi*(builder; d, i: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsfi)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsfi)
+    else:
+        builder.shiftOp(d, builder.imm(signExtend[uint32](i, 7)), logical = true, negate = false, secondary = none(uint16))
 
 proc asfi*(builder; d, i: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfi)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfi)
+    else:
+        builder.shiftOp(d, builder.imm(signExtend[uint32](i, 7)), logical = false, negate = false, secondary = none(uint16))
 
 proc xorli*(builder; d: uint16) =
     when interpretAlu:
@@ -158,17 +196,29 @@ proc negc*(builder; d: uint16) =
 proc max*(builder; d, s: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.max)
 
-proc lsfn*(builder; d, s: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsfn)
+proc lsfn*(builder; s, d: uint16) =
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsfn)
+    else:
+        builder.shiftOp(d, builder.readReg(x1.succ(int s)), logical = true, negate = true, secondary = none(uint16))
 
 proc lsfn2*(builder; d: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsfn2)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsfn2)
+    else:
+        builder.shiftOp(d, builder.readReg(b1.pred(int d)), logical = true, negate = true, secondary = none(uint16))
 
-proc asfn*(builder; d, s: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfn)
+proc asfn*(builder; s, d: uint16) =
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfn)
+    else:
+        builder.shiftOp(d, builder.readReg(x1.succ(int s)), logical = false, negate = true, secondary = none(uint16))
 
 proc asfn2*(builder; d: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfn2)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asfn2)
+    else:
+        builder.shiftOp(d, builder.readReg(b1.pred(int d)), logical = false, negate = true, secondary = none(uint16))
 
 proc mv*(builder; d, s: uint16) =
     if interpretAlu or DspReg(d) in DspReg.pcs..DspReg.lcs or
@@ -349,22 +399,55 @@ proc rndp*(builder; d, x: uint16) =
         builder.writeAccum(d, roundedProd)
 
 proc tst*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.tst)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.tst)
+    else:
+        let accum = builder.readAccum(s)
+
+        builder.dispatchSecondary(x)
+
+        builder.writeStatus(dspStatusBitOv, builder.imm(false))
+        builder.writeStatus(dspStatusBitCa, builder.imm(false))
+        builder.setZ1(accum)
+        builder.setN1(accum)
+        builder.setE1(accum)
+        builder.setU1(accum)
 
 proc tst2*(builder; s, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.tst2)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.tst2)
+    else:
+        let accum = builder.biop(bitAndX, builder.readAuxAccum(s), builder.imm(0xFFFF_FFFF_FFFF_0000'u64))
+
+        builder.dispatchSecondary(x)
+
+        builder.writeStatus(dspStatusBitOv, builder.imm(false))
+        builder.writeStatus(dspStatusBitCa, builder.imm(false))
+        builder.setZ1(accum)
+        builder.setN1(accum)
+        builder.setE1(accum)
+        builder.setU1(accum)
 
 proc tstp*(builder; x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.tstp)
 
 proc lsl16*(builder; d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsl16)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsl16)
+    else:
+        builder.shiftOp(d, builder.imm(16), logical = true, negate = false, secondary = some(x))
 
 proc lsr16*(builder; d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsr16)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsr16)
+    else:
+        builder.shiftOp(d, builder.imm(16), logical = true, negate = true, secondary = some(x))
 
 proc asr16*(builder; d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asr16)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asr16)
+    else:
+        builder.shiftOp(d, builder.imm(16), logical = false, negate = true, secondary = some(x))
 
 proc addp*(builder; s, d, x: uint16) =
     builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.addp)
@@ -649,14 +732,25 @@ proc oor2*(builder; d, x: uint16) =
         builder.logicOp(d, bitXorX, builder.biop(bitAndX, builder.readAccum(1-d), builder.imm(0xFFFF_0000'u64)), some(x))
 
 proc lsf*(builder; s, d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsf)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsf)
+    else:
+        builder.shiftOp(d, builder.readReg(x1.succ(int s)), logical = true, negate = false, secondary = some(x))
 
 proc lsf2*(builder; d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsf2)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.lsf2)
+    else:
+        builder.shiftOp(d, builder.readReg(b1.pred(int d)), logical = true, negate = false, secondary = some(x))
 
 proc asf*(builder; s, d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asf)
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asf)
+    else:
+        builder.shiftOp(d, builder.readReg(x1.succ(int s)), logical = false, negate = false, secondary = some(x))
 
 proc asf2*(builder; d, x: uint16) =
-    builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asf2)
-
+    when interpretAlu:
+        builder.interpretdsp(builder.regs.instr, builder.regs.pc, fallbacks.asf2)
+    else:
+        builder.shiftOp(d, builder.readReg(b1.pred(int d)), logical = false, negate = false, secondary = some(x))

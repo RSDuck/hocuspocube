@@ -479,6 +479,44 @@ proc foldConstants*(fn: IrFunc) =
                         of extzwX: uint64 val.get
                         of extswX: signExtend(uint64(val.get), 32)
                         else: raiseAssert("should not happen"))
+            of iCmpEqual, iCmpNequal,
+                    iCmpGreaterU, iCmpGequalU, iCmpLessU, iCmpLequalU,
+                    iCmpGreaterS, iCmpGequalS, iCmpLessS, iCmpLequalS:
+                let
+                    a = fn.isImmValI(instr.source(0))
+                    b = fn.isImmValI(instr.source(1))
+                if a.isSome and b.isSome:
+                    fn.getInstr(iref) = makeImm(case instr.kind
+                        of iCmpEqual: a.get == b.get
+                        of iCmpNequal: a.get != b.get
+                        of iCmpGreaterU: a.get > b.get
+                        of iCmpGequalU: a.get >= b.get
+                        of iCmpLessU: a.get < b.get
+                        of iCmpLequalU: a.get <= b.get
+                        of iCmpGreaterS: cast[int32](a.get) > cast[int32](b.get)
+                        of iCmpGequalS: cast[int32](a.get) >= cast[int32](b.get)
+                        of iCmpLessS: cast[int32](a.get) < cast[int32](b.get)
+                        of iCmpLequalS: cast[int32](a.get) <= cast[int32](b.get)
+                        else: raiseAssert("C compiler, please optimise me away"))
+            of iCmpEqualX, iCmpNequalX,
+                    iCmpGreaterUX, iCmpGequalUX, iCmpLessUX, iCmpLequalUX,
+                    iCmpGreaterSX, iCmpGequalSX, iCmpLessSX, iCmpLequalSX:
+                let
+                    a = fn.isImmValIX(instr.source(0))
+                    b = fn.isImmValIX(instr.source(1))
+                if a.isSome and b.isSome:
+                    fn.getInstr(iref) = makeImm(case instr.kind
+                        of iCmpEqualX: a.get == b.get
+                        of iCmpNequalX: a.get != b.get
+                        of iCmpGreaterUX: a.get > b.get
+                        of iCmpGequalUX: a.get >= b.get
+                        of iCmpLessUX: a.get < b.get
+                        of iCmpLequalUX: a.get <= b.get
+                        of iCmpGreaterSX: cast[int64](a.get) > cast[int64](b.get)
+                        of iCmpGequalSX: cast[int64](a.get) >= cast[int64](b.get)
+                        of iCmpLessSX: cast[int64](a.get) < cast[int64](b.get)
+                        of iCmpLequalSX: cast[int64](a.get) <= cast[int64](b.get)
+                        else: raiseAssert("C compiler, please optimise me away"))
             else: discard # no optimisations for you :(
 
 proc removeIdentities*(fn: IrFunc) =

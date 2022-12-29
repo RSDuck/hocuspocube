@@ -8,8 +8,7 @@ type
         cmd: uint8
         reg: array[4, uint8]
 
-proc select(dev: ExiDevice, state: bool) =
-    let dev = Ad16 dev
+method select(dev: Ad16, state: bool) =
     if state:
         dev.transactionPos = 0
 
@@ -18,9 +17,7 @@ const
     cmdWrite = 0xA0'u8
     cmdRead = 0xA2'u8
 
-proc exchange(dev: ExiDevice, response: var openArray[byte], input: openArray[byte]) =
-    let dev = Ad16 dev
-
+method exchange(dev: Ad16, response: var openArray[byte], input: openArray[byte]) =
     for i in 0..<inbytes():
         let inData = input.readByte(i)
 
@@ -54,4 +51,4 @@ proc exchange(dev: ExiDevice, response: var openArray[byte], input: openArray[by
 
         dev.transactionPos += 1
 
-let devAd16* = Ad16(select: select, exchange: exchange)
+let devAd16* = Ad16()

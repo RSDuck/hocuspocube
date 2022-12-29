@@ -112,9 +112,7 @@ func writeAnalogFullSet(stream: var seq[byte], analogSet: AnalogFullSet) =
 func writeAnalogShort(stream: var seq[byte], y, x: uint8) =
     stream.add (x shr 4) or (y and 0xF0'u8)
 
-proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte]): SiTransferState =
-    let controller = GcController device
-
+method exchange(controller: GcController, command: openArray[byte], recvData: var seq[byte]): SiTransferState =
     if command.len >= 1:
         let curState = controller.pollFunc()
 
@@ -249,7 +247,6 @@ proc transact(device: SiDevice, command: openArray[byte], recvData: var seq[byte
 
 proc makeGcController*(pollFunc: GcControllerPollFunc): GcController =
     GcController(
-        transact: transact,
         getOrigin: true,
         calibration:
             AnalogFullSet(stickX: 0x80, stickY: 0x80,

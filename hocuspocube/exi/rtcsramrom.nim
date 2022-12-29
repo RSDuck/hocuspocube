@@ -113,9 +113,7 @@ type
 
         sramDirty: bool
 
-proc select(dev: ExiDevice, status: bool) =
-    let dev = RtcRamRom dev
-
+method select(dev: RtcRamRom, status: bool) =
     if status:
         dev.inputCmd = InputCmd 0
         dev.transactionPos = 0
@@ -128,9 +126,7 @@ proc select(dev: ExiDevice, status: bool) =
             file.writeData(addr sram[0], sizeof(sram))
             file.close()
 
-proc exchange(dev: ExiDevice, response: var openArray[byte], input: openArray[byte]) =
-    let dev = RtcRamRom dev
-
+method exchange(dev: RtcRamRom, response: var openArray[byte], input: openArray[byte]) =
     for i in 0..<inbytes():
         let data = input.readByte(i)
 
@@ -167,4 +163,4 @@ proc exchange(dev: ExiDevice, response: var openArray[byte], input: openArray[by
 
         dev.transactionPos += 1
 
-let devRtcsramrom* = RtcRamRom(select: select, exchange: exchange)
+let devRtcsramrom* = RtcRamRom()

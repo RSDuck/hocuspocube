@@ -8,6 +8,8 @@ import
     texturedecode,
     rasterinterfacecommon
 
+template bpLog(msg: string): untyped = discard
+
 proc convertRgbToYuv(r0, g0, b0, r1, g1, b1: uint8): (uint8, uint8, uint8, uint8) =
     result[0] = uint8 clamp(((int32(r0) * 77) div 256) + ((int32(g0) * 150) div 256) + ((int32(b0) * 29) div 256), 0, 255)
     result[1] = uint8 clamp(((int32(r1) * 77) div 256) + ((int32(g1) * 150) div 256) + ((int32(b1) * 29) div 256), 0, 255)
@@ -177,7 +179,7 @@ proc bpWrite*(adr, val: uint32) =
             finishFrame()
 
             pe.flagFinish()
-            echo "pe finish!"
+            bpLog "pe finish!"
     of 0x4E:
         efbCopyStepY.maskedWrite val
     of 0x4F:

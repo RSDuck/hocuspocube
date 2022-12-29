@@ -49,10 +49,7 @@ type
         siErrCollision # started receiving data before finished writing => out length wrong
         siErrNoResponse
 
-    SiDeviceProc* = proc(device: SiDevice, command: openArray[byte], recvData: var seq[byte]): SiTransferState
-
     SiDevice* = ref object of RootObj
-        transact*: SiDeviceProc
 
 var
     outBuffers: array[4, uint32]
@@ -71,12 +68,15 @@ var
 
     siDevices: array[4, SiDevice]
 
+method exchange*(device: SiDevice, command: openArray[byte], recvData: var seq[byte]): SiTransferState =
+    raiseAssert("unimplemented method exchange")
+
 proc configureSiDevice*(channel: int, transact: SiDevice) =
     siDevices[channel] = transact
 
 proc performSiTransfer(channel: int, command: openArray[byte], recvData: var seq[byte]): SiTransferState =
     if siDevices[channel] != nil:
-        siDevices[channel].transact(siDevices[channel], command, recvData)
+        siDevices[channel].exchange(command, recvData)
     else:
         siErrNoResponse
 

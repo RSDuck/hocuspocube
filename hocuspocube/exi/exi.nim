@@ -8,8 +8,6 @@ template exiLog(message: string) =
 
 type
     ExiDevice* = ref object of RootObj
-        select*: proc(device: ExiDevice, status: bool)
-        exchange*: proc(device: ExiDevice, response: var openArray[byte], input: openArray[byte])
 
     ExiClkRate = enum
         exiClk1Mhz
@@ -44,6 +42,12 @@ makeBitStruct uint32, ExiCr:
     dma[1] {.mutable.}: bool
     transferKind[2..3] {.mutable.}: ExiTransferKind
     tlen[4..5] {.mutable.}: uint32
+
+method select*(dev: ExiDevice, status: bool) {.base.} =
+    raiseAssert("unimplemented method select")
+
+method exchange*(dev: ExiDevice, response: var openArray[byte], input: openArray[byte]) {.base.} =
+    raiseAssert("unimplemented method exchange")
 
 template inbytes*(): untyped =
     max(response.len, input.len)
@@ -121,7 +125,7 @@ of exiCsr, 0x00, 4, 3, 20:
             channels[idx].csr.cs = cs
             if channels[idx].device != nil:
                 exiLog &"exi chan {idx} delesect"
-                channels[idx].device.select(channels[idx].device, false)
+                channels[idx].device.select(false)
                 channels[idx].device = nil
 
             if cs != 0:
@@ -130,7 +134,7 @@ of exiCsr, 0x00, 4, 3, 20:
                 channels[idx].device = getDevice(idx, devnum)
 
                 if channels[idx].device != nil:
-                    channels[idx].device.select(channels[idx].device, true)
+                    channels[idx].device.select(true)
 of exiDmaMar, 0x04, 4, 3, 20:
     read: uint32 channels[idx].dmaStart
     write: channels[idx].dmaStart.adr = val
@@ -160,11 +164,11 @@ of exiCr, 0x0C, 4, 3, 20:
                 if channels[idx].cr.transferKind == exiTransferRead:
                         withMainRamOpenArrayWrite(startAdr, len, byte):
                             let empty: array[0, byte] = []
-                            channels[idx].device.exchange(channels[idx].device, ramArr, empty)
+                            channels[idx].device.exchange(ramArr, empty)
                 else:
                     withMainRamOpenArray(startAdr, len, byte):
                         var dummyOut: array[0, byte] = []
-                        channels[idx].device.exchange(channels[idx].device, dummyOut, ramArr)
+                        channels[idx].device.exchange(dummyOut, ramArr)
                     channels[idx].csr.tcint = true
                     updateInt(idx)
             else:
@@ -181,8 +185,7 @@ of exiCr, 0x0C, 4, 3, 20:
                     for i in 0..channels[idx].cr.tlen:
                         input[i] = uint8(imm shr ((3-i)*8))
 
-                channels[idx].device.exchange(channels[idx].device,
-                    toOpenArray(response, 0, channels[idx].cr.tlen),
+                channels[idx].device.exchange(toOpenArray(response, 0, channels[idx].cr.tlen),
                     toOpenArray(input, 0, channels[idx].cr.tlen))
 
                 if channels[idx].cr.transferKind in {exiTransferRead, exiTransferReadWrite}:

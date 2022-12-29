@@ -68,7 +68,7 @@ var
     sramPath: string
 
 let
-    firstOfJanuary2000 = initDateTime(1, mJan, 2000, 0, 0, 0, 0, local())
+    firstOfJanuary2000 = dateTime(2000, mJan, 1)
 
 proc loadIplSram*(iplPath, inSramPath: string) =
     block:

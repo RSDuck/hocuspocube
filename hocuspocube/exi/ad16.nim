@@ -4,7 +4,6 @@ import
 
 type
     Ad16 = ref object of ExiDevice
-        transactionPos: uint32
         cmd: uint8
         reg: array[4, uint8]
 

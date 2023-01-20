@@ -8,6 +8,7 @@ template exiLog(message: string) =
 
 type
     ExiDevice* = ref object of RootObj
+        transactionPos*: uint32
 
     ExiClkRate = enum
         exiClk1Mhz
@@ -27,14 +28,14 @@ type
 
 makeBitStruct uint32, ExiCsr:
     exiintmsk[0] {.mutable.}: bool
-    exiint[1]: bool # interrupt when something was removed from the memcard slots
+    exiint[1]: bool
     tcintmsk[2] {.mutable.}: bool
     tcint[3]: bool
     clk[4..6] {.mutable.}: ExiClkRate
     cs[7..9]: uint32
     extintmsk[10] {.mutable.}: bool
     extint[11]: bool
-    ext[12]: bool
+    ext[12]: bool # interrupt when something was removed from the memcard slots
     romdis[13]: bool
 
 makeBitStruct uint32, ExiCr:
@@ -44,7 +45,8 @@ makeBitStruct uint32, ExiCr:
     tlen[4..5] {.mutable.}: uint32
 
 method select*(dev: ExiDevice, status: bool) {.base.} =
-    raiseAssert("unimplemented method select")
+    if status:
+        dev.transactionPos = 0
 
 method exchange*(dev: ExiDevice, response: var openArray[byte], input: openArray[byte]) {.base.} =
     raiseAssert("unimplemented method exchange")
@@ -69,6 +71,33 @@ var
     channels: array[3, ExiChannel]
     devMemcardSlots: array[2, ExiDevice]
 
+proc updateInt() =
+    var intSet = false
+    for chan in 0..<3:
+        intSet = intSet or
+            (channels[chan].csr.tcint and channels[chan].csr.tcintmsk) or
+            (channels[chan].csr.exiint and channels[chan].csr.exiintmsk) or
+            (channels[chan].csr.extint and channels[chan].csr.extintmsk)
+    setExtInt extintExi, intSet
+
+proc setMemcardSlot*(slot: int, dev: ExiDevice) =
+    if devMemcardSlots[slot] != nil:
+        channels[slot].csr.extint = true
+
+    devMemcardSlots[slot] = dev
+    channels[slot].csr.ext = dev != nil
+    updateInt()
+
+proc setExiPeripheralInt*(dev: ExiDevice) =
+    for i in 0'u32..<3:
+        if channels[i].device == dev:
+            echo &"peripheral int {i} set"
+            channels[i].csr.exiint = true
+            updateInt()
+            return
+    
+    raiseAssert("trying to set exi int for unknown or not selected device")
+
 proc descrambleBios*(): bool = not channels[0].csr.romdis
 
 import
@@ -89,14 +118,6 @@ proc getDevice(channel, device: range[0..2]): ExiDevice =
         case device
         of 0: devAd16
         else: nil
-
-proc updateInt(chan: uint32) =
-    setExtInt extintExi,
-        (channels[chan].csr.tcint and channels[chan].csr.tcintmsk) or
-        (channels[chan].csr.exiint and channels[chan].csr.exiintmsk) or
-        (channels[chan].csr.extint and channels[chan].csr.extintmsk)
-
-import macros
 
 ioBlock exi, 0x40:
 of exiCsr, 0x00, 4, 3, 20:
@@ -119,7 +140,7 @@ of exiCsr, 0x00, 4, 3, 20:
             channels[idx].csr.exiint = false
         if val.extint:
             channels[idx].csr.extint = false
-        updateInt(idx)
+        updateInt()
 
         if cs != channels[idx].csr.cs:
             channels[idx].csr.cs = cs
@@ -162,15 +183,16 @@ of exiCr, 0x0C, 4, 3, 20:
                 exiLog &"exi {idx} dma {channels[idx].cr.transferKind} from {startAdr:08X} {len:08X} {gekkoState.pc:08X}"
 
                 if channels[idx].cr.transferKind == exiTransferRead:
-                        withMainRamOpenArrayWrite(startAdr, len, byte):
-                            let empty: array[0, byte] = []
-                            channels[idx].device.exchange(ramArr, empty)
+                    withMainRamOpenArrayWrite(startAdr, len, byte):
+                        let empty: array[0, byte] = []
+                        channels[idx].device.exchange(ramArr, empty)
                 else:
                     withMainRamOpenArray(startAdr, len, byte):
                         var dummyOut: array[0, byte] = []
                         channels[idx].device.exchange(dummyOut, ramArr)
-                    channels[idx].csr.tcint = true
-                    updateInt(idx)
+
+                channels[idx].csr.tcint = true
+                updateInt()
             else:
                 assert channels[idx].cr.transferKind != exiTransferReserved
 

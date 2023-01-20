@@ -1,11 +1,11 @@
 import
-    streams, os,
+    streams, os, tables, strutils,
     parsecfg, strformat, options,
 
     cube,
     dsp/dsp,
     di,
-    exi/rtcsramrom,
+    exi/exi, exi/rtcsramrom, exi/memcard,
     si/gccontroller, si/si
 
 when defined(nintendoswitch):
@@ -21,6 +21,20 @@ proc start*() =
     loadIplSram cfg.getSectionValue("General", "IPLPath"), cfg.getSectionValue("General", "SRAMPath")
 
     setupDspRom cfg.getSectionValue("General", "DSPIROMPath"), cfg.getSectionValue("General", "DSPDROMPath")
+
+    for i in 0..<2:
+        let
+            section = &"MemcardSlot{i}"
+            typ = cfg.getSectionValue(section, "Type")
+        try:
+            let
+                typ = parseEnum[MemCardType](typ)
+                file = cfg.getSectionValue(section, "MemcardFile")
+
+            echo "inserting memcard ", typ
+            setMemcardSlot i, newMemcard(file, memcard1019)
+        except ValueError:
+            echo &"unknown exi peripheral {typ} in slot {i}"
 
     configureSiDevice 0, makeGcController(handleGcController)
 

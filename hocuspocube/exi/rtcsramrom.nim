@@ -108,7 +108,6 @@ makeBitStruct uint32, InputCmd:
 
 type
     RtcRamRom* = ref object of ExiDevice
-        transactionPos: uint32
         inputCmd: InputCmd
 
         sramDirty: bool

@@ -356,7 +356,10 @@ proc startTimingPhase(timestamp: int64) =
         startSiPoll timestamp, int64(htr0.hlw) * 2 * cyclesPerSample()
 
         if vtr.acv == 0:
-            sdl.presentBlankFrame()
+            when defined(nintendoswitch):
+                switch.presentBlankFrame()
+            else:
+                sdl.presentBlankFrame()
         else:
             readOutField(curFramePhase == framePhasePsbOdd)
     let

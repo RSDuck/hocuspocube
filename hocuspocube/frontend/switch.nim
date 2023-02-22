@@ -100,12 +100,10 @@ proc handleGcController*(): GcControllerState =
     result.triggerL = if (buttonsHeld and HidNpadButtonZL) != 0: 1f else: 0
     result.triggerR = if (buttonsHeld and HidNpadButtonZR) != 0: 1f else: 0
 
-proc presentFrame*(width, height: int, pixelData: openArray[uint32]) =
-    handleEvents()
-
-    rasterogl.presentFrame(width, height, pixelData)
-
+proc endFrame*() =
     discard eglSwapBuffers(eglDisplay, eglSurface)
+
+    handleEvents()
 
 proc presentBlankFrame*() =
     handleEvents()

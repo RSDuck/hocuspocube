@@ -89,9 +89,9 @@ proc setMemcardSlot*(slot: int, dev: ExiDevice) =
     updateInt()
 
 proc setExiPeripheralInt*(dev: ExiDevice) =
+    # according to yagd the exi device interrupt is edge triggered
     for i in 0'u32..<3:
         if channels[i].device == dev:
-            echo &"peripheral int {i} set"
             channels[i].csr.exiint = true
             updateInt()
             return

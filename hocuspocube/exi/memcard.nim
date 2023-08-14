@@ -1,5 +1,5 @@
 import
-    strformat, streams,
+    strformat, streams, stew/bitops2, bitops,
     ../util/bitstruct,
     exi
 
@@ -29,8 +29,32 @@ type
         enableInterrupt: bool
         interrupt: bool
 
+        unlockValue: uint32
         inputAdr: uint32
         status: CardStatus
+
+        lfsrState: uint32
+
+        unlockKeys: int
+        unlockOnDeselect: bool
+
+# credits go to Vincent Pelletier for actually figuring out what's behind the unlock sequence
+# see: https://github.com/vpelletier/gc-memcard-adapter/blob/master/adapter.py 
+
+proc lfsrAdvance(dev: Memcard): bool =
+    # probably 31-bit LFSR
+    result = dev.lfsrState.getBit(30)
+
+    let feedback =
+        not(dev.lfsrState.getBit(7) xor dev.lfsrState.getBit(15) xor
+            dev.lfsrState.getBit(23) xor dev.lfsrState.getBit(30))
+
+    dev.lfsrState = (dev.lfsrState shl 1) or uint32(feedback)
+
+proc lfsrGetByte(dev: Memcard): uint8 =
+    result = 0
+    for i in 0..<8:
+        result = (result shl 1) or uint8(dev.lfsrAdvance())
 
 const
     cmdGetId = 0x00'u8
@@ -46,17 +70,27 @@ const
     sectorSize = 0x2000'u32
 
 proc flagInterrupt(dev: MemCard) =
+    #echo &"flag interrupt {dev.enableInterrupt} {dev.interrupt}"
     if dev.enableInterrupt and not dev.interrupt:
         dev.interrupt = true
         setExiPeripheralInt(dev)
+
+proc flush(dev: Memcard) =
+    let file = newFileStream(dev.file, fmWrite)
+    file.writeData(addr dev.data[0], dev.data.len)
+    file.close()
 
 method select(dev: MemCard, state: bool) =
     if state:
         procCall ExiDevice(dev).select(state)
     else:
+        if dev.unlockOnDeselect:
+            dev.status.unlocked = true
+
         case dev.cmd
         of cmdEraseCard, cmdEraseSector, cmdWriteBlock:
             dev.flagInterrupt()
+            dev.flush()                
         else: discard
 
 proc eraseCart(dev: MemCard) =
@@ -72,16 +106,13 @@ template decodeAdr(done: untyped): untyped =
         response.writeByte i, 0xFF'u8
         if dev.transactionPos == 0:
             dev.inputAdr = 0
+            dev.unlockValue = 0
         else:
             dev.inputAdr = dev.inputAdr or
-                (inData and masks[dev.transactionPos-1]) shl shifts[dev.transactionPos-1]
+                (uint32(inData) and masks[dev.transactionPos-1]) shl shifts[dev.transactionPos-1]
+            dev.unlockValue = dev.unlockValue or uint32(inData) shl ((3-(dev.transactionPos-1))*8)
     else:
         done
-
-proc flush(dev: Memcard) =
-    let file = newFileStream(dev.file, fmWrite)
-    file.writeData(addr dev.data[0], dev.data.len)
-    file.close()
 
 method exchange(dev: MemCard, response: var openArray[byte], input: openArray[byte]) =
     for i in 0..<inbytes():
@@ -109,15 +140,15 @@ method exchange(dev: MemCard, response: var openArray[byte], input: openArray[by
             response.writeByte i,
                 case dev.transactionPos
                 of 0: 0xFF
-                elif (dev.transactionPos and 1) == 1: 0xc2
+                elif (dev.transactionPos and 1) == 1: 0xC2
                 else: 0x21
-            
-            echo &"memcard get memcard id {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
+
+            #echo &"memcard get memcard id {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
         of cmdGetStatus:
             response.writeByte i,
                 if dev.transactionPos > 0: uint8(dev.status) else: 0xFF
 
-            echo &"memcard get status {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
+            #echo &"memcard get status {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
         of cmdClearStatus:
             response.writeByte i, 0xFF'u8
             dev.status.ready = true
@@ -125,18 +156,40 @@ method exchange(dev: MemCard, response: var openArray[byte], input: openArray[by
             dev.status.programError = false
             dev.interrupt = false
 
-            echo &"clear status {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
+            #echo &"clear status {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
         of cmdReadBlock:
-            dev.status.unlocked = true
             decodeAdr:
-                response.writeByte i,
-                    if dev.transactionPos < 9:
-                        0xFF'u8
+                if not dev.status.unlocked:
+                    if (dev.inputAdr and not(0x7'u32)) == 0x7FEC8'u32:
+                        if dev.transactionPos == 9:
+                            echo &"initialising lfsr with {dev.inputAdr:08X}"
+                            dev.lfsrState = reverseBits(dev.inputAdr shl 12) shr 1
+                            discard dev.lfsrAdvance()
+                        if dev.transactionPos >= 9:
+                            discard dev.lfsrGetByte()
+
+                        response.writeByte i, 0xFF
+                    elif dev.inputAdr == 0:
+                        response.writeByte i,
+                            if dev.transactionPos >= 9: dev.lfsrGetByte()
+                            else: 0xFF
                     else:
-                        let oldAdr = dev.inputAdr
-                        dev.inputAdr += 1
-                        dev.data[oldAdr]
-            echo &"readblock {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
+                        if dev.transactionPos == 5:
+                            dev.unlockKeys += 1
+                            echo &"this should be the unlock value: {dev.unlockValue:08X} {dev.inputAdr:08X}"
+                        response.writeByte i, 0xFF
+
+                        if dev.unlockKeys == 2:
+                            dev.unlockOnDeselect = true
+                else:
+                    response.writeByte i,
+                        if dev.transactionPos < 9:
+                            0xFF'u8
+                        else:
+                            let oldAdr = dev.inputAdr
+                            dev.inputAdr = (dev.inputAdr and not(0x1FF'u32)) or ((dev.inputAdr + 1) and 0x1FF'u32)
+                            dev.data[oldAdr]
+            #echo &"readblock {dev.transactionPos:02X} {inData:02X} {response[i]:02X} {dev.inputAdr:08X}"
         of cmdEraseSector:
             response.writeByte i, 0xFF'u8
             case dev.transactionPos:
@@ -146,27 +199,28 @@ method exchange(dev: MemCard, response: var openArray[byte], input: openArray[by
 
                 for i in 0'u32..<sectorSize:
                     dev.data[dev.inputAdr+i] = 0xFF
-
-                dev.flush()
             else: discard
-            echo &"erase sector {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
+            #echo &"erase sector {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
         of cmdEraseCard:
             response.writeByte i, 0xFF'u8
 
             dev.eraseCart()
-            dev.flush()
-            echo &"erase card {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
+            #echo &"erase card {dev.transactionPos:02X} {inData:02X} {response[i]:02X}"
         of cmdWriteBlock:
             decodeAdr:
+                if dev.transactionPos == 5:
+                    echo &"write block {dev.transactionPos:02X} {dev.inputAdr:08X}"
+
                 response.writeByte i, 0xFF
+                if inData != 0xFF:
+                    echo &"write block {dev.transactionPos:02X} {dev.inputAdr:08X} {inData:02X}"
                 dev.data[dev.inputAdr] = dev.data[dev.inputAdr] and inData
                 dev.inputAdr += 1
-            echo &"write block {dev.transactionPos:02X} {inData:02X}"
-            dev.flush()
+
         of cmdSetInterrupt:
             dev.enableInterrupt = bool(inData and 1)
             response.writeByte i, 0xFF
-            echo &"set interrupt {inData}"
+            #echo &"set interrupt {inData:1X}"
         else:
             echo &"unknown memcard cmd {dev.cmd:08X}, byte at position {dev.transactionPos} {inData:08X}"
 

@@ -57,7 +57,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
 
                 result.add(quote do:
                     proc `procName`(addrFull: uint32): `underlyingTyp` =
-                        let `idxIdent` {.used.} = (addrFull - `adr`) div `stride`
+                        let `idxIdent` {.used.} = (addrFull - uint32(`adr`)) div uint32(`stride`)
                         `body`)
 
                 readProc = procName
@@ -68,7 +68,7 @@ macro ioBlock*(name: untyped, size: static[uint32], regs: varargs[untyped]): unt
 
                 result.add(quote do:
                     proc `procName`(addrFull: uint32, `valueIdent`: `underlyingTyp`) =
-                        let `idxIdent` {.used.} = (addrFull - `adr`) div `stride`
+                        let `idxIdent` {.used.} = (addrFull - uint32(`adr`)) div uint32(`stride`)
                         `body`)
 
                 writeProc = procName

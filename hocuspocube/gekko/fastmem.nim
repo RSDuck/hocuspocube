@@ -51,7 +51,7 @@ else:
 
 let
     physicalAdrSpace* = cast[pointer](adrSpaces)
-    translatedAdrSpace* = cast[pointer]((cast[ByteAddress](adrSpaces) + 1'i64 shl 32))
+    translatedAdrSpace* = cast[pointer]((cast[uint](adrSpaces) + 1'u64 shl 32))
 
 mainRAM = cast[ptr UncheckedArray[byte]](memBase)
 lockedCache = cast[ptr UncheckedArray[byte]](cast[int](memBase) + MainRamSize)
@@ -83,7 +83,7 @@ iterator allRegions(translatedStart, physicalStart, totalSize: int64): (int64, i
 proc changeRegionMapping*(adrSpace: pointer, translatedStart, physicalStart, totalSize: int64, map: bool) =
     echo &"remapping for region {translatedStart:08X} {physicalStart:08X} {totalSize:08X}"
     for (mapOffset, mapSize, adr) in allRegions(translatedStart, physicalStart, totalSize):
-        let mapDst = cast[pointer](cast[ByteAddress](adrSpace) + adr)
+        let mapDst = cast[pointer](cast[uint](adrSpace) + uint(adr))
 
         echo &"changing mapping {repr(mapDst)} {mapOffset:08X} {mapSize:08X}: {adr:08X} {map}"
 

@@ -712,7 +712,7 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
         glBindVertexBuffer(0, vtxBuffer, curVtxBufferOffset + curVtxBufferIdx * VertexBufferSegmentSize, GLsizei fmt.vertexSize)
 
     assert data.len > 0, &"{counts} {data.len}"
-    copyMem(cast[pointer](cast[ByteAddress](vtxBufferPtr) + VertexBufferSegmentSize * curVtxBufferIdx + curVtxBufferOffset),
+    copyMem(cast[pointer](cast[uint](vtxBufferPtr) + uint(VertexBufferSegmentSize) * uint(curVtxBufferIdx) + uint(curVtxBufferOffset)),
         unsafeAddr data[0],
         data.len)
     curVtxBufferOffset += data.len
@@ -747,7 +747,7 @@ proc draw*(kind: PrimitiveKind, counts: seq[int], fmt: DynamicVertexFmt, data: o
 
         let
             indexBufferOffset = VertexBufferSegmentSize * curIdxBufferIdx + curIdxBufferOffset
-            indicesPtr = cast[ptr UncheckedArray[uint32]](cast[ByteAddress](idxBufferPtr) + indexBufferOffset)
+            indicesPtr = cast[ptr UncheckedArray[uint32]](cast[uint](idxBufferPtr) + uint(indexBufferOffset))
         if kind in {primitiveQuads, primitiveQuads2}:
             generateQuadIndices(indicesPtr, 0, counts)
         else:

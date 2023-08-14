@@ -482,7 +482,7 @@ let
 
 proc dumpLastFunc*(start: pointer) =
     let file = newFileStream("block.bin", fmWrite)
-    file.writeData(start, assembler.getFuncStart[:ByteAddress]() - cast[ByteAddress](start))
+    file.writeData(start, int(assembler.getFuncStart[:uint]() - cast[uint](start)))
     file.close()
 
 proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[pointer]) =

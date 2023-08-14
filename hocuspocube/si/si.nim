@@ -68,7 +68,7 @@ var
 
     siDevices: array[4, SiDevice]
 
-method exchange*(device: SiDevice, command: openArray[byte], recvData: var seq[byte]): SiTransferState =
+method exchange*(device: SiDevice, command: openArray[byte], recvData: var seq[byte]): SiTransferState {.base.} =
     raiseAssert("unimplemented method exchange")
 
 proc configureSiDevice*(channel: int, transact: SiDevice) =

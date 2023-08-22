@@ -180,23 +180,29 @@ type
         syscallPpc
         fpExceptionPpc
 
-        fSwizzleD00
-        fSwizzleD11
+        # the respective single operation always comen one after the double operation
+        # this way we can convert between both with succ/pred
 
+        # the upper bits of scalar operations are undefined
+        # to make this all work easier with SSE
+        fSwizzleD00
         fSwizzleS00
+
+        fSwizzleD11
         fSwizzleS11
 
         fMergeD00
-        fMergeD01
-        fMergeD10
-        fMergeD11
-
         fMergeS00
+
+        fMergeD01
         fMergeS01
+
+        fMergeD10
         fMergeS10
+
+        fMergeD11
         fMergeS11
 
-        # the upper bits of scalar operations are undefined
         cvtsd2ss
         cvtss2sd
 
@@ -207,67 +213,75 @@ type
         cvtss2intTrunc
 
         fRessd
-        fRsqrtsd
-
         fResss
+
+        fRsqrtsd
         fRsqrtss
 
         fRespd
-        fRsqrtpd
-
         fResps
+
+        fRsqrtpd
         fRsqrtps
 
         fNegsd
-        fAbssd
-
         fNegss
+
+        fAbssd
         fAbsss
 
         fNegpd
-        fAbspd
-
         fNegps
+
+        fAbspd
         fAbsps
 
         fAddsd
-        fSubsd
-        fMulsd
-        fDivsd
-
         fAddss
+
+        fSubsd
         fSubss
+
+        fMulsd
         fMulss
+
+        fDivsd
         fDivss
 
         fAddpd
-        fSubpd
-        fMulpd
-        fDivpd
-
         fAddps
+
+        fSubpd
         fSubps
+
+        fMulpd
         fMulps
+
+        fDivpd
         fDivps
 
         fMaddsd
-        fMsubsd
-        fNmaddsd
-        fNmsubsd
-
         fMaddss
+
+        fMsubsd
         fMsubss
+
+        fNmaddsd
         fNmaddss
+
+        fNmsubsd
         fNmsubss
 
         fMaddpd
-        fMsubpd
-        fNmaddpd
-        fNmsubpd
-
         fMaddps
+
+        fMsubpd
         fMsubps
+
+        fNmaddpd
         fNmaddps
+
+        fNmsubpd
         fNmsubps
 
         fCmpEqualsd

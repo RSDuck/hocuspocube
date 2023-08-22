@@ -1293,7 +1293,7 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
             of fResss:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)
                 if dst != src:
-                    s.movss(dst.toXmm, memXmm(unsafeAddr doublesOne[0]))
+                    s.movss(dst.toXmm, memXmm(unsafeAddr singlesOne[0]))
                     s.ddivss(dst.toXmm, reg(src.toXmm))
                 else:
                     s.movss(regXmm0, reg(src.toXmm))
@@ -1307,7 +1307,7 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
             of fRsqrtss:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)
                 s.sqrtss(regXmm0, reg(src.toXmm))
-                s.movss(dst.toXmm, memXmm(unsafeAddr doublesOne[0]))
+                s.movss(dst.toXmm, memXmm(unsafeAddr singlesOne[0]))
                 s.ddivss(dst.toXmm, reg(regXmm0))
             of fRespd:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)
@@ -1321,11 +1321,11 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
             of fResps:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)
                 if dst != src:
-                    s.movaps(dst.toXmm, memXmm(unsafeAddr doublesOne[0]))
+                    s.movaps(dst.toXmm, memXmm(unsafeAddr singlesOne[0]))
                     s.ddivps(dst.toXmm, reg(src.toXmm))
                 else:
                     s.movaps(regXmm0, reg(src.toXmm))
-                    s.movaps(dst.toXmm, memXmm(unsafeAddr doublesOne[0]))
+                    s.movaps(dst.toXmm, memXmm(unsafeAddr singlesOne[0]))
                     s.ddivps(dst.toXmm, reg(regXmm0))
             of fRsqrtpd:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)
@@ -1335,7 +1335,7 @@ proc genCode*(fn: IrFunc, dataAdrSpace = pointer(nil), entryPoints: var seq[poin
             of fRsqrtps:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)
                 s.sqrtps(regXmm0, reg(src.toXmm))
-                s.movaps(dst.toXmm, memXmm(unsafeAddr doublesOne[0]))
+                s.movaps(dst.toXmm, memXmm(unsafeAddr singlesOne[0]))
                 s.ddivps(dst.toXmm, reg(regXmm0))
             of fNegsd, fNegpd:
                 let (dst, src) = xmmRegalloc.allocOpW1R1(s, iref, instr.source(0), i, fn)

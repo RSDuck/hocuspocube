@@ -261,13 +261,11 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
 
         fn.transformIdleLoopsPpc(mainBlk, preblk.startAdr)
 
-        #echo &"block {preblk.startAdr:08X} {preblk.instrs.len}"
-        #for blk in fn.blocks:
-        #    echo repr(cast[pointer](blk))
-        #    echo prettify(blk, fn)
-        #echo "preopt\n", builder.blk
-
-        #echo "postopt\n", prettify(blk, fn)
+    #echo &"block {funcAdr:08X}"
+    #echo "preopt"
+    #for blk in fn.blocks:
+    #    echo repr(cast[pointer](blk))
+    #    echo prettify(blk, fn)
 
     fn.resolveInnerFuncBranches(entryPoints)
     fn.ctxLoadStoreEliminiate()
@@ -281,6 +279,11 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
     fn.removeDeadCode()
     fn.calcLiveIntervals()
     fn.verify()
+
+    #echo "postopt"
+    #for blk in fn.blocks:
+    #    echo repr(cast[pointer](blk))
+    #    echo prettify(blk, fn)
 
     let dataTranslation = gekkoState.msr.dr
     var entryPointAddrs: seq[pointer]

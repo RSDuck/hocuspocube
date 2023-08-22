@@ -57,6 +57,25 @@ proc floatOpts*(fn: IrFunc) =
 
             - if a value is stored as a pair and merged with the previous value in memory,
                 we can also just use a non-pair store
+
+            - single operations on PPC are weird as in that they practically don't exist.
+                Instead there are double operations which convert to single afterwards.
+
+                But if all of the sources of a floating point op yielding a single are singles
+                we can replace this operation with a single precision one.
+
+                We transform this pattern:
+
+                float(op_double(double(x)))
+
+                into
+
+                op_single(x)
+
+                What is problematic are operations which only work on the sign, so negation and absolute.
+
+                This also needs optimisations across basic blocks very badly, because all registers are of course
+                first assumed to contain doubles.
     ]#
     var
         pairLoads: seq[IrInstrRef]
@@ -91,20 +110,46 @@ proc floatOpts*(fn: IrFunc) =
             of fMergeD10:
                 pairLoadUpperUsed.setBit(int(fn.getInstr(iref).source(0)))
             else: discard
-#[
-        let instr = fn.getInstr(iref)
-        if instr.kind in {cvtsd2ss, cvtps2pd}:
-            let
-                arithref = instr.source(0)
-                arithinstr = fn.getInstr(arithref)
 
-            block isNotSingle:
-                for src in sources arithinstr:
-                    let srcInstr = fn.getInstr(src)
-                    if srcInstr.kind notin {cvtss2sd, cvtps2pd}:
-                        break isNotSingle
+            let instr = fn.getInstr(iref)
+            if instr.kind in {cvtsd2ss, cvtpd2ps}:
+                let
+                    arithref = instr.source(0)
+                    arithinstr = fn.getInstr(arithref)
 
-                # replace operation by a single operation]#
+                const
+                    fpDoubleUnops = {fRessd, fRsqrtsd, fRespd, fRsqrtpd}
+                    fpDoubleBiops = {fAddsd, fSubsd, fMulsd, fDivsd,
+                        fAddpd, fSubpd, fMulpd, fDivpd}
+                    fpDoubleTriops = {fMaddsd, fMsubsd, fNmaddsd, fNmsubsd,
+                        fMaddpd, fMsubpd, fNmaddpd, fNmsubpd}
+                    fpDoubleArith = fpDoubleUnops + fpDoubleBiops + fpDoubleTriops
+
+                if arithinstr.kind notin fpDoubleArith:
+                    continue
+                
+                const fpExpandOps = {cvtss2sd, cvtps2pd}
+
+                case arithinstr.kind
+                of fpDoubleUnops:
+                    let source0 = fn.getInstr(arithinstr.source(0))
+                    if source0.kind in fpExpandOps:
+                        fn.getInstr(iref) = makeUnop(succ(arithinstr.kind), source0.source(0))
+                of fpDoubleBiops:
+                    let
+                        source0 = fn.getInstr(arithinstr.source(0))
+                        source1 = fn.getInstr(arithinstr.source(1))
+                    if source0.kind in fpExpandOps and source1.kind in fpExpandOps:
+                        fn.getInstr(iref) = makeBiop(succ(arithinstr.kind), source0.source(0), source1.source(0))
+                of fpDoubleTriops:
+                    let
+                        source0 = fn.getInstr(arithinstr.source(0))
+                        source1 = fn.getInstr(arithinstr.source(1))
+                        source2 = fn.getInstr(arithinstr.source(2))
+                    if source0.kind in fpExpandOps and source1.kind in fpExpandOps and
+                            source2.kind in fpExpandOps:
+                        fn.getInstr(iref) = makeTriop(succ(arithinstr.kind), source0.source(0), source1.source(0), source2.source(0))
+                else: discard
 
     for pairLoad in pairLoads:
         if not pairLoadUpperUsed[int(pairLoad)]:

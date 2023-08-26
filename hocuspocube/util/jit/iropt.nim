@@ -705,31 +705,33 @@ proc transformIdleLoopsPpc*(fn: IrFunc, blk: IrBasicBlock, startAdr: uint32) =
             return
 
         var
-            regsLocked: set[0..31]
-            regsWritten: set[0..31]
+            regsReadEarlier: set[0..31]
+            regsWrittenInLoop: set[0..31]
         for i in 0..<blk.instrs.len-1:
             let instr = fn.getInstr(blk.instrs[i])
             case instr.kind
             of ppcStore8, ppcStore16, ppcStore32,
-                ppcStoreFss, ppcStoreFsd, ppcStoreFsq, sprStore32,
-                ppcCallInterpreter:
+                    ppcStoreFss, ppcStoreFsd, ppcStoreFsq, sprStore32,
+                    ppcCallInterpreter:
                 return
             of CtxLoadInstrs:
                 if instr.ctxOffset-uint32(offsetof(PpcState, r)) < 32*4:
                     let reg = (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
 
-                    if reg notin regsWritten:
-                        regsLocked.incl reg
+                    if reg notin regsWrittenInLoop:
+                        regsReadEarlier.incl reg
             of CtxStoreInstrs:
                 if instr.ctxOffset-uint32(offsetof(PpcState, r)) >= 32*4:
                     continue
                 let reg = (instr.ctxOffset-uint32(offsetof(PpcState, r))) div 4
 
-                if reg in regsLocked:
+                if reg in regsReadEarlier:
                     return
 
-                regsLocked.incl reg
+                regsWrittenInLoop.incl reg
             else: discard
+
+        #echo &"found ppc idle loop {startAdr:08X}"
 
         transformIdleLoop(cond, targetTaken, targetNotTaken,
             fn, blk,
@@ -754,7 +756,7 @@ proc transformIdleLoopDsp*(fn: IrFunc, blk: IrBasicBlock, instrs: seq[tuple[read
 
             regsWritten.incl instr.write
 
-        echo &"found dsp idle loop {startAdr:04X}"
+        #echo &"found dsp idle loop {startAdr:04X}"
         transformIdleLoop(cond, targetTaken, targetNotTaken,
             fn, blk,
             dispatchExternalDsp, leaveJitDsp, ctxStore16,

@@ -1,6 +1,6 @@
 
 import
-    stew/endians2, strformat, algorithm, tables,
+    stew/endians2, strformat, algorithm, tables, std/packedsets,
     ../../util/[aluhelper, bitstruct],
     ".."/[gekko, ppcdef, memory, ppccommon],
     ../../util/jit/[ir, codegenx64, iropt],
@@ -38,13 +38,13 @@ type
     PreliminaryBlock = object
         startAdr: uint32
         instrs: seq[uint32]
-        branches: bool
+        branches, isLoopHead: bool
 
 proc endAdr(blk: PreliminaryBlock): uint32 =
     blk.startAdr + uint32(blk.instrs.len) * 4
 
 proc `$`(blk: PreliminaryBlock): string =
-    result = &"block ({blk.startAdr:08X}):\n"
+    result = &"block ({blk.startAdr:08X}, branches: {blk.branches}, isLoopHead: {blk.isLoopHead}):\n"
     for instr in blk.instrs:
         result &= &"  {fromBE(instr):08X}\n"
 
@@ -70,10 +70,12 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
             pc = looseEnds.pop()
             blk = PreliminaryBlock(startAdr: pc)
             nearestBlockStart = high(uint32)
+            nearestBlockIdx = -1
 
         block withinExistingBlock:
-            for oldBlk in mitems blocks:
+            for blkIdx, oldBlk in mpairs blocks:
                 if pc == oldBlk.startAdr:
+                    oldBlk.isLoopHead = true
                     # just two branches to the same address
                     break withinExistingBlock
                 elif pc > oldBlk.startAdr and pc < oldBlk.endAdr:
@@ -84,12 +86,14 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
                         blk.instrs[i] = oldBlk.instrs[instrOffset+i]
                     oldBlk.instrs.setLen instrOffset
                     blk.branches = oldBlk.branches
+                    blk.isLoopHead = true
                     oldBlk.branches = false
                     blocks.add blk
 
                     break withinExistingBlock
                 elif oldBlk.startAdr > pc:
                     nearestBlockStart = min(nearestBlockStart, oldBlk.startAdr)
+                    nearestBlockIdx = blkIdx
 
             while not blk.branches and pc < nearestBlockStart:
                 let
@@ -134,6 +138,9 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
                     blk.branches = true
                 of "sc":
                     blk.branches = true
+                else:
+                    if nia == nearestBlockStart:
+                        blocks[nearestBlockIdx].isLoopHead = true
 
                 blk.instrs.add instr
                 pc = nia
@@ -153,9 +160,12 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
                 blocks.setLen i
                 break
 
-
     #echo "after:"
     #echo blocks
+
+    # always set the first block as loop head, so that there will be atleast one exit per function
+    # TODO: calculate dominance hierachy (necessary for various things) and also use that to make this check optional
+    blocks[0].isLoopHead = true
 
     let fn = IrFunc()
     var entryPoints: seq[(uint32, IrBasicBlock)]
@@ -185,13 +195,10 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
                 dispatchPpc state.pc
         ]#
 
-        let
-            leaveBlock = IrBasicBlock()
-            entryPointBlk = IrBasicBlock()
-            mainBlk = IrBasicBlock()
-        var checkFpExceptionBlk, doFpExceptionBlk: IrBasicBlock
-
-        entryPoints.add (preblk.startAdr, entryPointBlk)
+        let mainBlk = IrBasicBlock()
+        var
+            checkFpExceptionBlk, doFpExceptionBlk: IrBasicBlock
+            leaveBlock, cycleCheckBlk: IrBasicBlock
 
         # main block
         block:
@@ -214,7 +221,9 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
             mainBlk.instrs = move builder.instrs
 
         # leave block
-        block:
+        if preblk.isLoopHead:
+            leaveBlock = IrBasicBlock()
+
             builder.storectx(ctxStore32, uint32 offsetof(PpcState, pc), builder.imm(preblk.startAdr))
             discard builder.zeroop(leaveJitPpc)
 
@@ -239,7 +248,9 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
                 checkFpExceptionBlk.instrs = move builder.instrs
 
         # entry point
-        block:
+        if preblk.isLoopHead:
+            cycleCheckBlk = IrBasicBlock()
+
             let
                 oldCycles = builder.loadctx(ctxLoadU32, uint32 offsetof(PpcState, negativeCycles))
                 sliceNotDone = builder.biop(iCmpLessS, oldCycles, builder.imm(0))
@@ -251,15 +262,20 @@ proc compileBlock(funcAdr: uint32): BlockEntryFunc {.exportc: "compileBlockPpc",
                     checkFpExceptionBlk,
                 leaveBlock)
 
-            entryPointBlk.instrs = move builder.instrs
+            cycleCheckBlk.instrs = move builder.instrs
 
-        fn.blocks.add leaveBlock
+        if preblk.isLoopHead: fn.blocks.add leaveBlock
         if builder.regs.floatInstr: fn.blocks.add doFpExceptionBlk
-        fn.blocks.add entryPointBlk
+        if preblk.isLoopHead: fn.blocks.add cycleCheckBlk
         if builder.regs.floatInstr: fn.blocks.add checkFpExceptionBlk
         fn.blocks.add mainBlk
 
         fn.transformIdleLoopsPpc(mainBlk, preblk.startAdr)
+
+        entryPoints.add (preblk.startAdr,
+            if preblk.isLoopHead: cycleCheckBlk
+            elif builder.regs.floatInstr: checkFpExceptionBlk
+            else: mainBlk)
 
     #echo &"block {funcAdr:08X}"
     #echo "preopt"

@@ -174,19 +174,19 @@ else:
 
         let ctx = cast[ptr Ucontext](rawCtx)
         var pc: pointer
-        {.emit: [pc, " = ", ctx, "->uc_mcontext.gregs[REG_RIP];"].}
+        {.emit: [pc, " = (void*)", ctx, "->uc_mcontext.gregs[REG_RIP];"].}
 
         if handleSegfault(pc):
-            {.emit: [ctx, "->uc_mcontext.gregs[REG_RIP] = ", pc, ";"].}
+            {.emit: [ctx, "->uc_mcontext.gregs[REG_RIP] = (greg_t)", pc, ";"].}
             return
     
         if (oldSa.sa_flags and SA_SIGINFO) != 0:
-            oldSa.sa_sigaction(sig, siginfo, rawCtx)
+            oldSa.sa_sigaction()(sig, siginfo, rawCtx)
             return
         if oldSa.sa_handler == SIG_DFL:
             signal(sig, SIG_DFL)
             return
-        if oldSa.sa_handler == SIG_IGN:
+        if oldSa.sa_handler == SIG_IGN: 
             return
         oldSa.sa_handler(sig)
 

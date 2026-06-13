@@ -2,7 +2,7 @@
 
 Don't take this serious. I hope this doesn't become a Dolphin knock-off.
 
-## Current developement state:
+## Current development state:
 
 - A slow PPC interpreter with terrible floating point support and a somewhat faster JIT (with even more terrible floating point support)
 - It boots a few commercial games
